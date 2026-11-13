@@ -210,7 +210,14 @@ fields("datalayers_parameters") ->
                 default => ?DATALAYERS_DRIVER_TYPE_INFLUX,
                 desc => ?DESC("driver_type")
             })},
-        {database, mk(binary(), #{desc => ?DESC("database")})},
+        {database,
+            mk(binary(), #{
+                required => true,
+                validator => emqx_resource_validator:not_empty(
+                    "the value of the field 'database' cannot be empty"
+                ),
+                desc => ?DESC("database")
+            })},
         {username, mk(binary(), #{desc => ?DESC("username")})},
         {password, emqx_schema_secret:mk(#{desc => ?DESC("password")})},
         {enable_prepared,

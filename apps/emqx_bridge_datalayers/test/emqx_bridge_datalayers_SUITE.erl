@@ -464,6 +464,44 @@ start_client(Opts) ->
 %% Testcases
 %%------------------------------------------------------------------------------
 
+-doc "Reject connector creation when the database name is missing".
+t_database_required(Config) ->
+    ConnectorConfig = ?config(connector_config, Config),
+    Parameters = maps:get(<<"parameters">>, ConnectorConfig),
+    MissingDatabase = ConnectorConfig#{
+        <<"parameters">> => maps:remove(<<"database">>, Parameters)
+    },
+    ConnectorName = <<(?config(connector_name, Config))/binary, "_missing_database">>,
+    ?assertMatch(
+        {400, _},
+        emqx_bridge_v2_testlib:simplify_result(
+            emqx_bridge_v2_testlib:create_connector_api(
+                ConnectorName,
+                ?config(connector_type, Config),
+                MissingDatabase
+            )
+        )
+    ).
+
+-doc "Reject connector creation when the database name is empty".
+t_database_not_empty(Config) ->
+    ConnectorConfig = ?config(connector_config, Config),
+    Parameters = maps:get(<<"parameters">>, ConnectorConfig),
+    EmptyDatabase = ConnectorConfig#{
+        <<"parameters">> => Parameters#{<<"database">> => <<>>}
+    },
+    ConnectorName = <<(?config(connector_name, Config))/binary, "_empty_database">>,
+    ?assertMatch(
+        {400, _},
+        emqx_bridge_v2_testlib:simplify_result(
+            emqx_bridge_v2_testlib:create_connector_api(
+                ConnectorName,
+                ?config(connector_type, Config),
+                EmptyDatabase
+            )
+        )
+    ).
+
 t_start_ok(Config) ->
     Table = <<"mqtt">>,
     QueryMode = ?config(query_mode, Config),
