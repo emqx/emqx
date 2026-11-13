@@ -655,86 +655,140 @@ stats(Times) ->
         p99 => lists:nth(length(Times) * 99 div 100, Sorted)
     }.
 
-%% Check a reject queue under 30 seconds of publishing and consumption.
+%% Check a reject queue under 30 seconds of publishing and consumption through MQTT.
 %% The consumer is slower than the publisher, so the queue fills and rejects messages.
 %% The queue passes several times its limits in count and in bytes, delivers every accepted
 %% message, and ends with at most two charged buckets.
 t_long_publish_consume(_Config) ->
-    MessageBytes = byte_size(emqx_mq_message_db:encode_message(message(long_payload(0)))),
+    MessageBytes = long_message_bytes(),
     MaxCount = 20,
-    MaxBytes = 15 * MessageBytes,
-    MQ = queue(#{max_shard_message_count => MaxCount, max_shard_message_bytes => MaxBytes}),
-    Self = self(),
-    Consumer = spawn_link(fun() ->
-        C = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-        ok = emqx_mq_test_utils:emqtt_sub_mq(C, <<"capped">>),
-        Self ! consumer_ready,
-        slow_consume(Self)
-    end),
-    receive
-        consumer_ready -> ok
-    after 10000 -> error(consumer_timeout)
-    end,
-    Deadline = erlang:monotonic_time(millisecond) + 30000,
-    _ = spawn_link(fun() -> Self ! {published, publish_until(MQ, Deadline, 0, [], 0)} end),
-    {Accepted, Rejected} =
-        receive
-            {published, Result} -> Result
-        after 60000 -> error(publisher_timeout)
-        end,
-    ct:pal("Accepted: ~p, rejected: ~p", [length(Accepted), Rejected]),
-    %% The limits were reached, and the queue took several times its limits
+    Limits = #{max_shard_message_count => MaxCount, max_shard_message_bytes => 15 * MessageBytes},
+    %% The publisher does not pause. The consumer acknowledges one message every 100 ms
+    {MQ, Accepted, Rejected, MaxCharged} = run_publish_consume(Limits, 0, 100),
     ?assert(Rejected > 0),
+    %% Admission into a single or empty bucket lets in at most a few flushes of messages
+    %% above the limit. It must not let the queue grow without bound
+    ?assert(MaxCharged =< 10 * MaxCount),
+    check_long_run(MQ, Limits, Accepted, manual_ack).
+
+%% Check a reject queue under 30 seconds of publishing and fast consumption through MQTT.
+%% The consumer keeps up with the publisher, so cleanup releases quota before the queue fills.
+%% The queue passes several times its limits in count and in bytes without a rejection.
+t_long_publish_consume_fast(_Config) ->
+    MessageBytes = long_message_bytes(),
+    MaxCount = 100,
+    Limits = #{max_shard_message_count => MaxCount, max_shard_message_bytes => 80 * MessageBytes},
+    %% The publisher pauses 20 ms after each message. The subscriber acknowledges at once
+    {MQ, Accepted, Rejected, MaxCharged} = run_publish_consume(Limits, 20, 0),
+    ?assertEqual(0, Rejected),
+    ?assert(MaxCharged =< MaxCount),
+    check_long_run(MQ, Limits, Accepted, auto_ack).
+
+%% Publish QoS 1 messages for 30 seconds, and pause `PublishPause` ms after each accepted one.
+%% With `AckInterval` 0 the subscriber acknowledges each delivery at once.
+%% Otherwise acknowledge at most one delivery every `AckInterval` ms.
+%% Return the queue, the accepted payloads, the number of rejections, and the highest charged count.
+run_publish_consume(Limits, PublishPause, AckInterval) ->
+    MQ = queue(Limits),
+    Sub = emqx_mq_test_utils:emqtt_connect([{auto_ack, AckInterval =:= 0}]),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(Sub, <<"capped">>),
+    Pub = emqx_mq_test_utils:emqtt_connect([]),
+    Now = erlang:monotonic_time(millisecond),
+    Loop = #{
+        mq => MQ,
+        max_count => 0,
+        pub => Pub,
+        deadline => Now + 30000,
+        pause => PublishPause,
+        ack_interval => AckInterval,
+        next_ack => Now
+    },
+    {Accepted, Rejected, MaxCharged} = publish_loop(Loop, 0, [], 0),
+    ok = emqtt:disconnect(Pub),
+    ct:pal("Accepted: ~p, rejected: ~p, max charged count: ~p", [
+        length(Accepted), Rejected, MaxCharged
+    ]),
+    {MQ, Accepted, Rejected, MaxCharged}.
+
+publish_loop(#{pub := Pub, deadline := Deadline, pause := Pause} = Loop0, N, Accepted, Rejected) ->
+    case erlang:monotonic_time(millisecond) >= Deadline of
+        true ->
+            #{max_count := MaxCharged} = Loop0,
+            {Accepted, Rejected, MaxCharged};
+        false ->
+            Payload = long_payload(N),
+            {ok, #{reason_code := RC}} = emqtt:publish(Pub, <<"$queue/capped">>, Payload, 1),
+            Loop = record_charged(maybe_ack_one(Loop0)),
+            case RC of
+                ?RC_SUCCESS ->
+                    timer:sleep(Pause),
+                    publish_loop(Loop, N + 1, [Payload | Accepted], Rejected);
+                ?RC_QUOTA_EXCEEDED ->
+                    timer:sleep(5),
+                    publish_loop(Loop, N, Accepted, Rejected + 1)
+            end
+    end.
+
+%% Keep the highest charged message count seen during the run.
+record_charged(#{mq := MQ, max_count := Max} = Loop) ->
+    {ok, #{count := Count}} = occupancy(MQ),
+    Loop#{max_count := max(Max, Count)}.
+
+%% Acknowledge one waiting delivery when the acknowledgment interval has passed.
+%% Keep the payload in the mailbox for `wait_payloads/2`.
+maybe_ack_one(#{ack_interval := 0} = Loop) ->
+    Loop;
+maybe_ack_one(#{ack_interval := Interval, next_ack := NextAck} = Loop) ->
+    Now = erlang:monotonic_time(millisecond),
+    case Now >= NextAck of
+        false ->
+            Loop;
+        true ->
+            receive
+                {publish, #{payload := Payload, client_pid := Client, packet_id := PacketId}} ->
+                    ok = emqtt:puback(Client, PacketId),
+                    self() ! {consumed, Payload},
+                    Loop#{next_ack := Now + Interval}
+            after 0 ->
+                Loop
+            end
+    end.
+
+check_long_run(
+    MQ, #{max_shard_message_count := MaxCount, max_shard_message_bytes := MaxBytes}, Accepted, Ack
+) ->
+    %% The queue took several times its limits. Stored MQTT messages are larger than
+    %% `long_message_bytes/0`, so the byte check is conservative
     ?assert(length(Accepted) >= 5 * MaxCount),
-    ?assert(length(Accepted) * MessageBytes >= 5 * MaxBytes),
+    ?assert(length(Accepted) * long_message_bytes() >= 5 * MaxBytes),
     %% Every accepted message is delivered. Redelivered duplicates are allowed
-    ?assertEqual([], wait_payloads(sets:from_list(Accepted, [{version, 2}]))),
+    ?assertEqual([], wait_payloads(sets:from_list(Accepted, [{version, 2}]), Ack)),
     %% Quota was released many times
     ?assert(length(?of_kind(mq_cleanup_released, snabbkaffe:collect_trace(0))) >= 10),
     %% The consumed queue is not blocked once cleanup processes the last reports
     ct:pal("Occupancy after consumption: ~p", [occupancy(MQ)]),
-    ?retry(50, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"after">>)))),
-    ?assertMatch({ok, #{buckets := Buckets}} when Buckets =< 2, occupancy(MQ)),
-    unlink(Consumer),
-    exit(Consumer, kill).
+    ?retry(50, 100, ?assertMatch({ok, #{buckets := Buckets}} when Buckets =< 2, occupancy(MQ))),
+    ?retry(50, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"after">>)))).
 
-%% Acknowledge each delivery after a delay, and forward its payload to the test process.
-slow_consume(Test) ->
-    receive
-        {publish, #{payload := Payload, client_pid := Client, packet_id := PacketId}} ->
-            timer:sleep(100),
-            ok = emqtt:puback(Client, PacketId),
-            Test ! {consumed, Payload},
-            slow_consume(Test)
-    end.
-
-publish_until(MQ, Deadline, N, Accepted, Rejected) ->
-    case erlang:monotonic_time(millisecond) >= Deadline of
-        true ->
-            {Accepted, Rejected};
-        false ->
-            Payload = long_payload(N),
-            case emqx_mq_message_db:insert(MQ, message(Payload)) of
-                ok ->
-                    publish_until(MQ, Deadline, N + 1, [Payload | Accepted], Rejected);
-                {error, queue_full} ->
-                    timer:sleep(5),
-                    publish_until(MQ, Deadline, N, Accepted, Rejected + 1)
-            end
-    end.
+long_message_bytes() ->
+    byte_size(emqx_mq_message_db:encode_message(message(long_payload(0)))).
 
 long_payload(N) ->
     <<N:64, (binary:copy(<<0>>, 100))/binary>>.
 
-%% Receive consumed payloads until every expected one arrives. Return the payloads that did not arrive.
-wait_payloads(Pending) ->
+%% Receive deliveries until every expected payload arrives. With `manual_ack`, acknowledge them.
+%% Return the payloads that did not arrive.
+wait_payloads(Pending, Ack) ->
     case sets:is_empty(Pending) of
         true ->
             [];
         false ->
             receive
                 {consumed, Payload} ->
-                    wait_payloads(sets:del_element(Payload, Pending))
+                    wait_payloads(sets:del_element(Payload, Pending), Ack);
+                {publish, #{payload := Payload, client_pid := Client, packet_id := PacketId}} ->
+                    Ack =:= manual_ack andalso emqtt:puback(Client, PacketId),
+                    wait_payloads(sets:del_element(Payload, Pending), Ack)
             after 10000 ->
                 sets:to_list(Pending)
             end
