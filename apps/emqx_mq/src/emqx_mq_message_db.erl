@@ -610,11 +610,12 @@ admit(MQ, Shard, Size) ->
                 MQ,
             case ?MODULE:occupancy(MQ, Shard) of
                 %% Cleanup releases a bucket only after the consumer passes a record stored after it.
-                %% Admit writes while no such record can exist: into a single bucket,
-                %% or into an empty head.
+                %% Admit writes while no such record can exist: into a single bucket, or into
+                %% an empty head after one closed bucket. Older buckets of a consumed queue are
+                %% already released, and a closed bucket is never empty.
                 {ok, #{buckets := 1}} ->
                     ok;
-                {ok, #{head_empty := true}} ->
+                {ok, #{buckets := 2, head_empty := true}} ->
                     ok;
                 {ok, #{count := Count, bytes := Bytes}} ->
                     case max(0, Count) + 1 > MaxCount orelse max(0, Bytes) + Size > MaxBytes of

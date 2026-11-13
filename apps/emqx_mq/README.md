@@ -143,7 +143,7 @@ When cleanup falls behind, the queue stays full and rejects new messages. So the
 
 The worker keeps the processed boundary of each consumer and ignores repeated reports, so an idle queue causes no index reads. Consumers repeat their latest boundary periodically, so a restarted worker recovers it.
 
-The index always retains its newest bucket. A full bucket closes at a DS fence on the next quota flush. The default bucket threshold is ten percent of the corresponding limit. A bucket is released after the consumer passes a record stored after the bucket. So one consumed bucket can stay charged until the next message is consumed. While the index of a shard has one bucket, or its newest bucket is empty, the queue accepts messages above the limit. The next message then releases the older bucket. So consumed buckets cannot block the queue.
+The index always retains its newest bucket. A full bucket closes at a DS fence on the next quota flush. The default bucket threshold is ten percent of the corresponding limit. A bucket is released after the consumer passes a record stored after the bucket. So one consumed bucket can stay charged until the next message is consumed. While the index of a shard has one bucket, or two buckets of which the newest is empty, the queue accepts messages above the limit. The next message then releases the older bucket. So consumed buckets cannot block the queue.
 
 Reject last-value queues retain unconsumed values. Cleanup deletes consumed values. Admission does not credit the previous value of the same key. A rejected replacement leaves that value intact.
 
