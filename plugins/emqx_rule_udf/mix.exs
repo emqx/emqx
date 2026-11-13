@@ -1,9 +1,9 @@
-defmodule EMQXRsf.MixProject do
+defmodule EMQXRuleUdf.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :emqx_rsf,
+      app: :emqx_rule_udf,
       version: version(),
       emqx_plugin: emqx_plugin(),
       build_path: "../../_build",
@@ -55,7 +55,7 @@ defmodule EMQXRsf.MixProject do
   def application do
     [
       extra_applications: [],
-      mod: {:emqx_rsf_app, []}
+      mod: {:emqx_rule_udf_app, []}
     ]
   end
 
@@ -100,8 +100,8 @@ defmodule EMQXRsf.MixProject do
           emqx: "~> #{emqx_major_minor()}"
         ],
         description:
-          "Store Python programs in EMQX and call them from rule SQL with rsf('name', ...). " <>
-            "An emqx-rsf/1 function server runs them in a sandbox.",
+          "Store Python programs in EMQX and call them from rule SQL with udf('name', ...). " <>
+            "An emqx-rule-udf/1 function server runs them in a sandbox.",
         index: "/ui"
       ]
     ]

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rule SQL Functions</title>
+<title>Rule User-Defined Functions</title>
 <style>
   :root {
     --bg: #f5f7fa; --panel: #ffffff; --text: #1f2329; --muted: #646a73;
@@ -68,11 +68,11 @@
 <body>
 <div class="app">
   <header>
-    <h1>Rule SQL Functions</h1>
+    <h1>Rule User-Defined Functions</h1>
     <span id="server">checking function server…</span>
   </header>
   <p class="hint">Programs run on the function server. Call one from rule SQL with
-    <code>rsf('name', arg1, arg2, ...)</code>. A <code>python3</code> program must define <code>handle(*args)</code>.</p>
+    <code>udf('name', arg1, arg2, ...)</code>. A <code>python3</code> program must define <code>handle(*args)</code>.</p>
 
   <div class="layout">
     <div class="panel">
@@ -211,7 +211,7 @@
 
   function updateSql() {
     const name = $("name").value || "name";
-    $("sql").textContent = "SQL: rsf('" + name + "', ...)";
+    $("sql").textContent = "SQL: udf('" + name + "', ...)";
   }
 
   async function openProgram(name) {

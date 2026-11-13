@@ -1,4 +1,4 @@
-# emqx-rsf protocol, version 1 (draft)
+# emqx-rule-udf protocol, version 1 (draft)
 
 This document specifies the HTTP protocol between EMQX and a function server.
 A function server runs user-defined functions that EMQX rule SQL calls by name.
@@ -25,7 +25,7 @@ as described in RFC 2119.
 - The server SHOULD accept TLS. When the server does not, the operator must put
   it behind a TLS proxy or on a private network.
 - The client is configured with a base URL, for example
-  `https://rsf.example.com/prefix`. All paths in this document are relative to
+  `https://udf.example.com/prefix`. All paths in this document are relative to
   the base URL.
 - Every request body and every response body is a JSON object (RFC 8259),
   encoded in UTF-8, with `Content-Type: application/json`.
@@ -78,8 +78,8 @@ Returns the protocol version, the runtimes and the limits of the server.
 
 ```json
 {
-  "protocol": "emqx-rsf/1",
-  "server": "emqx-rsf-wasm-server/0.1.0",
+  "protocol": "emqx-rule-udf/1",
+  "server": "emqx-rule-udf-wasm-server/0.1.0",
   "runtimes": [{"name": "python3", "version": "3.14.7"}],
   "limits": {
     "max_source_bytes": 65536,
@@ -91,7 +91,7 @@ Returns the protocol version, the runtimes and the limits of the server.
 }
 ```
 
-- `protocol` MUST be `emqx-rsf/1` for this version of the protocol.
+- `protocol` MUST be `emqx-rule-udf/1` for this version of the protocol.
 - `limits` is for information. A client MUST still handle the errors in
   section 6.
 
@@ -151,7 +151,7 @@ Request:
 Optional request header:
 
 ```
-RSF-Function-Sha256: <version>
+UDF-Function-Sha256: <version>
 ```
 
 Response `200`:
@@ -164,7 +164,7 @@ Response `200`:
   order, as positional arguments.
 - `result` is the JSON value that the function returns. It MAY be `null`.
 - `sha256` is the version that ran the call.
-- When the request has `RSF-Function-Sha256` and the server has a different
+- When the request has `UDF-Function-Sha256` and the server has a different
   version, the server MUST NOT run the call. It MUST return
   `409 SHA256_MISMATCH`.
 - The server MUST accept concurrent calls, to the same function and to
@@ -232,11 +232,11 @@ with a prefix, for example `x-lua`.
 
 ## 8. Arguments and results from EMQX
 
-Rule SQL calls a function through one SQL function, `rsf`. Its first argument is
+Rule SQL calls a function through one SQL function, `udf`. Its first argument is
 the function name. EMQX sends the other arguments in `args`:
 
 ```sql
-SELECT rsf('temp-convert.py', payload) AS t FROM "sensors/#"
+SELECT udf('temp-convert.py', payload) AS t FROM "sensors/#"
 ```
 
 EMQX evaluates the SQL arguments, encodes them as JSON and sends them in `args`.
@@ -256,7 +256,7 @@ A client SHOULD do these things:
 
 - Upload a function when it is created or changed. Keep the source: the
   server does not need to keep it.
-- Send `RSF-Function-Sha256` on every call. Behind a load balancer, this makes
+- Send `UDF-Function-Sha256` on every call. Behind a load balancer, this makes
   sure that a call never runs an old version on one instance of the server.
 - On `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH`, upload the function again and
   retry the call once. A server that restarts loses no data this way, so the

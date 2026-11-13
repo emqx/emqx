@@ -1,14 +1,14 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_rsf_store).
+-module(emqx_rule_udf_store).
 
 -moduledoc """
 Stores the programs in a `mria` table, which replicates them to every node.
 
 The table is the source of truth: the hot path and the uploads read it. Each node
 also keeps a copy of every program as a file in
-`<data_dir>/plugins/emqx_rsf/programs/<name>`. The node that writes a program
+`<data_dir>/plugins/emqx_rule_udf/programs/<name>`. The node that writes a program
 refreshes its own files at once. Every node checks its files against the table
 every `?SYNC_INTERVAL` milliseconds, so the other nodes follow within that time.
 """.
@@ -28,7 +28,7 @@ every `?SYNC_INTERVAL` milliseconds, so the other nodes follow within that time.
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--include("emqx_rsf.hrl").
+-include("emqx_rule_udf.hrl").
 
 -define(SYNC_INTERVAL, 5000).
 -define(CALL_TIMEOUT, 15_000).
@@ -74,9 +74,9 @@ delete(Name) ->
 
 -spec programs_dir() -> file:filename().
 programs_dir() ->
-    filename:join([emqx:data_dir(), "plugins", "emqx_rsf", "programs"]).
+    filename:join([emqx:data_dir(), "plugins", "emqx_rule_udf", "programs"]).
 
--doc "Accept a program name that matches the emqx-rsf/1 name rule (`PROTOCOL.md`, section 4).".
+-doc "Accept a program name that matches the emqx-rule-udf/1 name rule (`PROTOCOL.md`, section 4).".
 -spec validate_name(term()) -> ok | {error, binary()}.
 validate_name(Name) when is_binary(Name) ->
     case re:run(Name, ?NAME_RE, [{capture, none}]) of
@@ -104,12 +104,12 @@ handle_call({put, Name, Runtime, Source, UpdatedBy}, _From, State) ->
         name = Name,
         runtime = Runtime,
         source = Source,
-        sha256 = emqx_rsf_client:version(Runtime, Source),
+        sha256 = emqx_rule_udf_client:version(Runtime, Source),
         updated_at_ms = erlang:system_time(millisecond),
         updated_by = UpdatedBy
     },
     {atomic, ok} = mria:transaction(?DB_SHARD, fun() -> mnesia:write(Program) end),
-    ?LOG(info, #{msg => "rsf_program_saved", name => Name, sha256 => Program#?PROGRAM_TAB.sha256}),
+    ?LOG(info, #{msg => "udf_program_saved", name => Name, sha256 => Program#?PROGRAM_TAB.sha256}),
     {reply, {ok, Program}, sync_files(State)};
 handle_call({delete, Name}, _From, State) ->
     case lookup(Name) of
@@ -117,7 +117,7 @@ handle_call({delete, Name}, _From, State) ->
             {atomic, ok} = mria:transaction(?DB_SHARD, fun() ->
                 mnesia:delete({?PROGRAM_TAB, Name})
             end),
-            ?LOG(info, #{msg => "rsf_program_deleted", name => Name}),
+            ?LOG(info, #{msg => "udf_program_deleted", name => Name}),
             {reply, ok, sync_files(State)};
         {error, not_found} = Error ->
             {reply, Error, State}
@@ -154,7 +154,7 @@ sync_files(#{written := Written0} = State) ->
             ok = delete_stray_files(Dir, Names),
             State#{written => maps:with(Names, Written1)};
         {error, Reason} ->
-            ?LOG(error, #{msg => "rsf_programs_dir_failed", dir => Dir, reason => Reason}),
+            ?LOG(error, #{msg => "udf_programs_dir_failed", dir => Dir, reason => Reason}),
             State
     end.
 
@@ -173,7 +173,7 @@ write_file(Dir, #?PROGRAM_TAB{name = Name, sha256 = Sha, source = Source}, Writt
         Written#{Name => Sha}
     else
         {error, Reason} ->
-            ?LOG(error, #{msg => "rsf_program_file_write_failed", name => Name, reason => Reason}),
+            ?LOG(error, #{msg => "udf_program_file_write_failed", name => Name, reason => Reason}),
             Written
     end.
 

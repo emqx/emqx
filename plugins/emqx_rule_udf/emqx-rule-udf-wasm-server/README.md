@@ -1,6 +1,6 @@
-# emqx-rsf-wasm-server (draft)
+# emqx-rule-udf-wasm-server (draft)
 
-`emqx-rsf-wasm-server` is a function server for the emqx-rsf/1 protocol
+`emqx-rule-udf-wasm-server` is a function server for the emqx-rule-udf/1 protocol
 (`../PROTOCOL.md`). It runs user-defined Python functions for EMQX rule SQL. It
 runs outside EMQX, as a sidecar or as a service behind a load balancer.
 
@@ -10,29 +10,29 @@ Wasmtime. The WebAssembly sandbox is the security boundary.
 ## Build and run
 
 ```
-docker build -t emqx-rsf-wasm-server .
-docker run -d --name emqx-rsf -p 127.0.0.1:18480:8080 \
-  -e RSF_TOKEN="$(openssl rand -hex 32)" \
+docker build -t emqx-rule-udf-wasm-server .
+docker run -d --name emqx-rule-udf -p 127.0.0.1:18480:8080 \
+  -e UDF_TOKEN="$(openssl rand -hex 32)" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 256 --memory 1g \
-  emqx-rsf-wasm-server
+  emqx-rule-udf-wasm-server
 ```
 
 The image builds for `amd64` and `arm64` (`docker buildx build --platform ...`).
 It pins Wasmtime and the CPython WASI build by version and SHA-256.
 
-`./demo.sh` runs every protocol call with `curl` and `jq` against `RSF_URL`
-(default `http://127.0.0.1:18480`) and `RSF_TOKEN` (default `demo-token`).
+`./demo.sh` runs every protocol call with `curl` and `jq` against `UDF_URL`
+(default `http://127.0.0.1:18480`) and `UDF_TOKEN` (default `demo-token`).
 
 ## Protocol support
 
-The server implements all of emqx-rsf/1 for the `python3` runtime
+The server implements all of emqx-rule-udf/1 for the `python3` runtime
 (`PROTOCOL.md`, section 7.1). These details are specific to this server:
 
-- Each function has its own pool of `RSF_POOL_SIZE` worker processes. A worker
+- Each function has its own pool of `UDF_POOL_SIZE` worker processes. A worker
   serves many calls, one at a time. Module-level state stays alive between calls
   to the same worker. Do not rely on it: the server replaces workers after a
-  failure and after `RSF_MAX_CALLS_PER_WORKER` calls.
+  failure and after `UDF_MAX_CALLS_PER_WORKER` calls.
 - `print()` in a function writes to the worker's stderr. The server keeps the
   last 20 lines and returns them in the `stderr` field of `TIMEOUT` and
   `WORKER_FAILED` errors.
@@ -49,18 +49,18 @@ The server implements all of emqx-rsf/1 for the `python3` runtime
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RSF_TOKEN` | (required) | Bearer token. The server does not start without it. |
-| `RSF_INSECURE_NO_AUTH` | unset | Set to `1` to run without a token. Local tests only. |
-| `RSF_LISTEN` | `0.0.0.0:8080` | Listen address. |
-| `RSF_POOL_SIZE` | `2` | Worker processes per function. |
-| `RSF_CALL_TIMEOUT_MS` | `1000` | Wall-clock limit for one call. |
-| `RSF_LOAD_TIMEOUT_MS` | `10000` | Wall-clock limit for loading a function. |
-| `RSF_MAX_MEMORY_MB` | `128` | WebAssembly linear memory limit per worker. CPython needs at least 40. |
-| `RSF_MAX_SOURCE_BYTES` | `65536` | Largest source. |
-| `RSF_MAX_REQUEST_BYTES` | `1048576` | Largest call body. |
-| `RSF_MAX_RESPONSE_BYTES` | `1048576` | Largest reply from a worker. |
-| `RSF_MAX_FUNCTIONS` | `64` | Largest number of functions. |
-| `RSF_MAX_CALLS_PER_WORKER` | `10000` | Calls before a worker is replaced. |
+| `UDF_TOKEN` | (required) | Bearer token. The server does not start without it. |
+| `UDF_INSECURE_NO_AUTH` | unset | Set to `1` to run without a token. Local tests only. |
+| `UDF_LISTEN` | `0.0.0.0:8080` | Listen address. |
+| `UDF_POOL_SIZE` | `2` | Worker processes per function. |
+| `UDF_CALL_TIMEOUT_MS` | `1000` | Wall-clock limit for one call. |
+| `UDF_LOAD_TIMEOUT_MS` | `10000` | Wall-clock limit for loading a function. |
+| `UDF_MAX_MEMORY_MB` | `128` | WebAssembly linear memory limit per worker. CPython needs at least 40. |
+| `UDF_MAX_SOURCE_BYTES` | `65536` | Largest source. |
+| `UDF_MAX_REQUEST_BYTES` | `1048576` | Largest call body. |
+| `UDF_MAX_RESPONSE_BYTES` | `1048576` | Largest reply from a worker. |
+| `UDF_MAX_FUNCTIONS` | `64` | Largest number of functions. |
+| `UDF_MAX_CALLS_PER_WORKER` | `10000` | Calls before a worker is replaced. |
 
 ## Security model
 
@@ -92,7 +92,7 @@ function cannot read the state, arguments or results of another function.
   Run the container with a read-only root filesystem, no capabilities and
   `no-new-privileges`.
 - After an escape, the attacker runs as UID 10001 in the container. They can
-  read `RSF_TOKEN` and the source and traffic of every function. Treat the
+  read `UDF_TOKEN` and the source and traffic of every function. Treat the
   container as untrusted. Do not mount secrets or a service-account token into it.
 - In a Kubernetes sidecar, the container shares the pod's network namespace.
   After an escape, the attacker can reach EMQX ports on `localhost`. A

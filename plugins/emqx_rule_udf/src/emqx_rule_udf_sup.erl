@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_rsf_sup).
+-module(emqx_rule_udf_sup).
 
 -behaviour(supervisor).
 
@@ -13,7 +13,7 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{strategy => one_for_one, intensity => 10, period => 10},
-    Children = [worker(emqx_rsf_store), worker(emqx_rsf_client)],
+    Children = [worker(emqx_rule_udf_store), worker(emqx_rule_udf_client)],
     {ok, {SupFlags, Children}}.
 
 worker(Mod) ->

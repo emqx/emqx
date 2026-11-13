@@ -1,6 +1,6 @@
 {
   "$url_label": {"en": "Function Server URL", "zh": "函数服务器 URL"},
-  "$url_desc": {"en": "Base URL of the emqx-rsf/1 function server, for example http://127.0.0.1:8080. Use https:// for TLS.", "zh": "emqx-rsf/1 函数服务器的基础 URL，例如 http://127.0.0.1:8080。使用 https:// 启用 TLS。"},
+  "$url_desc": {"en": "Base URL of the emqx-rule-udf/1 function server, for example http://127.0.0.1:8080. Use https:// for TLS.", "zh": "emqx-rule-udf/1 函数服务器的基础 URL，例如 http://127.0.0.1:8080。使用 https:// 启用 TLS。"},
   "$token_label": {"en": "Token", "zh": "令牌"},
   "$token_desc": {"en": "Bearer token for the function server. Leave empty when the server has no authentication.", "zh": "函数服务器的 Bearer 令牌。服务器未启用认证时留空。"},
   "$pool_size_label": {"en": "Pool Size", "zh": "连接池大小"},

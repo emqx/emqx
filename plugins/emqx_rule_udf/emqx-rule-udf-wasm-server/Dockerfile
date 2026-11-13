@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
 #
-# emqx-rsf-wasm-server: user-defined Python functions in a WebAssembly sandbox.
+# emqx-rule-udf-wasm-server: user-defined Python functions in a WebAssembly sandbox.
 #
-#   docker build -t emqx-rsf-wasm-server .
-#   docker run --rm -p 8080:8080 -e RSF_TOKEN=... --read-only \
-#     --cap-drop ALL --security-opt no-new-privileges emqx-rsf-wasm-server
+#   docker build -t emqx-rule-udf-wasm-server .
+#   docker run --rm -p 8080:8080 -e UDF_TOKEN=... --read-only \
+#     --cap-drop ALL --security-opt no-new-privileges emqx-rule-udf-wasm-server
 
 ARG PYTHON_HOST_IMAGE=python:3.14-slim
 ARG CPYTHON_WASI_VERSION=3.14.7
@@ -70,19 +70,19 @@ RUN /out/bin/wasmtime run --allow-precompiled -C cache=n \
 FROM ${PYTHON_HOST_IMAGE}
 ARG CPYTHON_WASI_VERSION
 
-COPY --from=fetch /out /opt/rsf
-COPY server.py guest_runner.py /opt/rsf/app/
+COPY --from=fetch /out /opt/udf
+COPY server.py guest_runner.py /opt/udf/app/
 
-# Everything under /opt/rsf is owned by root and read-only. The guest sees
-# /opt/rsf/python/lib as /lib and must not be able to change it.
-RUN chown -R root:root /opt/rsf \
- && chmod -R a-w,a+rX /opt/rsf \
- && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin rsf
+# Everything under /opt/udf is owned by root and read-only. The guest sees
+# /opt/udf/python/lib as /lib and must not be able to change it.
+RUN chown -R root:root /opt/udf \
+ && chmod -R a-w,a+rX /opt/udf \
+ && useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin udf
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    RSF_LISTEN=0.0.0.0:8080 \
-    RSF_PYTHON_VERSION=${CPYTHON_WASI_VERSION}
+    UDF_LISTEN=0.0.0.0:8080 \
+    UDF_PYTHON_VERSION=${CPYTHON_WASI_VERSION}
 
 USER 10001:10001
 EXPOSE 8080
@@ -90,4 +90,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
   CMD ["python3", "-I", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
 
-ENTRYPOINT ["python3", "-I", "/opt/rsf/app/server.py"]
+ENTRYPOINT ["python3", "-I", "/opt/udf/app/server.py"]
