@@ -32,7 +32,9 @@
     subscribe/3,
     unsubscribe/3,
     unsubscribe_down/3,
-    purge_node/1
+    purge_node/1,
+    member_nodes/1,
+    has_members_on/1
 ]).
 
 -export([
@@ -154,6 +156,42 @@ purge_node(Node) ->
     %% TODO: Refactor `emqx_router_helper` to avoid this hack.
     erlang:whereis(?SERVER) =/= undefined andalso
         gen_server:call(?SERVER, {purge, Node}, infinity).
+
+-doc """
+Return the nodes that own at least one member in the shared subscription table,
+except the nodes in `Exclude`.
+
+The function scans the table once for each node that it returns, plus one time.
+Each scan stops at the first matching row and returns only that row.
+""".
+-spec member_nodes(_Exclude :: [node()]) -> [node()].
+member_nodes(Exclude) ->
+    case ets:whereis(?SHARED_SUBSCRIPTION) of
+        undefined -> [];
+        _ -> member_nodes(Exclude, [])
+    end.
+
+member_nodes(Exclude, Acc) ->
+    Guard = lists:foldl(
+        fun(Node, G) -> {'andalso', {'=/=', {node, '$1'}, {const, Node}}, G} end,
+        true,
+        Exclude
+    ),
+    MS = [{#?SHARED_SUBSCRIPTION{subpid = '$1', _ = '_'}, [Guard], [{node, '$1'}]}],
+    case ets:select(?SHARED_SUBSCRIPTION, MS, 1) of
+        {[Node], _Continuation} ->
+            member_nodes([Node | Exclude], [Node | Acc]);
+        '$end_of_table' ->
+            lists:reverse(Acc)
+    end.
+
+-doc "Return `true` when the node owns at least one member in the shared subscription table.".
+-spec has_members_on(node()) -> boolean().
+has_members_on(Node) ->
+    Guard = {'=:=', {node, '$1'}, {const, Node}},
+    MS = [{#?SHARED_SUBSCRIPTION{subpid = '$1', _ = '_'}, [Guard], [true]}],
+    ets:whereis(?SHARED_SUBSCRIPTION) =/= undefined andalso
+        ets:select(?SHARED_SUBSCRIPTION, MS, 1) =/= '$end_of_table'.
 
 record(Group, Topic, SubPid) ->
     #?SHARED_SUBSCRIPTION{group = Group, topic = Topic, subpid = SubPid}.

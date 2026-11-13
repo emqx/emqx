@@ -52,7 +52,7 @@ init([]) ->
     Children =
         case emqx_router:get_schema_vsn() of
             v3 ->
-                [RouterPool];
+                [Helper, RouterPool];
             v2 ->
                 [Helper, HelperPostStart, RouterPool]
         end,
