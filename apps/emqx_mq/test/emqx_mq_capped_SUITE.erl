@@ -763,12 +763,33 @@ check_long_run(
     ?assert(length(Accepted) * long_message_bytes() >= 5 * MaxBytes),
     %% Every accepted message is delivered. Redelivered duplicates are allowed
     ?assertEqual([], wait_payloads(sets:from_list(Accepted, [{version, 2}]), Ack)),
-    %% Quota was released many times
-    ?assert(length(?of_kind(mq_cleanup_released, snabbkaffe:collect_trace(0))) >= 10),
     %% The consumed queue is not blocked once cleanup processes the last reports
     ct:pal("Occupancy after consumption: ~p", [occupancy(MQ)]),
     ?retry(50, 100, ?assertMatch({ok, #{buckets := Buckets}} when Buckets =< 2, occupancy(MQ))),
-    ?retry(50, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"after">>)))).
+    ?retry(50, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"after">>)))),
+    Trace = snabbkaffe:collect_trace(0),
+    Io = #{
+        limit_cycles => length(Accepted) / MaxCount,
+        flushes => length(?of_kind(mq_quota_index_flush, Trace)),
+        cleanup_reads => length(?of_kind(mq_cleanup_refreshed, Trace)),
+        cleanup_writes => length(?of_kind(mq_cleanup_released, Trace)),
+        admission_reads => length(?of_kind(mq_message_db_insert, Trace))
+    },
+    ct:pal("Index operations: ~p", [Io]),
+    #{
+        limit_cycles := Cycles,
+        flushes := Flushes,
+        cleanup_reads := CleanupReads,
+        cleanup_writes := CleanupWrites
+    } = Io,
+    %% Quota was released many times
+    ?assert(CleanupWrites >= 10),
+    %% Quota flushes follow time: at most one per flush interval of the 30 second run
+    ?assert(Flushes =< 2 * 30),
+    %% Cleanup works per bucket: a limit spans about ten buckets, and a consumer reports about
+    %% twice per bucket. Periodic consumer reports add at most one per second
+    ?assert(CleanupReads =< 40 * Cycles + 2 * 30),
+    ?assert(CleanupWrites =< 40 * Cycles + 2 * 30).
 
 long_message_bytes() ->
     byte_size(emqx_mq_message_db:encode_message(message(long_payload(0)))).

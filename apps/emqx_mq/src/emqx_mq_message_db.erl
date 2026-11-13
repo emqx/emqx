@@ -533,6 +533,7 @@ quota_buffer_flush_transaction({DB, {Shard, Generation}} = _TxKey, TxFun) ->
 quota_buffer_flush_tx_update(
     _TxKey, {IndexTopic, FenceTopic} = _Key, QuotaIndexOpts, Updates, NeedLegacy
 ) ->
+    ?tp(mq_quota_index_flush, #{index_topic => IndexTopic, updates => length(Updates)}),
     emqx_mq_quota_index_tx:update_tx(IndexTopic, FenceTopic, QuotaIndexOpts, Updates, NeedLegacy).
 
 %%--------------------------------------------------------------------
