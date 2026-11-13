@@ -166,6 +166,38 @@ update_mqttsn_with_neg_qos_off() ->
         Conf#{<<"enable_qos3">> => <<"false">>}
     ).
 
+enable_mqttsn_authn(Password) ->
+    AuthConf = #{
+        mechanism => <<"password_based">>,
+        backend => <<"built_in_database">>
+    },
+    {201, _} = request(post, "/gateways/mqttsn/authentication", AuthConf),
+    User = #{
+        user_id => <<"user1">>,
+        password => Password,
+        is_superuser => false
+    },
+    {201, _} = request(post, "/gateways/mqttsn/authentication/users", User),
+    ok.
+
+disable_mqttsn_authn() ->
+    {204, _} = request(delete, "/gateways/mqttsn/authentication"),
+    ok.
+
+add_authz_file_source(Rules) ->
+    {200, Original} = request(get, "/authorization/sources/file"),
+    Req = #{
+        <<"type">> => <<"file">>,
+        <<"enable">> => true,
+        <<"rules">> => Rules
+    },
+    {204, _} = request(put, "/authorization/sources/file", Req),
+    Original.
+
+restore_authz_file_source(Original) ->
+    {204, _} = request(put, "/authorization/sources/file", Original),
+    ok.
+
 update_mqttsn_with_mountpoint(Mp) ->
     Conf = emqx:get_raw_config([gateway, mqttsn]),
     emqx_gateway_conf:update_gateway(
@@ -715,6 +747,111 @@ t_publish_negqos_disabled(_) ->
     ),
     update_mqttsn_with_neg_qos_on(),
     gen_udp:close(Socket).
+
+t_publish_negqos_idle_authn_rejected(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authn-rejected">>,
+    %% clientinfo_override sends password "pw123", which does not match
+    ok = enable_mqttsn_authn(<<"other-password">>),
+    ok = emqx:subscribe(Topic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := idle_negative_qos_publish_rejected}, 5000)
+                ),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{topic := Topic, return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        )
+    after
+        gen_udp:close(Socket),
+        emqx:unsubscribe(Topic),
+        disable_mqttsn_authn()
+    end.
+
+t_publish_negqos_idle_authz_denied(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-authz-denied">>,
+    OriginalAuthz = add_authz_file_source(<<"{deny, all, publish, [\"ab\"]}.\n{allow, all}.">>),
+    ok = emqx:subscribe(Topic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertMatch(
+                    {ok, _},
+                    ?block_until(#{?snk_kind := idle_negative_qos_publish_rejected}, 5000)
+                ),
+                ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+            end,
+            fun(Trace0) ->
+                Trace = ?of_kind(idle_negative_qos_publish_rejected, Trace0),
+                ?assertMatch([#{topic := Topic, return_code := ?SN_RC2_NOT_AUTHORIZE}], Trace)
+            end
+        )
+    after
+        gen_udp:close(Socket),
+        emqx:unsubscribe(Topic),
+        restore_authz_file_source(OriginalAuthz)
+    end.
+
+t_publish_negqos_idle_authn_authz_allowed(_) ->
+    Topic = <<"ab">>,
+    Payload = <<"idle-negqos-allowed">>,
+    OriginalAuthz = add_authz_file_source(
+        <<
+            "{allow, {username, \"user1\"}, {publish, [{qos, 0}, {retain, false}]}, [\"ab\"]}.\n"
+            "{deny, all}."
+        >>
+    ),
+    ok = enable_mqttsn_authn(<<"pw123">>),
+    ok = emqx:subscribe(Topic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        ?check_trace(
+            begin
+                send_publish_msg_short_topic(Socket, 3, 1, Topic, Payload),
+                ?assertReceive({deliver, Topic, #message{payload = Payload}}, 1000)
+            end,
+            fun(Trace) ->
+                ?assertEqual([], ?of_kind(idle_negative_qos_publish_rejected, Trace))
+            end
+        )
+    after
+        gen_udp:close(Socket),
+        emqx:unsubscribe(Topic),
+        disable_mqttsn_authn(),
+        restore_authz_file_source(OriginalAuthz)
+    end.
+
+t_publish_negqos_idle_disabled(_) ->
+    TopicId = ?PREDEF_TOPIC_ID1,
+    Topic = ?PREDEF_TOPIC_NAME1,
+    Payload = <<"idle-negqos-disabled">>,
+    MsgId = 1,
+    update_mqttsn_with_neg_qos_off(),
+    ok = emqx:subscribe(Topic),
+    {ok, Socket} = gen_udp:open(0, [binary]),
+    try
+        send_publish_msg_predefined_topic(Socket, 3, MsgId, TopicId, Payload),
+        ?assertEqual(
+            <<7, ?SN_PUBACK, TopicId:16, MsgId:16, ?SN_RC_NOT_SUPPORTED>>,
+            receive_response(Socket)
+        ),
+        ?assertNotReceive({deliver, Topic, #message{payload = Payload}}, 100)
+    after
+        gen_udp:close(Socket),
+        emqx:unsubscribe(Topic),
+        update_mqttsn_with_neg_qos_on()
+    end.
 
 t_publish_qos0_case01(_) ->
     Dup = 0,
