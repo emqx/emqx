@@ -277,6 +277,9 @@ for dep in ${CT_DEPS}; do
         cockroachdb)
             FILES+=( '.ci/docker-compose-file/docker-compose-cockroachdb.yaml' )
             ;;
+        rule_udf)
+            FILES+=( '.ci/docker-compose-file/docker-compose-rule-udf.yaml' )
+            ;;
         quasardb)
             QUASARDB_ODBC_REQUEST='yes'
             FILES+=( '.ci/docker-compose-file/docker-compose-quasardb.yaml' )

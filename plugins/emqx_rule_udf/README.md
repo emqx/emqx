@@ -11,8 +11,26 @@ SELECT udf('temp-convert.py', payload) AS t FROM "sensors/#"
 EMQX runs no user code. The function server runs the programs and must isolate
 them (`PROTOCOL.md`, section 10). EMQX and the server talk the emqx-rule-udf/1
 protocol over HTTP. `PROTOCOL.md` specifies it, so a server can be written in any
-language. `emqx-rule-udf-wasm-server/` is a reference server that runs Python programs
-in a WebAssembly sandbox.
+language.
+
+The reference server is the image `ghcr.io/emqx/emqx-rule-udf-wasm-server:0.1.0`
+(source: [emqx/docker-images](https://github.com/emqx/docker-images), directory
+`emqx-rule-udf-wasm-server`). It runs each `python3` program in CPython on
+WebAssembly, with no file, network, process or environment access, and with a
+time limit and a memory limit.
+
+## Run the function server
+
+```
+docker run -d --name emqx-rule-udf-server -p 127.0.0.1:8080:8080 \
+  -e UDF_TOKEN="$(openssl rand -hex 32)" \
+  --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --pids-limit 256 --memory 1g \
+  ghcr.io/emqx/emqx-rule-udf-wasm-server:0.1.0
+```
+
+Run it as a sidecar of each EMQX node, or as a service behind a load balancer.
+It keeps no state that EMQX needs (see "Programs" below).
 
 ## Build and install
 
@@ -28,7 +46,7 @@ Then set the function server in the plugin config (Dashboard, or
 `PUT /api/v5/plugins/emqx_rule_udf-0.1.0/config`):
 
 ```json
-{"server": {"url": "http://127.0.0.1:8080", "token": "...", "pool_size": 8,
+{"server": {"url": "http://127.0.0.1:8080", "token": "<UDF_TOKEN>", "pool_size": 8,
             "connect_timeout_ms": 5000, "request_timeout_ms": 2000}}
 ```
 
@@ -67,6 +85,17 @@ plugin API under `/api/v5/plugin_api/emqx_rule_udf/`:
   only when the server accepts it. An `INVALID_SOURCE` reply comes back with its
   `problems` list.
 - `PUT`, `DELETE` and `POST` need the global administrator. Viewers can only read.
+
+## Tests
+
+`test/emqx_rule_udf_SUITE.erl` runs against the reference server image. The
+`docker-ct` file makes CI start it as the `rule_udf` service
+(`.ci/docker-compose-file/docker-compose-rule-udf.yaml`). To run the suite
+locally:
+
+```
+./scripts/ct/run.sh --ci --app plugins/emqx_rule_udf
+```
 
 ## Modules
 
