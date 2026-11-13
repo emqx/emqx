@@ -10,17 +10,24 @@ The module contains accessor functions for the MQs/MQ handles.
 
 -include("emqx_mq_internal.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -export([
     id/1,
     name/1,
     is_limited/1,
+    on_full/1,
     is_lastvalue/1,
     is_append_only/1,
     topic_filter/1,
     quota_index_opts/1,
+    delivery_start_time/1,
+    deliver_cutoff_time/1,
+    retention_start_time/1,
     default_name/1,
-    default_name_from_topic/1,
-    delivery_start_time/1
+    default_name_from_topic/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -53,6 +60,12 @@ is_limited(
 is_limited(_MQ) ->
     true.
 
+-spec on_full(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> evict | reject.
+on_full(#{limits := #{on_full := Policy}}) ->
+    Policy;
+on_full(_) ->
+    evict.
+
 -spec is_lastvalue(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_lastvalue(#{is_lastvalue := IsLastvalue} = _MQ) ->
     IsLastvalue.
@@ -67,19 +80,76 @@ is_append_only(MQ) ->
 
 -spec quota_index_opts(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
     emqx_mq_quota_index:opts().
-quota_index_opts(#{
-    limits := #{
-        max_shard_message_count := MaxShardMessageCount,
-        max_shard_message_bytes := MaxShardMessageBytes
-    }
-}) ->
+quota_index_opts(
+    #{
+        limits := #{
+            max_shard_message_count := MaxShardMessageCount,
+            max_shard_message_bytes := MaxShardMessageBytes
+        }
+    } = MQ
+) ->
     #{
         bytes => MaxShardMessageBytes,
         count => MaxShardMessageCount,
+        on_full => on_full(MQ),
         threshold_percentage => emqx:get_config([mq, quota, threshold_percentage])
     }.
 
+-doc "Return the DS time from which messages are delivered: the later of retention start and delivery cutoff".
 -spec delivery_start_time(emqx_mq_types:mq()) -> emqx_ds:time().
-delivery_start_time(#{data_retention_period := RetentionMs}) ->
+delivery_start_time(MQ) ->
+    max(retention_start_time(MQ), deliver_cutoff_time(MQ)).
+
+-doc "Return the DS time before which messages are expired by retention, or 0".
+-spec retention_start_time(emqx_mq_types:mq()) -> emqx_ds:time().
+retention_start_time(#{data_retention_period := RetentionMs}) ->
     RetentionStartMs = max(0, erlang:system_time(millisecond) - RetentionMs),
     erlang:convert_time_unit(RetentionStartMs, millisecond, microsecond).
+
+-doc "Return the delivery cutoff as a DS time. Messages stored before it are not delivered. 0 when unset".
+-spec deliver_cutoff_time(emqx_mq_types:mq()) -> emqx_ds:time().
+deliver_cutoff_time(#{deliver_cutoff_date := CutoffMs}) ->
+    erlang:convert_time_unit(CutoffMs, millisecond, microsecond);
+deliver_cutoff_time(_MQ) ->
+    0.
+
+%%--------------------------------------------------------------------
+%% Tests
+%%--------------------------------------------------------------------
+
+-ifdef(TEST).
+
+%% The delivery start time is the later of the retention start and the optional delivery cutoff.
+delivery_start_time_test() ->
+    NowMs = erlang:system_time(millisecond),
+    RetentionMs = 60_000,
+    lists:foreach(
+        fun(#{settings := Settings, earliest := Earliest}) ->
+            StartUs = delivery_start_time(Settings),
+            ?assert(StartUs >= Earliest * 1000),
+            Latest = max(Earliest, erlang:system_time(millisecond) - RetentionMs),
+            ?assert(StartUs =< Latest * 1000)
+        end,
+        [
+            #{settings => #{data_retention_period => RetentionMs}, earliest => NowMs - RetentionMs},
+            #{
+                settings => #{
+                    data_retention_period => RetentionMs, deliver_cutoff_date => NowMs - 120_000
+                },
+                earliest => NowMs - RetentionMs
+            },
+            #{
+                settings => #{data_retention_period => RetentionMs, deliver_cutoff_date => NowMs},
+                earliest => NowMs
+            }
+        ]
+    ).
+
+%% The delivery start time is 0 when the retention period is longer than the time since the epoch.
+delivery_start_time_long_retention_test() ->
+    ?assertEqual(
+        0,
+        delivery_start_time(#{data_retention_period => erlang:system_time(millisecond) + 60_000})
+    ).
+
+-endif.

@@ -5,536 +5,327 @@
 -module(emqx_mq_quota_index).
 
 -moduledoc """
-This module provides a space-efficient data structure for tracking message queue resource usage
-(message count and byte size) over time.
-Its primary purpose is to calculate a safe "deadline" timestamp for garbage collection,
-ensuring that the total size or count of messages newer than the deadline
-does not exceed a configured maximum quota.
+The quota index counts the messages and bytes that one limited queue or stream stores in one DS slab.
+Garbage collection uses its deadline: messages stored before the deadline can be deleted,
+and the newer messages still meet the count and byte limits.
 
-### Algorithm
+The index does not keep an entry per message. It keeps a short list of buckets with totals.
+So the deadline is approximate: GC can keep somewhat more data than the limits.
 
-The module maintains a time-series index for both message counts and byte sizes.
-Each index is a list of timestamped buckets (`#'StorageIndexRecord'`),
-sorted in descending order of timestamps (newest first).
-Each bucket stores an accumulated value for a specific time range.
+## Updates
 
-The maximum bucket size is called `threshold`. The bucket size is the accuracy of the index,
-i.e. when we calculate the deadline, we may leave up to `threshold` data exceeding the max values.
+The quota buffer collects updates and flushes them periodically.
+`emqx_mq_quota_index_tx` applies a flush inside a DS transaction.
 
-The minimum bucket size (except the first and the last ones) is `threshold / 2`.
-So the index size is below `2 + (max/threshold)`.
+* `#quota_add{}`: a message was written. Its bytes and count are added.
+* `#quota_del{}`: a last-value message was replaced. The old message's bytes and count are subtracted.
 
-To support both acceptable accuracy and space efficiency, the threshold is by default configured as
-`Max / 10`, thus keeping the index size below ~22 items and leaving at most 10% redundant data after
-deletion.
+## Two index formats
 
-#### Insertion
+This module stores two indices in one record and hides the difference from its callers.
 
-The "insertion" of a message in the index is accounting for message size in the index, i.e.
-increasing the value of the corresponding bucket by the message size and by 1 for the message count.
+* The serial index, `emqx_mq_quota_index_serial`, is the current one.
+  It places messages by DS serial and DS timestamp. Read its documentation to see how buckets work.
+  When serial index need to close a bucket, it asks to write a `fence` entry to DS,
+  to read closing timestamp and serial values back from it on the next flush.
+  On the next flush, these values are used to close the bucket.
+* The legacy index, `emqx_mq_quota_index_legacy`, places messages by publication time.
+  Older nodes understand only this index.
 
-* If the message's timestamp is greater than the start of the leading bucket, we insert it into the leading bucket.
-  If the leading bucket is full, we create a new bucket at the head of the list.
-  We take the maximum seen timestamp value + 1 as the timestamp for the new bucket start.
-  We do this to make sure that none of the existing insertions should have been done in the new bucket
-  (the index may be updated from different nodes with time shifts).
-* If the message's timestamp is less than the start of the leading bucket, we insert it into the corresponding
-  older bucket. We do not handle bucket overflows in this case.
+## Rolling upgrade
 
-#### Deletion
+While some cluster node does not support the serial index, keep both indices up to date,
+and use the legacy deadline. Older nodes use the same legacy data.
+When every node supports the serial index (see `is_serial_index_supported/0`),
+the next flush drops the legacy index, and the serial deadline is used from then on.
+Stopped nodes count too. A node that left the cluster still counts until the core nodes restart,
+so the legacy index is kept, and purge is refused, until then.
 
-Deletion of a message is the reverse operation of insertion,
-i.e. decreasing the value of the corresponding bucket by the message size and by 1 for the message count.
+An older node keeps only the legacy index when it rewrites the record.
+The next flush on a new node then rebuilds the serial index:
+one bucket at (0, 0) with the totals that the legacy index keeps.
 
-Because of the insertion logic, we always know exactly from which bucket to delete the message.
+## Purge
 
-#### Compaction
+`rotate/2` and `truncate/2` change the serial index before a purge deletes messages.
+They require that the legacy index is dropped: a purge runs only when every node supports the serial index.
 
-After each operation, we "compact" the index.
-* We squash consecutive buckets that are in common smaller than the threshold.
-* We remove tail(the oldest) buckets that are responsible for the older data that exceeds the limits.
+## Released boundary
 
-### Possible issues
-
-When using the index, we ignore the following situations
-that may make redundant data in the queue exceed the configured thresholds for some time.
-
-* When we create a new bucket, we may still insert messages into the old previous bucket for some time because of
-    ** time synchronization issues;
-    ** buffering.
-* When we lose some index updates because of an unexpected node crash.
+Reject queues release quota of consumed and expired messages.
+Cleanup first deletes the messages stored before a DS timestamp, then calls `release/2` with it.
+The index keeps the latest such timestamp, the released boundary,
+and drops the buckets that end at or before it.
+Each flush drops them too, so a bucket that closes later is released when it closes.
+The index keeps the bucket that contains the boundary, and always keeps the newest bucket.
 """.
 
-%% ASN1-generated struct field names are in camelCase.
+%% ASN1-generated record field names are in camelCase.
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
 -include_lib("../../gen_src/MessageQueue.hrl").
 -include("emqx_mq_quota.hrl").
 
--ifdef(TEST).
--include_lib("proper/include/proper.hrl").
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -export([
+    new/3,
     decode/2,
-    new/2,
     encode/1,
-    apply_update/2,
-    apply_updates/2,
+    apply_updates/3,
+    rotate/2,
+    truncate/2,
+    drop_legacy/1,
+    deadline/1,
     inspect/1,
-    deadline/1
+    is_serial_index_supported/0,
+    occupancy/1,
+    release/2,
+    released_before/1,
+    next_boundary/1,
+    boundaries/1,
+    oldest_boundary/1,
+    bucket_thresholds/1
 ]).
+-export_type([t/0, opts/0, update/0, timestamp_us/0]).
 
--record(index, {
-    opts :: opts(),
-    index :: #'StorageIndex'{}
-}).
-
--type t() :: #index{}.
--type timestamp_us() :: non_neg_integer().
--type byte_update() :: integer().
--type count_update() :: integer().
--type update() :: ?QUOTA_INDEX_UPDATE(timestamp_us(), byte_update(), count_update()).
 -type opts() :: #{
     bytes => pos_integer() | infinity,
     count => pos_integer() | infinity,
+    on_full => evict | reject,
     threshold_percentage => pos_integer()
 }.
+-type update() :: #quota_add{} | #quota_del{}.
+-type timestamp_us() :: non_neg_integer().
+-record(index, {
+    opts :: opts(),
+    legacy :: emqx_mq_quota_index_legacy:t() | undefined,
+    serial :: emqx_mq_quota_index_serial:t(),
+    %% See "Released boundary"
+    released_before :: timestamp_us() | undefined
+}).
+-opaque t() :: #index{}.
 
--export_type([
-    t/0,
-    opts/0,
-    update/0,
-    timestamp_us/0
-]).
-
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 %% API
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
 
 -doc """
-Decode the index from a binary.
+Return true when every node supports the serial index, so the legacy index can be dropped.
 
-We need to pass the options because for the index only buckets are stored.
-The limits are queues' attributes, which allows to change them without re-creating the index.
+Nodes that support the serial index announce version 2 of the `emqx_mq_consumer` BPAPI.
+The cluster version of a BPAPI is the lowest version that the announcing nodes support.
+Nodes keep their announcements when they stop, so a stopped older replicant keeps the legacy index.
 """.
--spec decode(opts(), binary()) -> t().
-decode(Opts, Bin) ->
-    #index{opts = Opts, index = 'MessageQueue':decode('StorageIndex', Bin)}.
-
--doc """
-Create a new index.
-""".
--spec new(opts(), timestamp_us()) -> t().
-new(Opts, TsUs) ->
-    #index{
-        opts = Opts,
-        index = #'StorageIndex'{
-            maxTsUs = TsUs,
-            count = [],
-            bytes = []
-        }
-    }.
-
--doc """
-Encode the index into a binary.
-""".
--spec encode(t()) -> binary().
-encode(#index{index = Index}) ->
-    'MessageQueue':encode('StorageIndex', Index).
-
--doc """
-Apply a list of updates to the index.
-""".
--spec apply_updates(t(), list(update())) -> t().
-apply_updates(Index, Updates) ->
-    lists:foldl(fun(Update, IndexAcc) -> apply_update(IndexAcc, Update) end, Index, Updates).
-
--doc """
-Apply an update to the index.
-""".
--spec apply_update(t(), update()) -> t().
-apply_update(
-    #index{opts = Opts} = Index0, ?QUOTA_INDEX_UPDATE(TsUs, _ByteUpdate, _CountUpdate) = Update
-) ->
-    Index = update_max_ts(Index0, TsUs),
-    lists:foldl(
-        fun(Kind, IndexAcc) ->
-            apply_update(Kind, IndexAcc, TsUs, update_vaulue(Kind, Update))
-        end,
-        Index,
-        %% update indices only for the configured kinds of limits: [bytes|count]
-        configured_kinds(Opts)
-    ).
-
--doc """
-Calculates the deadline for the index, i.e. a safe timestamp before which all data can be deleted.
-
-In other words, either count or byte size of the messages after the deadline
-is greater than the corresponding max value.
-
-Returns 0 if there is no data in the index / limits are not reached.
-""".
--spec deadline(t()) -> non_neg_integer().
-deadline(#index{opts = Opts} = Index) ->
-    Deadlines = lists:map(
-        fun(Kind) ->
-            deadline(Kind, Index)
-        end,
-        configured_kinds(Opts)
-    ),
-    case Deadlines of
-        [] ->
-            0;
-        _ ->
-            lists:max(Deadlines)
+-spec is_serial_index_supported() -> boolean().
+is_serial_index_supported() ->
+    try emqx_bpapi:supported_version(emqx_mq_consumer) of
+        Version -> Version >= 2
+    catch
+        error:badarg -> false
     end.
 
 -doc """
-A more readable representation of the index.
-
-For buckets, we also provide human-readable representation of their time ranges.
+Return the total bytes and count of all buckets, the number of buckets,
+and whether the newest bucket, the head, counts nothing.
 """.
+-spec occupancy(t()) ->
+    #{
+        bytes := integer(),
+        count := integer(),
+        buckets := pos_integer(),
+        head_empty := boolean()
+    }.
+occupancy(#index{serial = Serial}) ->
+    {[#'SerialIndexBucket'{bytes = HeadBytes, count = HeadCount} | _] = Records, _} =
+        emqx_mq_quota_index_serial:to_storage(Serial),
+    #{
+        bytes => lists:sum([Bytes || #'SerialIndexBucket'{bytes = Bytes} <- Records]),
+        count => lists:sum([Count || #'SerialIndexBucket'{count = Count} <- Records]),
+        buckets => length(Records),
+        head_empty => HeadBytes =< 0 andalso HeadCount =< 0
+    }.
+
+-doc """
+Raise the released boundary to the DS timestamp, and drop the buckets that end at or before it.
+Call only after the messages stored before the timestamp are deleted. See "Released boundary".
+""".
+-spec release(t(), timestamp_us()) -> t().
+release(#index{legacy = undefined, released_before = Released0} = Index, BeforeUs) ->
+    Released =
+        case Released0 of
+            undefined -> BeforeUs;
+            _ -> max(Released0, BeforeUs)
+        end,
+    apply_released(Index#index{released_before = Released}).
+
+-doc "Return the released boundary, or `undefined` when nothing was released".
+-spec released_before(t()) -> timestamp_us() | undefined.
+released_before(#index{released_before = Released}) ->
+    Released.
+
+-doc "Return the DS timestamp at which the oldest retained bucket ends, or `undefined` for one bucket".
+-spec next_boundary(t()) -> timestamp_us() | undefined.
+next_boundary(Index) ->
+    case boundaries(Index) of
+        [TsUs | _] -> TsUs;
+        [] -> undefined
+    end.
+
+-doc "Return the DS timestamps at which retained buckets end, oldest first".
+-spec boundaries(t()) -> [timestamp_us()].
+boundaries(#index{serial = Serial}) ->
+    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    [_Oldest | Newer] = lists:reverse(Records),
+    [TsUs || #'SerialIndexBucket'{tsUs = TsUs} <- Newer].
+
+-doc "Return the DS timestamp of the oldest retained bucket".
+-spec oldest_boundary(t()) -> timestamp_us().
+oldest_boundary(#index{serial = Serial}) ->
+    {Records, _} = emqx_mq_quota_index_serial:to_storage(Serial),
+    #'SerialIndexBucket'{tsUs = TsUs} = lists:last(Records),
+    TsUs.
+
+-doc "Return the count and byte values at which a serial bucket closes".
+-spec bucket_thresholds(opts()) ->
+    #{bytes := pos_integer() | infinity, count := pos_integer() | infinity}.
+bucket_thresholds(Opts) ->
+    #{
+        bytes => emqx_mq_quota_index_serial:threshold(bytes, Opts),
+        count => emqx_mq_quota_index_serial:threshold(count, Opts)
+    }.
+
+-doc """
+Create an index. Add a legacy index only while some node needs it.
+The legacy index starts at the given publication time.
+""".
+-spec new(opts(), timestamp_us(), _NeedLegacy :: boolean()) -> t().
+new(Opts, TsUs, NeedLegacy) ->
+    Legacy =
+        case NeedLegacy of
+            true -> emqx_mq_quota_index_legacy:new(Opts, TsUs);
+            false -> undefined
+        end,
+    #index{opts = Opts, legacy = Legacy, serial = emqx_mq_quota_index_serial:new()}.
+
+-doc "Decode a stored index. Rebuild the serial index if an older node removed it".
+-spec decode(opts(), binary()) -> t().
+decode(Opts, Bin) ->
+    Storage = 'MessageQueue':decode('StorageIndex', Bin),
+    Legacy = decode_legacy(Opts, Storage),
+    Serial =
+        case Storage of
+            #'StorageIndex'{serialBuckets = asn1_NOVALUE} ->
+                rebuild_serial(Storage, Legacy);
+            #'StorageIndex'{serialBuckets = Buckets, seenFenceSerial = SeenFenceSerial} ->
+                emqx_mq_quota_index_serial:from_storage(Buckets, from_asn1(SeenFenceSerial))
+        end,
+    #index{
+        opts = Opts,
+        legacy = Legacy,
+        serial = Serial,
+        released_before = from_asn1(Storage#'StorageIndex'.releasedBeforeUs)
+    }.
+
+-doc "Encode both indices. The legacy fields are left out after the legacy index is dropped".
+-spec encode(t()) -> binary().
+encode(#index{legacy = Legacy, serial = Serial, released_before = Released}) ->
+    Storage = legacy_storage(Legacy),
+    {Buckets, SeenFenceSerial} = emqx_mq_quota_index_serial:to_storage(Serial),
+    'MessageQueue':encode('StorageIndex', Storage#'StorageIndex'{
+        serialBuckets = Buckets,
+        seenFenceSerial = to_asn1(SeenFenceSerial),
+        releasedBeforeUs = to_asn1(Released)
+    }).
+
+-doc """
+Apply one flush of updates to both indices. Return the index and whether to write a fence.
+Drop the buckets that end at or before the released boundary, also when the flush closes them.
+""".
+-spec apply_updates(t(), [update()], emqx_mq_quota_index_serial:fence() | undefined) ->
+    {t(), boolean()}.
+apply_updates(#index{opts = Opts, serial = Serial0} = Index0, Updates, Fence) ->
+    {Serial, NeedFence} = emqx_mq_quota_index_serial:apply_updates(Serial0, Updates, Fence, Opts),
+    Index = apply_legacy_updates(Index0, Updates),
+    {apply_released(Index#index{serial = Serial}), NeedFence}.
+
+-doc "Drop the buckets before the fence stored in DS. See `emqx_mq_quota_index_serial`".
+-spec rotate(t(), emqx_mq_quota_index_serial:fence()) -> {emqx_mq_quota_index_serial:fence(), t()}.
+rotate(#index{legacy = undefined, serial = Serial0} = Index, Fence) ->
+    {Boundary, Serial} = emqx_mq_quota_index_serial:rotate(Serial0, Fence),
+    {Boundary, Index#index{serial = Serial}}.
+
+-doc "Drop the buckets that end at or before a DS timestamp. See `emqx_mq_quota_index_serial`".
+-spec truncate(t(), timestamp_us()) -> t().
+truncate(#index{legacy = undefined, serial = Serial0} = Index, BeforeUs) ->
+    Index#index{serial = emqx_mq_quota_index_serial:truncate(Serial0, BeforeUs)}.
+
+-doc "Drop the legacy index. Call only when every node supports the serial index".
+-spec drop_legacy(t()) -> t().
+drop_legacy(Index) ->
+    Index#index{legacy = undefined}.
+
+-doc "Return the GC deadline: from the legacy index while it exists, else from the serial index".
+-spec deadline(t()) -> timestamp_us().
+deadline(#index{legacy = undefined, serial = Serial, opts = Opts}) ->
+    emqx_mq_quota_index_serial:deadline(Serial, Opts);
+deadline(#index{legacy = Legacy}) ->
+    emqx_mq_quota_index_legacy:deadline(Legacy).
+
+-doc "Return both indices in a readable form. `legacy` is undefined after it is dropped".
 -spec inspect(t()) -> map().
-inspect(#index{
-    index = #'StorageIndex'{maxTsUs = MaxTsUs, bytes = Bytes, count = Count}, opts = Opts
-}) ->
+inspect(#index{opts = Opts, legacy = Legacy, serial = Serial, released_before = Released}) ->
     #{
-        bytes => #{
-            records => format_records(MaxTsUs, Bytes),
-            total => total(Bytes),
-            size => length(Bytes)
-        },
-        count => #{
-            records => format_records(MaxTsUs, Count),
-            total => total(Count),
-            size => length(Count)
-        },
-        max_ts => MaxTsUs,
-        opts => Opts
+        opts => Opts,
+        legacy => inspect_legacy(Legacy),
+        serial => emqx_mq_quota_index_serial:inspect(Serial),
+        released_before => Released
     }.
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
+%%------------------------------------------------------------------------------
+%% Private
+%%------------------------------------------------------------------------------
 
-apply_update(_Kind, Index, _TsUs, 0) ->
+%% The released boundary is set only on indices without the legacy part.
+apply_released(#index{legacy = undefined, serial = Serial, released_before = Released} = Index) when
+    is_integer(Released)
+->
+    Index#index{serial = emqx_mq_quota_index_serial:truncate(Serial, Released)};
+apply_released(Index) ->
+    Index.
+
+apply_legacy_updates(#index{legacy = undefined} = Index, _Updates) ->
     Index;
-apply_update(Kind, Index, TsUs, Value) when Value > 0 ->
-    insert(Kind, Index, TsUs, Value);
-apply_update(Kind, Index, TsUs, Value) when Value < 0 ->
-    delete(Kind, Index, TsUs, -Value).
+apply_legacy_updates(#index{legacy = Legacy0} = Index, Updates) ->
+    Legacy = emqx_mq_quota_index_legacy:apply_updates(Legacy0, Updates),
+    Index#index{legacy = Legacy}.
 
-insert(Kind, Index0, AddTsUs, AddValue) ->
-    Records0 = index_records(Kind, Index0),
-    Threshold = threshold(Kind, Index0),
-    MaxTsUs0 = max_ts(Index0),
-    {MaxTsUs, Records1} = maybe_advance(Records0, MaxTsUs0, AddTsUs, AddValue, Threshold),
-    Records2 = insert_record(Records1, AddTsUs, AddValue),
-    Max = max_total(Kind, Index0),
-    Records = compact_records(Records2, Threshold, Max, 0),
-    Index = set_index_records(Kind, Index0, Records),
-    update_max_ts(Index, MaxTsUs).
+decode_legacy(_Opts, #'StorageIndex'{bytes = asn1_NOVALUE, count = asn1_NOVALUE}) ->
+    undefined;
+decode_legacy(Opts, Storage) ->
+    emqx_mq_quota_index_legacy:from_storage(Opts, Storage).
 
-delete(Kind, Index, TsUs, Value) ->
-    Records0 = index_records(Kind, Index),
-    Threshold = threshold(Kind, Index),
-    Max = max_total(Kind, Index),
-    Records1 = delete_record(Records0, TsUs, Value),
-    Records = compact_records(Records1, Threshold, Max, 0),
-    set_index_records(Kind, Index, Records).
+%% Put the totals of the legacy buckets that GC keeps into one serial bucket at (0, 0).
+rebuild_serial(#'StorageIndex'{bytes = Bytes, count = Count}, Legacy) ->
+    Deadline = emqx_mq_quota_index_legacy:deadline(Legacy),
+    emqx_mq_quota_index_serial:new(kept_total(Bytes, Deadline), kept_total(Count, Deadline)).
 
-deadline(bytes, #index{opts = #{bytes := Max}, index = #'StorageIndex'{bytes = Bytes}}) ->
-    deadline_from_records(Bytes, Max, 0);
-deadline(count, #index{opts = #{count := Max}, index = #'StorageIndex'{count = Count}}) ->
-    deadline_from_records(Count, Max, 0).
+kept_total(Records, Deadline) ->
+    lists:sum([
+        Value
+     || #'StorageIndexRecord'{tsUs = TsUs, value = Value} <- Records, TsUs >= Deadline
+    ]).
 
-deadline_from_records([], _Max, _Acc) ->
-    %% Not enough data to calculate the deadline.
-    0;
-deadline_from_records([#'StorageIndexRecord'{value = Value, tsUs = TsUs} | _Records], Max, Acc) when
-    Acc + Value >= Max
-->
-    TsUs;
-deadline_from_records([#'StorageIndexRecord'{value = Value} | Records], Max, Acc) ->
-    deadline_from_records(Records, Max, Acc + Value).
+legacy_storage(undefined) ->
+    #'StorageIndex'{maxTsUs = 0, bytes = asn1_NOVALUE, count = asn1_NOVALUE};
+legacy_storage(Legacy) ->
+    emqx_mq_quota_index_legacy:to_storage(Legacy).
 
-maybe_advance(
-    [#'StorageIndexRecord'{value = Value, tsUs = TsUs} | _] = Records,
-    MaxTsUs,
-    AddTsUs,
-    AddValue,
-    Threshold
-) when
-    %% NOTE
-    %% Add new index bucket only if
-    %% * we write to the first bucket and it got overflown.
-    %% * or the index is empty.
-    %%
-    %% We use MaxTsUs + 1 for the new bucket because we want to be able
-    %% to uniquely identify buckets by the timestamps of messages.
-    Value + AddValue >= Threshold andalso
-        AddTsUs >= TsUs
-->
-    {MaxTsUs + 1, [#'StorageIndexRecord'{tsUs = MaxTsUs + 1, value = 0} | Records]};
-maybe_advance([], MaxTsUs, _AddTsUs, _AddValue, _Threshold) ->
-    {MaxTsUs, [#'StorageIndexRecord'{tsUs = MaxTsUs, value = 0}]};
-maybe_advance(Records, MaxTsUs, _AddTsUs, _AddValue, _Threshold) ->
-    {MaxTsUs, Records}.
+inspect_legacy(undefined) ->
+    undefined;
+inspect_legacy(Legacy) ->
+    emqx_mq_quota_index_legacy:inspect(Legacy).
 
-insert_record([], _AddTsUs, _AddValue) ->
-    %% Should not happen, but not a fatal error.
-    [];
-insert_record(
-    [#'StorageIndexRecord'{tsUs = TsUs} = Record | Records], AddTsUs, AddValue
-) when AddTsUs < TsUs ->
-    [Record | insert_record(Records, AddTsUs, AddValue)];
-insert_record(
-    [#'StorageIndexRecord'{value = Value} = Record | Records], _AddTsUs, AddValue
-) ->
-    [Record#'StorageIndexRecord'{value = Value + AddValue} | Records].
+from_asn1(asn1_NOVALUE) -> undefined;
+from_asn1(Value) -> Value.
 
-delete_record([], _DelTsUs, _DelValue) ->
-    [];
-delete_record(
-    [#'StorageIndexRecord'{tsUs = TsUs} = Record | Records], DelTsUs, DelValue
-) when DelTsUs < TsUs ->
-    [Record | delete_record(Records, DelTsUs, DelValue)];
-delete_record(
-    [#'StorageIndexRecord'{value = Value} = Record | Records], _DelTsUs, DelValue
-) ->
-    [Record#'StorageIndexRecord'{value = Value - DelValue} | Records].
-
-%% NOTE
-%% Do not compact the first record.
-compact_records([], _Threshold, _Max, _Acc) ->
-    [];
-compact_records([HeadRecord | Records], Threshold, Max, Acc) ->
-    [HeadRecord | do_compact_records(Records, Threshold, Max, Acc)].
-
-do_compact_records(_Records, _Threshold, Max, Acc) when Acc >= Max ->
-    [];
-do_compact_records(
-    [#'StorageIndexRecord'{value = Value1}, #'StorageIndexRecord'{value = Value2} = Rec2 | Records],
-    Threshold,
-    Max,
-    Acc
-) when
-    Value1 + Value2 =< Threshold
-->
-    do_compact_records(
-        [Rec2#'StorageIndexRecord'{value = Value1 + Value2} | Records], Threshold, Max, Acc
-    );
-do_compact_records([#'StorageIndexRecord'{value = Value} = Rec | Records], Threshold, Max, Acc) ->
-    [Rec | do_compact_records(Records, Threshold, Max, Acc + Value)];
-do_compact_records([], _Threshold, _Max, _Acc) ->
-    [].
-
-max_total(Kind, #index{opts = Opts}) ->
-    maps:get(Kind, Opts).
-
-threshold(Kind, #index{opts = #{threshold_percentage := ThresholdPercentage} = Opts}) ->
-    Max = maps:get(Kind, Opts),
-    max(1, ThresholdPercentage * Max div 100).
-
-update_max_ts(#index{index = #'StorageIndex'{maxTsUs = MaxTsUs} = StorageIndex} = Index, Ts) ->
-    Index#index{index = StorageIndex#'StorageIndex'{maxTsUs = max(MaxTsUs, Ts)}}.
-
-max_ts(#index{index = #'StorageIndex'{maxTsUs = MaxTsUs}}) ->
-    MaxTsUs.
-
-index_records(bytes, #index{index = #'StorageIndex'{bytes = Records}}) ->
-    Records;
-index_records(count, #index{index = #'StorageIndex'{count = Records}}) ->
-    Records.
-
-set_index_records(bytes, #index{index = StorageIndex} = Index, Records) ->
-    Index#index{index = StorageIndex#'StorageIndex'{bytes = Records}};
-set_index_records(count, #index{index = StorageIndex} = Index, Records) ->
-    Index#index{index = StorageIndex#'StorageIndex'{count = Records}}.
-
-update_vaulue(bytes, ?QUOTA_INDEX_UPDATE(_, ByteUpdate, _)) ->
-    ByteUpdate;
-update_vaulue(count, ?QUOTA_INDEX_UPDATE(_, _, CountUpdate)) ->
-    CountUpdate.
-
-format_records(MaxTsUs, [#'StorageIndexRecord'{tsUs = TsUs, value = Value} | _] = Records) ->
-    [{TsUs, Value, format_us_diff(TsUs, MaxTsUs)} | format_records_next(Records)];
-format_records(_MaxTsUs, []) ->
-    [].
-
-format_records_next([
-    #'StorageIndexRecord'{tsUs = TsUsTo},
-    #'StorageIndexRecord'{tsUs = TsUsFrom, value = ValueFrom} = From
-    | Rest
-]) ->
-    [{TsUsFrom, ValueFrom, format_us_diff(TsUsFrom, TsUsTo)} | format_records_next([From | Rest])];
-format_records_next(_) ->
-    [].
-
-format_us_diff(FromUs, ToUs) ->
-    DiffUs = ToUs - FromUs,
-    Hours = DiffUs div 3_600_000_000,
-    RemUs1 = DiffUs rem 3_600_000_000,
-    Minutes = RemUs1 div 60_000_000,
-    RemUs2 = RemUs1 rem 60_000_000,
-    Seconds = RemUs2 div 1_000_000,
-    RemUs3 = RemUs2 rem 1_000_000,
-    Milliseconds = RemUs3 div 1000,
-    Units = [
-        {Hours, <<"h">>},
-        {Minutes, <<"m">>},
-        {Seconds, <<"s">>},
-        {Milliseconds, <<"ms">>}
-    ],
-    NonLeadingZeros = skip_leading_zeros(Units),
-    Parts = [<<(integer_to_binary(Val))/binary, Unit/binary>> || {Val, Unit} <- NonLeadingZeros],
-    iolist_to_binary(lists:join(<<" ">>, Parts)).
-
-skip_leading_zeros([{0, _} | Rest]) when length(Rest) >= 1 ->
-    skip_leading_zeros(Rest);
-skip_leading_zeros(List) ->
-    List.
-
-configured_kinds(Opts) ->
-    lists:filtermap(
-        fun
-            (
-                {_, infinity}
-            ) ->
-                false;
-            ({bytes, _}) ->
-                {true, bytes};
-            ({count, _}) ->
-                {true, count};
-            (_) ->
-                false
-        end,
-        maps:to_list(Opts)
-    ).
-
-total(Records) ->
-    lists:sum(lists:map(fun(#'StorageIndexRecord'{value = Value}) -> Value end, Records)).
-
--ifdef(TEST).
-
-consistency_test_() ->
-    Opts = [{numtests, 1000}, {to_file, user}],
-    {timeout, 60, [
-        fun() -> ?assert(proper:quickcheck(t_consistency(), Opts)) end
-    ]}.
-
-t_consistency() ->
-    ?FORALL(
-        {Updates, MaxBytes, MaxCount, ThresholdPercentage},
-        {p_updates(), p_max_bytes(), p_max_count(), p_threshold_percentage()},
-        t_consistency(Updates, MaxBytes, MaxCount, ThresholdPercentage)
-    ).
-
-t_consistency(
-    {DurationMs, KeyCount, Updates}, MaxBytes, MaxCount, ThresholdPercentage
-) ->
-    DB0 = #{},
-    Index0 = new(
-        #{
-            bytes => MaxBytes,
-            count => MaxCount,
-            threshold_percentage => ThresholdPercentage
-        },
-        0
-    ),
-    {DB1, Index1} = lists:foldl(
-        fun({Key, Update}, {DBAcc, IndexAcc}) ->
-            update_key({DBAcc, IndexAcc}, {Key, Update})
-        end,
-        {DB0, Index0},
-        sort_by_ts(Updates)
-    ),
-    {_DB, Index} = lists:foldl(
-        fun(Key, {DBAcc, IndexAcc}) ->
-            update_key({DBAcc, IndexAcc}, {Key, ?QUOTA_INDEX_UPDATE(to_us(DurationMs), 0, 1)})
-        end,
-        {DB1, Index1},
-        lists:seq(1, KeyCount)
-    ),
-    #{
-        bytes := #{
-            total := BytesTotal,
-            size := _BytesIndexSize
-        },
-        count := #{
-            total := CountTotal,
-            size := _CountIndexSize
-        }
-    } = inspect(Index),
-    0 =:= BytesTotal andalso
-        KeyCount =:= CountTotal.
-
-update_key({DB, Index}, {Key, Update}) ->
-    DelUpdate =
-        case DB of
-            #{Key := ?QUOTA_INDEX_UPDATE(PrevTsUs, PrevBytes, PrevCount)} ->
-                [?QUOTA_INDEX_UPDATE(PrevTsUs, -PrevBytes, -PrevCount)];
-            _ ->
-                []
-        end,
-    InsertUpdate = [Update],
-    {
-        DB#{Key => Update},
-        apply_updates(Index, DelUpdate ++ InsertUpdate)
-    }.
-
--define(MAX_MAX_COUNT, 10000).
--define(MAX_MAX_BYTES, (?MAX_MAX_COUNT * 1024)).
-
-p_max_count() ->
-    ?SUCHTHAT(Max, proper_types:pos_integer(), Max =< ?MAX_MAX_COUNT).
-
-p_max_bytes() ->
-    ?SUCHTHAT(Max, proper_types:pos_integer(), Max =< ?MAX_MAX_BYTES).
-
-p_threshold_percentage() ->
-    proper_types:oneof(lists:seq(1, 110)).
-
-p_updates() ->
-    ?LET(
-        {DurationMs, KeyCount},
-        {p_duration_ms(), p_key_count()},
-        {DurationMs, KeyCount, proper_types:list(p_update(DurationMs, KeyCount))}
-    ).
-
-p_update(DurationMs, KeyCount) ->
-    ?LET(
-        {Ms, Key, RecordSize},
-        {p_ms(DurationMs), p_key(KeyCount), p_record_size()},
-        {Key, ?QUOTA_INDEX_UPDATE(to_us(Ms), RecordSize, 1)}
-    ).
-
-p_ms(DurationMs) ->
-    proper_types:oneof(lists:seq(0, DurationMs)).
-
-p_key(KeyCount) ->
-    proper_types:oneof(lists:seq(1, KeyCount)).
-
-p_duration_ms() ->
-    ?SUCHTHAT(DurationMs, proper_types:pos_integer(), DurationMs =< 1000).
-
-p_key_count() ->
-    ?SUCHTHAT(KeyCount, proper_types:pos_integer(), KeyCount =< 1000).
-
-p_record_size() ->
-    ?SUCHTHAT(RecordSize, proper_types:pos_integer(), RecordSize =< 2 * ?MAX_MAX_COUNT).
-
-to_us(Ms) ->
-    Ms * 1000.
-
-sort_by_ts(Updates) ->
-    lists:sort(
-        fun({_, ?QUOTA_INDEX_UPDATE(Ts1, _, _)}, {_, ?QUOTA_INDEX_UPDATE(Ts2, _, _)}) ->
-            Ts1 < Ts2
-        end,
-        Updates
-    ).
-
--endif.
+to_asn1(undefined) -> asn1_NOVALUE;
+to_asn1(Value) -> Value.

@@ -11,16 +11,14 @@ The quota updates are buffered by a composite key (tx_key, key).
 The flush is triggered by the queue size or by a timer.
 
 During a flush, for each unique tx_key a transaction is opened via quota_buffer_flush_transaction/2 callback.
-Then for each key a quota index
-* is read via quota_buffer_flush_tx_read/2,
-* is updated with the buffered updates
-* is persisted via quota_buffer_flush_tx_write/3 callback.
+For each key, quota_buffer_flush_tx_update/5 applies the buffered updates to the stored index.
+Updates are kept one per message, not summed: the index places each one by its own serial or DS timestamp.
 
 So the `tx_key` is something for which a single transaction is desired to be opened,
 like a slab in case of DS storage.
 
 The (`tx_key`, `key`) pair is something that uniquely identifies quota index,
-like (slab, mq_topic) in case of MQs in DS storage.
+like (slab, {index topic, fence topic}) in case of MQs in DS storage.
 """.
 
 -include("../emqx_mq_internal.hrl").
@@ -52,12 +50,20 @@ like (slab, mq_topic) in case of MQs in DS storage.
     terminate/2
 ]).
 
--type message_update_info() :: #{
+%% A new message carries the serial of its write transaction.
+%% A replaced message carries the DS timestamp at which it was stored.
+%% Both carry the message for its publication time, which the legacy index uses.
+-type new_message_info() :: #{
     message := emqx_types:message(),
-    message_size := non_neg_integer()
+    message_size := non_neg_integer(),
+    serial := emqx_ds:tx_serial()
+}.
+-type old_message_info() :: #{
+    message := emqx_types:message(),
+    message_size := non_neg_integer(),
+    ds_ts_us := non_neg_integer()
 }.
 -type index_opts() :: emqx_mq_quota_index:opts().
--type index() :: emqx_mq_quota_index:t().
 -type name() :: ecpool:pool_name().
 -type tx_key() :: term().
 -type key() :: term().
@@ -74,8 +80,13 @@ like (slab, mq_topic) in case of MQs in DS storage.
 %% The main responsibility of the callbacks is to restore and persist quota index from/to the underlying storage.
 
 -callback quota_buffer_flush_transaction(tx_key(), fun(() -> ok)) -> ok.
--callback quota_buffer_flush_tx_read(tx_key(), key(), index_opts()) -> index() | undefined.
--callback quota_buffer_flush_tx_write(tx_key(), key(), index()) -> ok.
+-callback quota_buffer_flush_tx_update(
+    tx_key(),
+    key(),
+    index_opts(),
+    [emqx_mq_quota_index:update()],
+    _NeedLegacy :: boolean()
+) -> ok.
 -callback quota_buffer_max_size() -> pos_integer().
 -callback quota_buffer_flush_interval() -> non_neg_integer().
 -callback quota_buffer_notify_queue_size(emqx_metrics_worker:worker_id(), non_neg_integer()) -> ok.
@@ -133,8 +144,8 @@ start_link(Opts) ->
     tx_key(),
     key(),
     index_opts(),
-    message_update_info() | undefined,
-    message_update_info()
+    old_message_info() | undefined,
+    new_message_info()
 ) -> ok.
 add(Name, TxKey, Key, QuotaIndexOpts, OldMessageInfo, NewMessageInfo) ->
     AddUpdates = #add_updates{
@@ -267,6 +278,7 @@ add_to_buffer(#add_updates{} = Insert, State = #st{buffer = Buffer0, buffer_size
 
 do_flush(State = #st{buffer = Buffer}) ->
     ok = notify_queue_size(State),
+    NeedLegacy = not emqx_mq_quota_index:is_serial_index_supported(),
     ok = maps:foreach(
         fun(TxKey, TxKeyBuffer) ->
             UpdatesByKey = lists:map(
@@ -275,7 +287,7 @@ do_flush(State = #st{buffer = Buffer}) ->
                 end,
                 maps:to_list(TxKeyBuffer)
             ),
-            flush_quota_index(State, TxKey, UpdatesByKey)
+            flush_quota_index(State, TxKey, UpdatesByKey, NeedLegacy)
         end,
         Buffer
     ),
@@ -291,63 +303,43 @@ buffer_max_size(#st{cbm = CBM}) ->
 buffer_flush_interval(#st{cbm = CBM}) ->
     CBM:quota_buffer_flush_interval().
 
-quota_index_updates(OldMessageInfo, #{message := NewMessage, message_size := NewMessageSize}) ->
+quota_index_updates(OldMessageInfo, #{
+    message := NewMessage, message_size := NewMessageSize, serial := SerialBin
+}) ->
     %% Old record to delete from the index
     OldUpdates =
         case OldMessageInfo of
             undefined ->
                 [];
-            #{message := OldMessage, message_size := OldMessageSize} ->
+            #{message := OldMessage, message_size := OldMessageSize, ds_ts_us := DsTsUs} ->
                 [
-                    ?QUOTA_INDEX_UPDATE(
-                        message_timestamp_us(OldMessage),
-                        -OldMessageSize,
-                        -1
-                    )
+                    #quota_del{
+                        pub_ts_us = message_timestamp_us(OldMessage),
+                        ds_ts_us = DsTsUs,
+                        bytes = OldMessageSize,
+                        count = 1
+                    }
                 ]
         end,
     %% Add new record to the index
-    NewUpdate = ?QUOTA_INDEX_UPDATE(
-        message_timestamp_us(NewMessage),
-        NewMessageSize,
-        1
-    ),
+    NewUpdate = #quota_add{
+        pub_ts_us = message_timestamp_us(NewMessage),
+        serial = binary:decode_unsigned(SerialBin),
+        bytes = NewMessageSize,
+        count = 1
+    },
     OldUpdates ++ [NewUpdate].
 
 message_timestamp_us(Message) ->
     Ms = emqx_message:timestamp(Message),
     erlang:convert_time_unit(Ms, millisecond, microsecond).
 
-flush_quota_index(#st{cbm = CBM} = State, TxKey, UpdatesByKey) ->
+flush_quota_index(#st{cbm = CBM}, TxKey, UpdatesByKey, NeedLegacy) ->
     CBM:quota_buffer_flush_transaction(TxKey, fun() ->
         lists:foreach(
             fun({Key, QuotaIndexOpts, Updates}) ->
-                tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates)
+                CBM:quota_buffer_flush_tx_update(TxKey, Key, QuotaIndexOpts, Updates, NeedLegacy)
             end,
             UpdatesByKey
         )
     end).
-
-tx_update_index(_State, _TxKey, _Key, _QuotaIndexOpts, []) ->
-    ok;
-tx_update_index(State, TxKey, Key, QuotaIndexOpts, Updates) ->
-    Index0 =
-        case tx_read_index(State, TxKey, Key, QuotaIndexOpts) of
-            undefined ->
-                IndexStartTsUs = lists:min(
-                    lists:map(fun(?QUOTA_INDEX_UPDATE(TsUs, _, _)) -> TsUs end, Updates)
-                ),
-                emqx_mq_quota_index:new(
-                    QuotaIndexOpts, IndexStartTsUs
-                );
-            Idx ->
-                Idx
-        end,
-    Index = emqx_mq_quota_index:apply_updates(Index0, Updates),
-    tx_write_index(State, TxKey, Key, Index).
-
-tx_read_index(#st{cbm = CBM}, TxKey, Key, QuotaIndexOpts) ->
-    CBM:quota_buffer_flush_tx_read(TxKey, Key, QuotaIndexOpts).
-
-tx_write_index(#st{cbm = CBM}, TxKey, Key, Index) ->
-    CBM:quota_buffer_flush_tx_write(TxKey, Key, Index).

@@ -22,6 +22,7 @@
 -export([
     '/queues'/2,
     '/queue/:name'/2,
+    '/queue/:name/messages'/2,
     '/queues/config'/2,
     %% Backward-compatible aliases (hidden from swagger)
     '/message_queues/queues'/2,
@@ -53,6 +54,7 @@ paths() ->
     [
         "/queues",
         "/queue/:name",
+        "/queue/:name/messages",
         "/queues/config",
         %% Backward-compatible aliases (hidden from swagger)
         "/message_queues/queues",
@@ -172,6 +174,28 @@ schema("/queue/:name") ->
             }
         }
     };
+schema("/queue/:name/messages") ->
+    #{
+        'operationId' => '/queue/:name/messages',
+        filter => fun ?MODULE:check_ready/2,
+        delete => #{
+            tags => ?TAGS,
+            description => ?DESC(message_queues_purge),
+            parameters => [name_param(), before_param()],
+            responses => #{
+                204 => ?DESC(message_queues_purge_success),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], ?DESC(invalid_purge_request)
+                ),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], ?DESC(message_queue_not_found)
+                ),
+                503 => emqx_dashboard_swagger:error_codes(
+                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                )
+            }
+        }
+    };
 schema("/queues/config") ->
     #{
         'operationId' => '/queues/config',
@@ -218,6 +242,14 @@ name_param() ->
             required => true,
             desc => ?DESC(name),
             in => path
+        })}.
+
+before_param() ->
+    {before,
+        hoconsc:mk(emqx_utils_calendar:epoch_millisecond(), #{
+            required => false,
+            desc => ?DESC(purge_before),
+            in => query
         })}.
 
 put_message_queue_example() ->
@@ -275,6 +307,22 @@ put_message_queue_config_example() ->
 '/queue/:name'(Method, Params) ->
     '/message_queues/queues/:name'(Method, Params).
 
+'/queue/:name/messages'(delete, #{bindings := #{name := Name}, query_string := Query}) ->
+    case purge_message_queue(Name, Query) of
+        {ok, _} ->
+            ?NO_CONTENT;
+        {error, before_in_future} ->
+            ?BAD_REQUEST(<<"Purge cutoff must not be in the future">>);
+        {error, being_deleted} ->
+            ?BAD_REQUEST(<<"Message queue is being deleted">>);
+        {error, cluster_upgrade_in_progress} ->
+            ?SERVICE_UNAVAILABLE(<<"Purge is available after all cluster nodes are upgraded">>);
+        not_found ->
+            ?NOT_FOUND(<<"Message queue not found">>);
+        {error, Reason} ->
+            ?SERVICE_UNAVAILABLE(Reason)
+    end.
+
 '/queues/config'(Method, Params) ->
     '/message_queues/config'(Method, Params).
 
@@ -304,6 +352,12 @@ put_message_queue_config_example() ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
         {error, max_queue_count_reached} ->
             ?BAD_REQUEST('MAX_QUEUE_COUNT_REACHED', <<"Max queue count reached">>);
+        {error, on_full_reject_requires_finite_limit} ->
+            ?BAD_REQUEST(<<"on_full reject requires a finite limit">>);
+        {error, cluster_upgrade_in_progress} ->
+            ?SERVICE_UNAVAILABLE(
+                <<"on_full reject is available after all cluster nodes are upgraded">>
+            );
         {error, Reason} ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.
@@ -327,6 +381,14 @@ put_message_queue_config_example() ->
             ?OK(MQRaw);
         {error, is_lastvalue_not_allowed_to_be_updated} ->
             ?BAD_REQUEST(<<"LastValue flag is not allowed to be updated">>);
+        {error, on_full_not_allowed_to_be_updated} ->
+            ?BAD_REQUEST(<<"on_full is not allowed to be updated">>);
+        {error, on_full_reject_requires_finite_limit} ->
+            ?BAD_REQUEST(<<"on_full reject requires a finite limit">>);
+        {error, cluster_upgrade_in_progress} ->
+            ?SERVICE_UNAVAILABLE(
+                <<"on_full reject is available after all cluster nodes are upgraded">>
+            );
         {error, limit_presence_cannot_be_updated_for_regular_queues} ->
             ?BAD_REQUEST(
                 <<"Regular queues cannot be updated from limited to unlimited and vice versa">>
@@ -440,6 +502,14 @@ delete_message_queue(Name) ->
         ok ?= emqx_mq_registry:mark_deleting(MQ),
         emqx_mq_delete_worker:enqueue(Id)
     end.
+
+purge_message_queue(Name, #{<<"before">> := BeforeMs}) ->
+    case BeforeMs > erlang:system_time(millisecond) of
+        true -> {error, before_in_future};
+        false -> emqx_mq_registry:purge(Name, BeforeMs)
+    end;
+purge_message_queue(Name, #{}) ->
+    emqx_mq_registry:purge(Name).
 
 ref(Module, Name) ->
     hoconsc:ref(Module, Name).

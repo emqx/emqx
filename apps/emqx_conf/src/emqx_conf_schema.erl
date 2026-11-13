@@ -152,6 +152,7 @@
     gcp_pubsub_consumer_worker_pull_error,
     handle_resource_metrics_failed,
     mq_message_db_key_expression_error,
+    mq_queue_full,
     mq_sub_auto_create_error,
     readiness_check_failed,
     resource_exception,
