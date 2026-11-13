@@ -427,9 +427,14 @@ Compute this queue's retention cutoff for one last-value slab.
 The cutoff is the latest of the retention start, the delivery cutoff,
 and, for limited queues, the quota index deadline.
 Messages before the retention start or the delivery cutoff are never delivered.
+
+`release` is true when the queue rejects new messages when full, and the cutoff reaches
+the end of its oldest quota bucket. The quota of the deleted messages can then be released
+with `release_before/3`. Expired messages in a bucket that has not fully expired keep their quota.
 """.
 -spec gc_info(emqx_mq_types:mq(), emqx_ds:slab()) ->
-    skip | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time()}.
+    skip
+    | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time(), release := boolean()}.
 gc_info(MQ, {Shard, _}) ->
     Index = limited_index(MQ, Shard),
     DeleteTill = lists:max([
@@ -443,27 +448,24 @@ gc_info(MQ, {Shard, _}) ->
         0 ->
             skip;
         _ ->
-            ok = maybe_report_expired(MQ, Shard, Index, DeleteTill),
-            #{topic => Topic, cutoff => DeleteTill}
+            #{
+                topic => Topic,
+                cutoff => DeleteTill,
+                release =>
+                    emqx_mq_prop:on_full(MQ) =:= reject andalso
+                    has_expired_buckets(Index, DeleteTill)
+            }
     end.
 
-%% Expired records of reject queues keep their quota until the cleanup pool releases it.
-%% The pool releases whole buckets, so report only when the cutoff reaches the end of the oldest one.
-maybe_report_expired(MQ, Shard, Index, DeleteTill) when Index =/= undefined ->
-    case emqx_mq_prop:on_full(MQ) of
-        reject ->
-            case emqx_mq_quota_index:next_boundary(Index) of
-                Next when is_integer(Next), Next =< DeleteTill ->
-                    _ = emqx_mq_cleanup_worker:report_expired(MQ, Shard, DeleteTill),
-                    ok;
-                _ ->
-                    ok
-            end;
-        evict ->
-            ok
-    end;
-maybe_report_expired(_MQ, _Shard, undefined, _DeleteTill) ->
-    ok.
+%% Whether some quota bucket holds only expired messages: it ends at or before the cutoff.
+%% Only the oldest bucket needs a check. An index with one bucket has no end yet.
+has_expired_buckets(undefined, _Cutoff) ->
+    false;
+has_expired_buckets(Index, Cutoff) ->
+    case emqx_mq_quota_index:next_boundary(Index) of
+        Next when is_integer(Next) -> Next =< Cutoff;
+        undefined -> false
+    end.
 
 -spec regular_db_slab_info() ->
     {ok, #{emqx_ds:slab() => emqx_ds:slab_info()}}
