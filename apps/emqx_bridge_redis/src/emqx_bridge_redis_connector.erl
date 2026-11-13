@@ -26,6 +26,10 @@
     on_format_query_result/1
 ]).
 
+-ifdef(TEST).
+-export([map_batch_result/1]).
+-endif.
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callbacks
 %% -------------------------------------------------------------------------------------------------
@@ -167,7 +171,7 @@ on_batch_query(
                     result => Result
                 }
             ),
-            Result;
+            map_batch_result(Result);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -180,6 +184,14 @@ on_format_query_result({ok, Msg}) ->
     #{result => ok, message => Msg};
 on_format_query_result(Res) ->
     Res.
+
+map_batch_result({ok, Results}) when is_list(Results) ->
+    Results;
+map_batch_result({error, Results}) when is_list(Results) ->
+    Results;
+map_batch_result(Result) ->
+    %% e.g.: {error, {recoverable_error, no_connection}}
+    Result.
 
 %% -------------------------------------------------------------------------------------------------
 %% private helpers

@@ -30,6 +30,10 @@
 
 -export([do_cmd/3]).
 
+-ifdef(TEST).
+-export([map_result/1]).
+-endif.
+
 %% redis host don't need parse
 -define(REDIS_HOST_OPTIONS, #{
     default_port => ?REDIS_DEFAULT_PORT
@@ -319,11 +323,35 @@ do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
                 connector => InstId,
                 query => Query,
                 reason => Reason
-            }),
-            map_error(Reason);
+            });
         _ ->
-            Result
-    end.
+            ok
+    end,
+    map_result(Result).
+
+map_result(Results0) when is_list(Results0) ->
+    {Results, Tag} = lists:mapfoldl(
+        fun(Res0, Tag0) ->
+            case map_result1(Res0) of
+                {error, _} = Res ->
+                    {Res, error};
+                Res ->
+                    {Res, Tag0}
+            end
+        end,
+        ok,
+        Results0
+    ),
+    {Tag, Results};
+map_result(Result) ->
+    map_result1(Result).
+
+map_result1(ok) ->
+    ok;
+map_result1({ok, _} = Result) ->
+    Result;
+map_result1({error, Reason}) ->
+    map_error(Reason).
 
 map_error(Results) when is_list(Results) ->
     [map_error1(R) || R <- Results];
@@ -338,15 +366,23 @@ map_error1(Reason) ->
             {error, {recoverable_error, Reason}}
     end.
 
-is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
-is_unrecoverable_error({error, invalid_cluster_command}) ->
+is_unrecoverable_error({error, {recoverable_error, _}}) ->
+    false;
+is_unrecoverable_error({error, Reason}) ->
+    is_unrecoverable_error(Reason);
+is_unrecoverable_error(<<"ERR unknown command ", _/binary>>) ->
+    true;
+is_unrecoverable_error(invalid_cluster_command) ->
     true;
 is_unrecoverable_error(<<"ERR ", _/binary>>) ->
     true;
 is_unrecoverable_error(<<"WRONGTYPE ", _/binary>>) ->
     true;
 is_unrecoverable_error(<<"NOPERM ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"WRONGPASS ", _/binary>>) ->
     true;
 is_unrecoverable_error(_) ->
     false.

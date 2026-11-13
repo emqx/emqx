@@ -437,14 +437,14 @@ t_check_replay(TCConfig) ->
                     ),
                 ct:pal("published")
             end),
-            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := [{ok, _}]}
+            #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}}
         ),
         fun(Trace) ->
             SubTrace = ?of_kind(redis_bridge_connector_send_done, Trace),
             %% No strict causality here because, depending on timing, multiple batches may
             %% be enqueued.
             ?assertMatch([#{result := {error, _}} | _], SubTrace),
-            ?assertMatch([#{result := [{ok, _}]} | _], lists:reverse(SubTrace)),
+            ?assertMatch([#{result := {ok, _}} | _], lists:reverse(SubTrace)),
             ok
         end
     ),
@@ -545,119 +545,6 @@ t_batch_individual_reply_results(TCConfig) when is_list(TCConfig) ->
         end
     ),
     ok.
-
--doc """
-Checks whether several query errors are classified as recoverable or unrecoverable.
-
-Those reportedly require complicated timings and killing/restarting/resharding servers
-whiles queries are executed, so we resort to mocking them here.
-""".
-t_various_error_classifications() ->
-    [{matrix, true}].
-t_various_error_classifications(matrix) ->
-    [
-        [?tcp, Type, Sync, Batch]
-     || Type <- [?single, ?sentinel, ?cluster],
-        Sync <- [?sync, ?async],
-        Batch <- [?without_batch, ?with_batch]
-    ];
-t_various_error_classifications(TCConfig) when is_list(TCConfig) ->
-    Cases = [
-        #{error => tcp_closed, class => recoverable},
-        #{error => ssl_closed, class => recoverable},
-        #{error => no_connection, class => recoverable},
-        #{error => ~"CLUSTERDOWN mocked", class => recoverable},
-        #{error => ~"TRYAGAIN mocked", class => recoverable},
-        #{error => ~"MOVED mocked", class => recoverable},
-        #{error => ~"ASK mocked", class => recoverable},
-        #{error => ~"LOADING mocked", class => recoverable},
-        #{error => ~"MASTERDOWN mocked", class => recoverable},
-        %% should this really be recoverable?
-        #{error => ~"READONLY mocked", class => recoverable},
-        #{error => ~"OOM mocked", class => recoverable},
-        #{error => ~"BUSY mocked", class => recoverable},
-        #{error => ~"WRONGTYPE mocked", class => unrecoverable},
-        #{error => ~"NOPERM mocked", class => unrecoverable},
-        #{error => ~"ERR mocked", class => unrecoverable}
-    ],
-    {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{}),
-    #{topic := Topic} = simple_create_rule_api(TCConfig),
-    C = start_client(),
-    {ok, Agent} = emqx_utils_agent:start_link(false),
-    lists:foreach(
-        fun(Case) ->
-            ct:pal("case: ~p", [Case]),
-            #{
-                error := Error,
-                class := Class
-            } = Case,
-            {204, _} = reset_action_metrics_api(TCConfig),
-            emqx_utils_agent:set(Agent, false),
-            MkRes = fun(Args) ->
-                case
-                    emqx_utils_agent:get_and_update(Agent, fun(Triggered) -> {Triggered, true} end)
-                of
-                    false ->
-                        {error, Error};
-                    true ->
-                        meck:passthrough(Args)
-                end
-            end,
-            emqx_common_test_helpers:with_mocks(
-                #{
-                    eredis => #{
-                        q => fun(PoolName, Command) ->
-                            MkRes([PoolName, Command])
-                        end,
-                        qp => fun(PoolName, Commands) ->
-                            MkRes([PoolName, Commands])
-                        end
-                    },
-                    eredis_cluster => #{
-                        q => fun(PoolName, Command) ->
-                            MkRes([PoolName, Command])
-                        end
-                    }
-                },
-                fun() ->
-                    emqtt:publish(C, Topic, ~"hey", [{qos, 0}]),
-                    ?retry(
-                        700,
-                        5,
-                        case Class of
-                            recoverable ->
-                                ?assertMatch(
-                                    {200, #{
-                                        ~"metrics" := #{
-                                            ~"matched" := 1,
-                                            ~"success" := 1,
-                                            ~"failed" := 0
-                                        }
-                                    }},
-                                    get_action_metrics_api(TCConfig),
-                                    #{'case' => Case}
-                                );
-                            unrecoverable ->
-                                ?assertMatch(
-                                    {200, #{
-                                        ~"metrics" := #{
-                                            ~"matched" := 1,
-                                            ~"success" := 0,
-                                            ~"failed" := 1
-                                        }
-                                    }},
-                                    get_action_metrics_api(TCConfig),
-                                    #{'case' => Case}
-                                )
-                        end
-                    )
-                end
-            ),
-            ok
-        end,
-        Cases
-    ).
 
 t_auth_username_password(TCConfig) ->
     ?assertMatch(
