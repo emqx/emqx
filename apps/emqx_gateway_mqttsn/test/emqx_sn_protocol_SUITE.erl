@@ -185,16 +185,17 @@ disable_mqttsn_authn() ->
     ok.
 
 add_authz_file_source(Rules) ->
+    {200, Original} = request(get, "/authorization/sources/file"),
     Req = #{
         <<"type">> => <<"file">>,
         <<"enable">> => true,
         <<"rules">> => Rules
     },
-    {204, _} = request(post, "/authorization/sources", Req),
-    ok.
+    {204, _} = request(put, "/authorization/sources/file", Req),
+    Original.
 
-delete_authz_file_source() ->
-    {204, _} = request(delete, "/authorization/sources/file"),
+restore_authz_file_source(Original) ->
+    {204, _} = request(put, "/authorization/sources/file", Original),
     ok.
 
 update_mqttsn_with_mountpoint(Mp) ->
@@ -778,7 +779,7 @@ t_publish_negqos_idle_authn_rejected(_) ->
 t_publish_negqos_idle_authz_denied(_) ->
     Topic = <<"ab">>,
     Payload = <<"idle-negqos-authz-denied">>,
-    ok = add_authz_file_source(<<"{deny, all, publish, [\"ab\"]}.\n{allow, all}.">>),
+    OriginalAuthz = add_authz_file_source(<<"{deny, all, publish, [\"ab\"]}.\n{allow, all}.">>),
     ok = emqx:subscribe(Topic),
     {ok, Socket} = gen_udp:open(0, [binary]),
     try
@@ -799,13 +800,13 @@ t_publish_negqos_idle_authz_denied(_) ->
     after
         gen_udp:close(Socket),
         emqx:unsubscribe(Topic),
-        delete_authz_file_source()
+        restore_authz_file_source(OriginalAuthz)
     end.
 
 t_publish_negqos_idle_authn_authz_allowed(_) ->
     Topic = <<"ab">>,
     Payload = <<"idle-negqos-allowed">>,
-    ok = add_authz_file_source(
+    OriginalAuthz = add_authz_file_source(
         <<
             "{allow, {username, \"user1\"}, {publish, [{qos, 0}, {retain, false}]}, [\"ab\"]}.\n"
             "{deny, all}."
@@ -828,7 +829,7 @@ t_publish_negqos_idle_authn_authz_allowed(_) ->
         gen_udp:close(Socket),
         emqx:unsubscribe(Topic),
         disable_mqttsn_authn(),
-        delete_authz_file_source()
+        restore_authz_file_source(OriginalAuthz)
     end.
 
 t_publish_negqos_idle_disabled(_) ->
