@@ -794,6 +794,415 @@ t_publish_while_client_is_gone(Config) ->
 
     ok = emqtt:disconnect(Client2).
 
+t_negative_pubrec(Config) ->
+    ClientId = ?config(client_id, Config),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 1}},
+        {auto_ack, never}
+        | Config
+    ],
+    {ok, Client1} = emqtt_start_and_connect(ConnFun, [{clean_start, true} | ClientOpts]),
+    try
+        {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, Topic, ?QOS_2),
+        %% Given one inflight message and another waiting for send quota.
+        ok = publish_many(messages(Topic, [<<"rejected">>, <<"accepted">>])),
+        [#{packet_id := RejectedId, payload := <<"rejected">>}] = receive_messages(1),
+        ?assertNotReceive({publish, #{client_pid := Client1}}, 100),
+        %% When the subscriber rejects the first message without sending PUBCOMP.
+        ok = emqtt:pubrec(Client1, RejectedId, ?RC_UNSPECIFIED_ERROR),
+        ?assertEqual(pong, emqtt:ping(Client1)),
+        ?assertNotReceive({pubrel, _}, 100),
+        %% Then its quota is released and the next QoS 2 exchange can complete.
+        [#{packet_id := AcceptedId, payload := <<"accepted">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client1, AcceptedId),
+        ?assertReceive({pubrel, #{packet_id := AcceptedId}}),
+        ok = emqtt:pubcomp(Client1, AcceptedId),
+        ?assertEqual(pong, emqtt:ping(Client1)),
+        ok = disconnect_client(Client1)
+    after
+        catch emqtt:stop(Client1)
+    end,
+    %% When the stored session is reopened, the rejected message must not replay
+    %% as either PUBLISH or PUBREL, and the subscription must still work.
+    maybe_kill_connection_process(ClientId, Config),
+    {ok, Client2} = emqtt_start_and_connect(ConnFun, [{clean_start, false} | ClientOpts]),
+    try
+        ?assertEqual(1, client_info(session_present, Client2)),
+        ok = publish(Topic, <<"after reconnect">>),
+        [#{packet_id := NextId, payload := <<"after reconnect">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client2, NextId),
+        ?assertReceive({pubrel, #{packet_id := NextId}}),
+        ok = emqtt:pubcomp(Client2, NextId),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ?assertEqual([], receive_messages(1, 100)),
+        ok = disconnect_client(Client2)
+    after
+        catch emqtt:stop(Client2)
+    end.
+
+t_negative_pubrec_after_transient(Config) ->
+    case ?config(persistence, Config) of
+        false -> {skip, "Only durable sessions omit transient messages on replay"};
+        ds -> do_t_negative_pubrec_after_transient(Config)
+    end.
+
+do_t_negative_pubrec_after_transient(Config) ->
+    ClientId = ?config(client_id, Config),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 2}},
+        {auto_ack, never}
+        | Config
+    ],
+    {ok, Client1} = emqtt_start_and_connect(ConnFun, [{clean_start, true} | ClientOpts]),
+    RejectedId =
+        try
+            {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, Topic, ?QOS_2),
+            %% A transient delivery consumes a sequence number but is not stored.
+            [Pid] = emqx_cm:lookup_channels(ClientId),
+            Msg = emqx_message:make(<<"test">>, ?QOS_2, Topic, <<"transient">>),
+            Pid ! {deliver, Topic, Msg},
+            [#{payload := <<"transient">>}] = receive_messages(1),
+            ok = publish(Topic, <<"rejected">>),
+            [#{packet_id := Id, payload := <<"rejected">>}] = receive_messages(1),
+            ok = disconnect_client(Client1),
+            Id
+        after
+            catch emqtt:stop(Client1)
+        end,
+    maybe_kill_connection_process(ClientId, Config),
+    {ok, Client2} = emqtt_start_and_connect(ConnFun, [{clean_start, false} | ClientOpts]),
+    try
+        %% Replay omits the transient message, leaving a gap before this PUBLISH.
+        [#{packet_id := RejectedId, payload := <<"rejected">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client2, RejectedId, ?RC_UNSPECIFIED_ERROR),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ?assertNotReceive({pubrel, _}, 100),
+        %% Rejecting the oldest remaining exchange must unblock the next batch.
+        ok = publish(Topic, <<"after rejection">>),
+        [#{packet_id := NextId, payload := <<"after rejection">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client2, NextId),
+        ?assertReceive({pubrel, #{packet_id := NextId}}),
+        ok = emqtt:pubcomp(Client2, NextId),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ok = disconnect_client(Client2)
+    after
+        catch emqtt:stop(Client2)
+    end.
+
+t_negative_pubrec_with_pending_pubcomp(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    {ok, Client} = emqtt_start_and_connect(ConnFun, [
+        {proto_ver, v5},
+        {clientid, ?config(client_id, Config)},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 2}},
+        {auto_ack, never},
+        {clean_start, true}
+        | Config
+    ]),
+    try
+        RejectedTopic = <<Topic/binary, "/rejected">>,
+        QueuedTopic = <<Topic/binary, "/queued">>,
+        lists:foreach(
+            fun(T) -> {ok, _, [?QOS_2]} = emqtt:subscribe(Client, T, ?QOS_2) end,
+            [Topic, RejectedTopic, QueuedTopic]
+        ),
+        %% Independent streams let the third message wait for send quota even
+        %% if DS returns each publication in a separate batch.
+        ok = publish(Topic, <<"pending">>),
+        [#{packet_id := PendingId, payload := <<"pending">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client, PendingId),
+        ?assertReceive({pubrel, #{packet_id := PendingId}}),
+        ok = publish(RejectedTopic, <<"rejected">>),
+        [#{packet_id := RejectedId, payload := <<"rejected">>}] = receive_messages(1),
+        ok = publish(QueuedTopic, <<"queued">>),
+        ?assertNotReceive({publish, #{client_pid := Client}}, 100),
+        %% When the second message is rejected while the first awaits PUBCOMP.
+        ok = emqtt:pubrec(Client, RejectedId, ?RC_QUOTA_EXCEEDED),
+        ?assertEqual(pong, emqtt:ping(Client)),
+        ?assertNotReceive({pubrel, _}, 100),
+        %% Then rejection releases quota independently of the earlier exchange.
+        {publish, #{packet_id := QueuedId}} = ?assertReceive(
+            {publish, #{client_pid := Client, payload := <<"queued">>, packet_id := _}},
+            3000
+        ),
+        %% Completing the earlier exchange must not cause the rejected message
+        %% to reappear as a PUBREL.
+        ok = emqtt:pubcomp(Client, PendingId),
+        ?assertEqual(pong, emqtt:ping(Client)),
+        ?assertNotReceive({pubrel, _}, 100),
+        ok = emqtt:pubrec(Client, QueuedId),
+        ?assertReceive({pubrel, #{packet_id := QueuedId}}),
+        ok = emqtt:pubcomp(Client, QueuedId),
+        ?assertEqual(pong, emqtt:ping(Client)),
+        ok = disconnect_client(Client)
+    after
+        catch emqtt:stop(Client)
+    end.
+
+t_negative_pubrec_pending_reconnect(Config) ->
+    ClientId = ?config(client_id, Config),
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    ClientOpts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => 2}},
+        {auto_ack, never}
+        | Config
+    ],
+    {ok, Client1} = emqtt_start_and_connect(ConnFun, [{clean_start, true} | ClientOpts]),
+    PendingId =
+        try
+            {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, Topic, ?QOS_2),
+            %% Given one accepted exchange followed by two rejected messages.
+            ok = publish(Topic, <<"pending">>),
+            [#{packet_id := Id1, qos := ?QOS_2}] = receive_messages(1),
+            ok = emqtt:pubrec(Client1, Id1),
+            ?assertReceive({pubrel, #{packet_id := Id1}}),
+            %% Separate subscriptions avoid depending on DS batch boundaries:
+            %% the first stream remains blocked until its PUBCOMP arrives.
+            lists:foreach(
+                fun({Suffix, ReasonCode}) ->
+                    RejectedTopic = <<Topic/binary, "/", Suffix/binary>>,
+                    {ok, _, [?QOS_2]} = emqtt:subscribe(Client1, RejectedTopic, ?QOS_2),
+                    ok = publish(RejectedTopic, <<"rejected">>),
+                    [#{packet_id := Id, qos := ?QOS_2}] = receive_messages(1),
+                    ok = emqtt:pubrec(Client1, Id, ReasonCode)
+                end,
+                [{<<"reject1">>, ?RC_UNSPECIFIED_ERROR}, {<<"reject2">>, ?RC_QUOTA_EXCEEDED}]
+            ),
+            ?assertEqual(pong, emqtt:ping(Client1)),
+            ?assertNotReceive({pubrel, _}, 100),
+            ok = disconnect_client(Client1),
+            Id1
+        after
+            catch emqtt:stop(Client1)
+        end,
+    %% When the session is restored before the first PUBCOMP arrives, only the
+    %% accepted exchange may replay. The rejections must survive the checkpoint.
+    maybe_kill_connection_process(ClientId, Config),
+    {ok, Client2} = emqtt_start_and_connect(ConnFun, [{clean_start, false} | ClientOpts]),
+    try
+        ?assertEqual(1, client_info(session_present, Client2)),
+        ?assertMatch([{pubrel, #{packet_id := PendingId}}], receive_messages(2, 1000)),
+        ok = emqtt:pubcomp(Client2, PendingId),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        %% Completing that exchange must also advance past both rejections.
+        case ?config(persistence, Config) of
+            ds ->
+                #{s := State} = emqx_cth_broker:connection_info({channel, session_state}, Client2),
+                ?assertEqual(#{}, emqx_persistent_session_ds_state:get_qos2_rejected(State));
+            false ->
+                ok
+        end,
+        ok = publish(Topic, <<"after reconnect">>),
+        [#{packet_id := NextId, payload := <<"after reconnect">>}] = receive_messages(1),
+        ok = emqtt:pubrec(Client2, NextId),
+        ?assertReceive({pubrel, #{packet_id := NextId}}),
+        ok = emqtt:pubcomp(Client2, NextId),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ?assertEqual([], receive_messages(1, 100)),
+        ok = disconnect_client(Client2)
+    after
+        catch emqtt:stop(Client2)
+    end.
+
+-doc "Reconcile saved rejections when reconnect omits all earlier transient exchanges.".
+t_negative_pubrec_transient_reconnect(Config) ->
+    rejected_transient_reconnect(false, Config).
+
+-doc "Reconcile saved rejections after a surviving exchange completes across a transient gap.".
+t_negative_pubrec_surviving_reconnect(Config) ->
+    rejected_transient_reconnect(true, Config).
+
+rejected_transient_reconnect(Survives, Config) ->
+    case ?config(persistence, Config) of
+        false -> {skip, requires_persistent_session};
+        ds -> do_rejected_transient_reconnect(Survives, Config)
+    end.
+
+do_rejected_transient_reconnect(Survives, Config) ->
+    Topic = ?config(topic, Config),
+    RejectedTopics = [<<Topic/binary, "/reject1">>, <<Topic/binary, "/reject2">>],
+    Client1 = rejection_test_client(true, 4, Config),
+    PendingId =
+        try
+            subscribe_rejection_topics(Client1, [Topic | RejectedTopics]),
+            Pending =
+                case Survives of
+                    true ->
+                        ok = publish(Topic, <<"pending">>),
+                        [#{packet_id := Id}] = receive_messages(1),
+                        accept_qos2(Client1, Id),
+                        Id;
+                    false ->
+                        undefined
+                end,
+            [Pid] = emqx_cm:lookup_channels(?config(client_id, Config)),
+            lists:foreach(
+                fun(RejectedTopic) ->
+                    Msg = emqx_message:make(<<"test">>, ?QOS_2, Topic, <<"transient">>),
+                    Pid ! {deliver, Topic, Msg},
+                    [#{packet_id := TransientId, payload := <<"transient">>}] = receive_messages(1),
+                    accept_qos2(Client1, TransientId),
+                    ok = publish(RejectedTopic, <<"rejected">>),
+                    [#{packet_id := RejectedId}] = receive_messages(1),
+                    ok = emqtt:pubrec(Client1, RejectedId, ?RC_UNSPECIFIED_ERROR)
+                end,
+                RejectedTopics
+            ),
+            ?assertEqual(pong, emqtt:ping(Client1)),
+            ?assertEqual(2, map_size(saved_rejections(Client1))),
+            ok = disconnect_client(Client1),
+            Pending
+        after
+            catch emqtt:stop(Client1)
+        end,
+    maybe_kill_connection_process(?config(client_id, Config), Config),
+    Client2 = rejection_test_client(false, 4, Config),
+    try
+        ?assertEqual(1, client_info(session_present, Client2)),
+        case Survives of
+            true ->
+                ?assertMatch([{pubrel, #{packet_id := PendingId}}], receive_messages(2, 500)),
+                ?assertEqual(2, map_size(saved_rejections(Client2)));
+            false ->
+                ?assertEqual([], receive_messages(1, 100)),
+                ?assertEqual(#{}, saved_rejections(Client2))
+        end,
+        [ok = publish(T, <<"after reconnect">>) || T <- RejectedTopics],
+        case Survives of
+            true ->
+                ?assertEqual([], receive_messages(1, 100)),
+                ok = emqtt:pubcomp(Client2, PendingId);
+            false ->
+                ok
+        end,
+        complete_rejection_test_messages(Client2, 2),
+        ?assertEqual(#{}, saved_rejections(Client2)),
+        ok = disconnect_client(Client2)
+    after
+        catch emqtt:stop(Client2)
+    end,
+    maybe_kill_connection_process(?config(client_id, Config), Config),
+    Client3 = rejection_test_client(false, 4, Config),
+    try
+        ?assertEqual([], receive_messages(1, 100)),
+        ?assertEqual(#{}, saved_rejections(Client3)),
+        [ok = publish(T, <<"after checkpoint">>) || T <- RejectedTopics],
+        complete_rejection_test_messages(Client3, 2),
+        ok = disconnect_client(Client3)
+    after
+        catch emqtt:stop(Client3)
+    end.
+
+-doc "A rejection after a replayed PUBCOMP cannot create extra send quota.".
+t_negative_pubrec_replayed_quota(Config) ->
+    case ?config(persistence, Config) of
+        false -> {skip, requires_persistent_session};
+        ds -> negative_pubrec_replayed_quota(Config)
+    end.
+
+negative_pubrec_replayed_quota(Config) ->
+    Topic = ?config(topic, Config),
+    Topics = [<<Topic/binary, "/", N>> || N <- lists:seq($1, $5)],
+    [Old1, Old2, Rejected, Next1, Next2] = Topics,
+    Client1 = rejection_test_client(true, 2, Config),
+    [Id1, Id2] =
+        try
+            subscribe_rejection_topics(Client1, Topics),
+            Ids = lists:map(
+                fun(T) ->
+                    ok = publish(T, <<"pending">>),
+                    [#{packet_id := Id}] = receive_messages(1),
+                    accept_qos2(Client1, Id),
+                    Id
+                end,
+                [Old1, Old2]
+            ),
+            ok = disconnect_client(Client1),
+            Ids
+        after
+            catch emqtt:stop(Client1)
+        end,
+    maybe_kill_connection_process(?config(client_id, Config), Config),
+    Client2 = rejection_test_client(false, 1, Config),
+    try
+        ?assertMatch(
+            [{pubrel, #{packet_id := Id1}}, {pubrel, #{packet_id := Id2}}], receive_messages(2)
+        ),
+        ok = publish(Rejected, <<"rejected">>),
+        [#{packet_id := RejectedId}] = receive_messages(1),
+        ok = emqtt:pubcomp(Client2, Id1),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ok = emqtt:pubrec(Client2, RejectedId, ?RC_UNSPECIFIED_ERROR),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        #{inflight := Inflight} = emqx_cth_broker:connection_info(
+            {channel, session_state}, Client2
+        ),
+        ?assertEqual(0, emqx_persistent_session_ds_inflight:n_inflight(Inflight)),
+        ok = publish(Next1, <<"next">>),
+        ok = publish(Next2, <<"next">>),
+        [#{packet_id := NextId1}] = receive_messages(2, 500),
+        ok = emqtt:pubcomp(Client2, Id2),
+        [#{packet_id := NextId2}] = receive_messages(1),
+        lists:foreach(
+            fun(Id) ->
+                accept_qos2(Client2, Id),
+                ok = emqtt:pubcomp(Client2, Id)
+            end,
+            [NextId1, NextId2]
+        ),
+        ?assertEqual(pong, emqtt:ping(Client2)),
+        ok = disconnect_client(Client2)
+    after
+        catch emqtt:stop(Client2)
+    end.
+
+rejection_test_client(CleanStart, ReceiveMaximum, Config) ->
+    {ok, Client} = emqtt_start_and_connect(?config(conn_fun, Config), [
+        {proto_ver, v5},
+        {clientid, ?config(client_id, Config)},
+        {properties, #{'Session-Expiry-Interval' => 30, 'Receive-Maximum' => ReceiveMaximum}},
+        {auto_ack, never},
+        {clean_start, CleanStart}
+        | Config
+    ]),
+    Client.
+
+subscribe_rejection_topics(Client, Topics) ->
+    lists:foreach(fun(T) -> {ok, _, [?QOS_2]} = emqtt:subscribe(Client, T, ?QOS_2) end, Topics).
+
+accept_qos2(Client, Id) ->
+    ok = emqtt:pubrec(Client, Id),
+    ?assertReceive({pubrel, #{packet_id := Id}}),
+    ok.
+
+saved_rejections(Client) ->
+    #{s := State} = emqx_cth_broker:connection_info({channel, session_state}, Client),
+    emqx_persistent_session_ds_state:get_qos2_rejected(State).
+
+complete_rejection_test_messages(Client, Count) ->
+    Messages = receive_messages(Count),
+    ?assertEqual(Count, length(Messages)),
+    lists:foreach(
+        fun(#{packet_id := Id}) ->
+            accept_qos2(Client, Id),
+            ok = emqtt:pubcomp(Client, Id)
+        end,
+        Messages
+    ),
+    ?assertEqual(pong, emqtt:ping(Client)).
+
 t_publish_many_while_client_is_gone(Config) ->
     %% A persistent session should receive all of the still unacked messages
     %% for its subscriptions after the client dies or reconnects, in addition
