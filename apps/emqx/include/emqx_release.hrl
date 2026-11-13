@@ -32,7 +32,7 @@
 %% `apps/emqx/src/bpapi/README.md'
 
 %% Opensource edition
--define(EMQX_RELEASE_CE, "5.8.11").
+-define(EMQX_RELEASE_CE, "5.8.12-rc.1").
 
 %% Enterprise edition
--define(EMQX_RELEASE_EE, "5.8.11").
+-define(EMQX_RELEASE_EE, "5.8.12-rc.1").
