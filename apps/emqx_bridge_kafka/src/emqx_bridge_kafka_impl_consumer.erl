@@ -425,6 +425,13 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
             {ok, SourceState};
         false ->
             case emqx_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
+                {ok, undefined} ->
+                    ?tp(
+                        info,
+                        "kafka_consumer_waiting_for_node_ready",
+                        #{resource_id => SourceResId, subscriber_id => SubscriberId}
+                    ),
+                    {ok, SourceState};
                 {ok, _ConsumerPid} ->
                     ?tp(
                         kafka_consumer_subscriber_started,
@@ -538,6 +545,13 @@ get_subscriber_status(SubscriberId) ->
     case get_group_subscriber(SubscriberId) of
         false ->
             {?status_connecting, <<"Subscriber workers restarting">>};
+        not_started ->
+            case emqx_node_readiness:is_ready() of
+                false ->
+                    {?status_connecting, <<"Waiting for the node to be ready">>};
+                true ->
+                    {?status_connecting, <<"Subscriber workers restarting">>}
+            end;
         Pid when is_pid(Pid) ->
             case brod_group_subscriber_v2:health_check(Pid, ?CONSUMER_GROUP_HEALTHCHECK_TIMEOUT) of
                 healthy ->
@@ -549,14 +563,16 @@ get_subscriber_status(SubscriberId) ->
             end
     end.
 
-%% Returns 'false' if failed to find the group subscriber.
-%% Otherwise the pid.
+%% Returns 'false' if failed to find the group subscriber, 'not_started' if it
+%% has no process, and the pid otherwise.
 get_group_subscriber(SubscriberId) ->
     try
         Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
         case lists:keyfind(SubscriberId, 1, Children) of
             {_, Pid, _, _} when is_pid(Pid) ->
                 Pid;
+            {_, undefined, _, _} ->
+                not_started;
             _ ->
                 false
         end
