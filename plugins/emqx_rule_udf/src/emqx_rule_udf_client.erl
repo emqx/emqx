@@ -1,14 +1,14 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_rsf_client).
+-module(emqx_rule_udf_client).
 
 -moduledoc """
-Client of an emqx-rsf/1 function server (see `PROTOCOL.md`).
+Client of an emqx-rule-udf/1 function server (see `PROTOCOL.md`).
 
 `call/2` and `try_call/2` are the hot path. They run in the process that
 evaluates the rule. They read the client settings from `persistent_term` and the
-program from `emqx_rsf_store`, and send `POST /v1/functions/{name}/call` through
+program from `emqx_rule_udf_store`, and send `POST /v1/functions/{name}/call` through
 an `ehttpc` pool.
 
 The `gen_server` owns the HTTP pool, which it restarts when the plugin config
@@ -34,9 +34,9 @@ same reply cause one upload.
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
--include("emqx_rsf.hrl").
+-include("emqx_rule_udf.hrl").
 
--define(POOL, emqx_rsf_http).
+-define(POOL, emqx_rule_udf_http).
 -define(PT_CLIENT, {?MODULE, client}).
 -define(UPLOAD_CALL_TIMEOUT, 30_000).
 -define(DEFAULT_URL, <<"http://127.0.0.1:8080">>).
@@ -59,7 +59,7 @@ fails, so the rule fails for this message and the broker continues.
 call(Name, Args) ->
     case try_call(Name, Args) of
         {ok, Result} -> Result;
-        {error, Reason} -> error({rsf_call_failed, Name, Reason})
+        {error, Reason} -> error({udf_call_failed, Name, Reason})
     end.
 
 -spec try_call(binary(), [term()]) -> {ok, term()} | {error, map()}.
@@ -78,7 +78,7 @@ client() ->
     end.
 
 lookup(Name) ->
-    case emqx_rsf_store:lookup(Name) of
+    case emqx_rule_udf_store:lookup(Name) of
         {ok, _} = Ok -> Ok;
         {error, not_found} -> {error, #{reason => program_not_found}}
     end.
@@ -107,7 +107,7 @@ call_with_reupload(Client, Name, Sha256, Body) ->
 
 do_call(Client, Name, Sha256, Body) ->
     Path = [<<"/v1/functions/">>, Name, <<"/call">>],
-    Headers = [{<<"rsf-function-sha256">>, Sha256}],
+    Headers = [{<<"udf-function-sha256">>, Sha256}],
     case request(Client, post, Path, Headers, Body) of
         {ok, 200, #{<<"result">> := Result}} ->
             {ok, Result};
@@ -199,7 +199,7 @@ server_info() ->
         {ok, Info}
     end.
 
--doc "Return the emqx-rsf/1 version of a program (`PROTOCOL.md`, section 4).".
+-doc "Return the emqx-rule-udf/1 version of a program (`PROTOCOL.md`, section 4).".
 -spec version(binary(), binary()) -> binary().
 version(Runtime, Source) ->
     binary:encode_hex(crypto:hash(sha256, [Runtime, $\n, Source]), lowercase).
@@ -215,7 +215,7 @@ init([]) ->
         {ok, NewState} ->
             {ok, NewState};
         {error, Reason} ->
-            ?LOG(error, #{msg => "rsf_bad_plugin_config", reason => Reason}),
+            ?LOG(error, #{msg => "udf_bad_plugin_config", reason => Reason}),
             {ok, State}
     end.
 
@@ -248,7 +248,7 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 
 load_plugin_config() ->
-    {ok, Vsn} = application:get_key(emqx_rsf, vsn),
+    {ok, Vsn} = application:get_key(emqx_rule_udf, vsn),
     NameVsn = iolist_to_binary([?PLUGIN_NAME, "-", Vsn]),
     try
         emqx_plugins:get_config(NameVsn, #{})
@@ -356,14 +356,14 @@ do_ensure_uploaded(Name, Sha256, FailedAt, #{uploaded := Uploaded} = State) ->
     end.
 
 upload_stored(Name, Sha256) ->
-    case emqx_rsf_store:lookup(Name) of
+    case emqx_rule_udf_store:lookup(Name) of
         {ok, #?PROGRAM_TAB{sha256 = Sha256, runtime = Runtime, source = Source}} ->
             case do_upload(Name, Runtime, Source) of
                 {ok, _} ->
                     ok;
                 {error, Reason} = Error ->
                     ?LOG(warning, #{
-                        msg => "rsf_program_upload_failed", name => Name, reason => Reason
+                        msg => "udf_program_upload_failed", name => Name, reason => Reason
                     }),
                     Error
             end;

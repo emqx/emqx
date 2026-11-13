@@ -38,7 +38,7 @@ def _load():
     req = json.loads(line)
     name = req["name"]
     code = compile(req["source"], "<function:%s>" % name, "exec")
-    namespace = {"__name__": "rsf_function_" + name}
+    namespace = {"__name__": "udf_function_" + name}
     exec(code, namespace)
     handle = namespace.get("handle")
     if not callable(handle):

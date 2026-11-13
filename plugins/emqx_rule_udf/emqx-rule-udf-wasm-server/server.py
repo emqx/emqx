@@ -1,6 +1,6 @@
-"""emqx-rsf-wasm-server: an emqx-rsf/1 function server with a WebAssembly sandbox.
+"""emqx-rule-udf-wasm-server: an emqx-rule-udf/1 function server with a WebAssembly sandbox.
 
-It implements the protocol in `apps/emqx_rsf/PROTOCOL.md` for the `python3`
+It implements the protocol in `plugins/emqx_rule_udf/PROTOCOL.md` for the `python3`
 runtime. Each function is a Python snippet that defines `handle(*args)`. The server runs
 each function in its own pool of `wasmtime` processes. Each process runs CPython
 compiled to wasm32-wasip1. The guest gets no environment variables, no network,
@@ -31,11 +31,11 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-LOG = logging.getLogger("emqx-rsf-wasm-server")
+LOG = logging.getLogger("emqx-rule-udf-wasm-server")
 
-SERVER_NAME = "emqx-rsf-wasm-server"
+SERVER_NAME = "emqx-rule-udf-wasm-server"
 SERVER_VERSION = "0.1.0"
-PROTOCOL = "emqx-rsf/1"
+PROTOCOL = "emqx-rule-udf/1"
 RUNTIME = "python3"
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}\Z")
@@ -86,31 +86,31 @@ def _env_int(name, default):
 
 class Config:
     def __init__(self):
-        self.listen = os.environ.get("RSF_LISTEN", "0.0.0.0:8080")
-        self.token = os.environ.get("RSF_TOKEN", "")
-        self.insecure_no_auth = os.environ.get("RSF_INSECURE_NO_AUTH") == "1"
-        self.wasmtime = os.environ.get("RSF_WASMTIME", "/opt/rsf/bin/wasmtime")
+        self.listen = os.environ.get("UDF_LISTEN", "0.0.0.0:8080")
+        self.token = os.environ.get("UDF_TOKEN", "")
+        self.insecure_no_auth = os.environ.get("UDF_INSECURE_NO_AUTH") == "1"
+        self.wasmtime = os.environ.get("UDF_WASMTIME", "/opt/udf/bin/wasmtime")
         self.python_wasm = os.environ.get(
-            "RSF_PYTHON_WASM", "/opt/rsf/python/python.wasm"
+            "UDF_PYTHON_WASM", "/opt/udf/python/python.wasm"
         )
-        self.python_lib = os.environ.get("RSF_PYTHON_LIB", "/opt/rsf/python/lib")
+        self.python_lib = os.environ.get("UDF_PYTHON_LIB", "/opt/udf/python/lib")
         self.python_cwasm_prebuilt = os.environ.get(
-            "RSF_PYTHON_CWASM", "/opt/rsf/python/python.cwasm"
+            "UDF_PYTHON_CWASM", "/opt/udf/python/python.cwasm"
         )
-        self.cache_dir = os.environ.get("RSF_CACHE_DIR", "/tmp/rsf-cache")
-        self.pool_size = _env_int("RSF_POOL_SIZE", 2)
-        self.call_timeout = _env_int("RSF_CALL_TIMEOUT_MS", 1000) / 1000
-        self.load_timeout = _env_int("RSF_LOAD_TIMEOUT_MS", 10000) / 1000
-        self.max_memory = _env_int("RSF_MAX_MEMORY_MB", 128) * 1024 * 1024
-        self.max_source = _env_int("RSF_MAX_SOURCE_BYTES", 64 * 1024)
-        self.max_request = _env_int("RSF_MAX_REQUEST_BYTES", 1024 * 1024)
-        self.max_response = _env_int("RSF_MAX_RESPONSE_BYTES", 1024 * 1024)
-        self.max_functions = _env_int("RSF_MAX_FUNCTIONS", 64)
-        self.max_calls_per_worker = _env_int("RSF_MAX_CALLS_PER_WORKER", 10000)
+        self.cache_dir = os.environ.get("UDF_CACHE_DIR", "/tmp/udf-cache")
+        self.pool_size = _env_int("UDF_POOL_SIZE", 2)
+        self.call_timeout = _env_int("UDF_CALL_TIMEOUT_MS", 1000) / 1000
+        self.load_timeout = _env_int("UDF_LOAD_TIMEOUT_MS", 10000) / 1000
+        self.max_memory = _env_int("UDF_MAX_MEMORY_MB", 128) * 1024 * 1024
+        self.max_source = _env_int("UDF_MAX_SOURCE_BYTES", 64 * 1024)
+        self.max_request = _env_int("UDF_MAX_REQUEST_BYTES", 1024 * 1024)
+        self.max_response = _env_int("UDF_MAX_RESPONSE_BYTES", 1024 * 1024)
+        self.max_functions = _env_int("UDF_MAX_FUNCTIONS", 64)
+        self.max_calls_per_worker = _env_int("UDF_MAX_CALLS_PER_WORKER", 10000)
         here = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(here, "guest_runner.py"), encoding="utf-8") as f:
             self.runner_source = f.read()
-        self.python_version = os.environ.get("RSF_PYTHON_VERSION", "")
+        self.python_version = os.environ.get("UDF_PYTHON_VERSION", "")
         self.python_cwasm = None
 
 
@@ -132,7 +132,7 @@ class ApiError(Exception):
 
 
 def version(runtime, source):
-    """Return the emqx-rsf/1 version of a function: see PROTOCOL.md, section 4."""
+    """Return the emqx-rule-udf/1 version of a function: see PROTOCOL.md, section 4."""
     data = runtime.encode("utf-8") + b"\n" + source.encode("utf-8")
     return hashlib.sha256(data).hexdigest()
 
@@ -683,7 +683,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(args, list):
             raise ApiError(HTTPStatus.BAD_REQUEST, "BAD_REQUEST", "'args' must be a list")
         fn = REGISTRY.get(name)
-        want = self.headers.get("RSF-Function-Sha256")
+        want = self.headers.get("UDF-Function-Sha256")
         if want is not None and want != fn.sha256:
             raise ApiError(
                 HTTPStatus.CONFLICT,
@@ -777,7 +777,7 @@ def main():
     )
     CONF = Config()
     if not CONF.token and not CONF.insecure_no_auth:
-        LOG.error("RSF_TOKEN is not set. Set it, or set RSF_INSECURE_NO_AUTH=1.")
+        LOG.error("UDF_TOKEN is not set. Set it, or set UDF_INSECURE_NO_AUTH=1.")
         sys.exit(2)
     CONF.python_cwasm = prepare_python_cwasm()
     host, port = CONF.listen.rsplit(":", 1)

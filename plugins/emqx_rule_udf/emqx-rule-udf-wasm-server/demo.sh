@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Walk through the emqx-rsf/1 protocol (apps/emqx_rsf/PROTOCOL.md) with curl.
+# Walk through the emqx-rule-udf/1 protocol (plugins/emqx_rule_udf/PROTOCOL.md) with curl.
 # Needs curl and jq.
 #
-#   docker run -d --name emqx-rsf-demo -p 127.0.0.1:18480:8080 -e RSF_TOKEN=demo-token \
-#     --read-only --cap-drop ALL --security-opt no-new-privileges emqx-rsf-wasm-server:dev
+#   docker run -d --name emqx-rule-udf-demo -p 127.0.0.1:18480:8080 -e UDF_TOKEN=demo-token \
+#     --read-only --cap-drop ALL --security-opt no-new-privileges emqx-rule-udf-wasm-server:dev
 #   ./demo.sh
 
 set -euo pipefail
 
-URL="${RSF_URL:-http://127.0.0.1:18480}"
-TOKEN="${RSF_TOKEN:-demo-token}"
+URL="${UDF_URL:-http://127.0.0.1:18480}"
+TOKEN="${UDF_TOKEN:-demo-token}"
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
 
 step() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
@@ -53,8 +53,8 @@ EOF
 PAYLOAD=$(printf '{"id":"dev-1","temp_c":21.5}' | base64 -w0)
 show "${AUTH[@]}" -d "{\"args\": [\"${PAYLOAD}\"]}" "${URL}/v1/functions/temp_f/call"
 
-step "6. Pin the version: a call with a stale RSF-Function-Sha256 fails with 409"
-show "${AUTH[@]}" -H 'RSF-Function-Sha256: 0000' -d '{"args": ["x"]}' \
+step "6. Pin the version: a call with a stale UDF-Function-Sha256 fails with 409"
+show "${AUTH[@]}" -H 'UDF-Function-Sha256: 0000' -d '{"args": ["x"]}' \
   "${URL}/v1/functions/str_upper/call"
 
 step "7. The check rejects a disallowed import: INVALID_SOURCE (feedback only, not the sandbox)"

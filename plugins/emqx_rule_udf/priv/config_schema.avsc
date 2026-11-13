@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "EmqxRsfConfigSchema",
+  "name": "EmqxRuleUdfConfigSchema",
   "fields": [
     {
       "name": "server",
