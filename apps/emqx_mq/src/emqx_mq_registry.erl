@@ -501,7 +501,7 @@ validate_policy(MQ) ->
         reject ->
             #{limits := Limits} = MQ,
             maybe
-                ok ?= emqx_mq_schema:validate_limits(Limits),
+                ok ?= check_finite_limit(Limits),
                 check_cluster_upgraded()
             end
     end.
@@ -777,6 +777,12 @@ mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Ke
             limits => Limits
         }
     }.
+
+%% A reject queue needs a limit to reject at.
+check_finite_limit(#{max_shard_message_count := infinity, max_shard_message_bytes := infinity}) ->
+    {error, on_full_reject_requires_finite_limit};
+check_finite_limit(_Limits) ->
+    ok.
 
 validate_policy_update(MQ, Update) ->
     case emqx_mq_prop:on_full(MQ) =:= emqx_mq_prop:on_full(Update) of
