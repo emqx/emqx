@@ -14,8 +14,7 @@
     mq_sctype_api_get/0,
     mq_sctype_api_put/0,
     mq_sctype_api_post/0,
-    validate_name/1,
-    validate_limits/1
+    validate_name/1
 ]).
 
 %%------------------------------------------------------------------------------
@@ -365,6 +364,8 @@ compile_variform(Expression, _Opts) ->
             throw(#{expression => Expression, reason => Reason})
     end.
 
+%% HOCON passes the checked struct with converted values. The keys are binaries when the config
+%% is checked, and atoms when the REST API checks a queue with `atom_key => true`.
 validate_limits(#{
     <<"on_full">> := reject,
     <<"max_shard_message_count">> := infinity,
