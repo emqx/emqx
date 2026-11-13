@@ -655,6 +655,91 @@ stats(Times) ->
         p99 => lists:nth(length(Times) * 99 div 100, Sorted)
     }.
 
+%% Check a reject queue under 30 seconds of publishing and consumption.
+%% The consumer is slower than the publisher, so the queue fills and rejects messages.
+%% The queue passes several times its limits in count and in bytes, delivers every accepted
+%% message, and ends with at most two charged buckets.
+t_long_publish_consume(_Config) ->
+    MessageBytes = byte_size(emqx_mq_message_db:encode_message(message(long_payload(0)))),
+    MaxCount = 20,
+    MaxBytes = 15 * MessageBytes,
+    MQ = queue(#{max_shard_message_count => MaxCount, max_shard_message_bytes => MaxBytes}),
+    Self = self(),
+    Consumer = spawn_link(fun() ->
+        C = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+        ok = emqx_mq_test_utils:emqtt_sub_mq(C, <<"capped">>),
+        Self ! consumer_ready,
+        slow_consume(Self)
+    end),
+    receive
+        consumer_ready -> ok
+    after 10000 -> error(consumer_timeout)
+    end,
+    Deadline = erlang:monotonic_time(millisecond) + 30000,
+    _ = spawn_link(fun() -> Self ! {published, publish_until(MQ, Deadline, 0, [], 0)} end),
+    {Accepted, Rejected} =
+        receive
+            {published, Result} -> Result
+        after 60000 -> error(publisher_timeout)
+        end,
+    ct:pal("Accepted: ~p, rejected: ~p", [length(Accepted), Rejected]),
+    %% The limits were reached, and the queue took several times its limits
+    ?assert(Rejected > 0),
+    ?assert(length(Accepted) >= 5 * MaxCount),
+    ?assert(length(Accepted) * MessageBytes >= 5 * MaxBytes),
+    %% Every accepted message is delivered. Redelivered duplicates are allowed
+    ?assertEqual([], wait_payloads(sets:from_list(Accepted, [{version, 2}]))),
+    %% Quota was released many times
+    ?assert(length(?of_kind(mq_cleanup_released, snabbkaffe:collect_trace(0))) >= 10),
+    %% The consumed queue is not blocked once cleanup processes the last reports
+    ct:pal("Occupancy after consumption: ~p", [occupancy(MQ)]),
+    ?retry(50, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"after">>)))),
+    ?assertMatch({ok, #{buckets := Buckets}} when Buckets =< 2, occupancy(MQ)),
+    unlink(Consumer),
+    exit(Consumer, kill).
+
+%% Acknowledge each delivery after a delay, and forward its payload to the test process.
+slow_consume(Test) ->
+    receive
+        {publish, #{payload := Payload, client_pid := Client, packet_id := PacketId}} ->
+            timer:sleep(100),
+            ok = emqtt:puback(Client, PacketId),
+            Test ! {consumed, Payload},
+            slow_consume(Test)
+    end.
+
+publish_until(MQ, Deadline, N, Accepted, Rejected) ->
+    case erlang:monotonic_time(millisecond) >= Deadline of
+        true ->
+            {Accepted, Rejected};
+        false ->
+            Payload = long_payload(N),
+            case emqx_mq_message_db:insert(MQ, message(Payload)) of
+                ok ->
+                    publish_until(MQ, Deadline, N + 1, [Payload | Accepted], Rejected);
+                {error, queue_full} ->
+                    timer:sleep(5),
+                    publish_until(MQ, Deadline, N, Accepted, Rejected + 1)
+            end
+    end.
+
+long_payload(N) ->
+    <<N:64, (binary:copy(<<0>>, 100))/binary>>.
+
+%% Receive consumed payloads until every expected one arrives. Return the payloads that did not arrive.
+wait_payloads(Pending) ->
+    case sets:is_empty(Pending) of
+        true ->
+            [];
+        false ->
+            receive
+                {consumed, Payload} ->
+                    wait_payloads(sets:del_element(Payload, Pending))
+            after 10000 ->
+                sets:to_list(Pending)
+            end
+    end.
+
 queue(Limits) ->
     queue(Limits, #{}).
 
