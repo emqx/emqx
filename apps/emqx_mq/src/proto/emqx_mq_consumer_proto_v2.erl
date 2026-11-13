@@ -25,6 +25,6 @@ The static checks announce only API modules that make an RPC call, so this versi
 introduced_in() ->
     "7.0.0".
 
--spec mq_supported(node()) -> emqx_mq_consumer:supported().
+-spec mq_supported(node()) -> emqx_mq_consumer:supported_v2().
 mq_supported(Node) ->
     erpc:call(Node, emqx_mq_consumer, supported_v2, []).

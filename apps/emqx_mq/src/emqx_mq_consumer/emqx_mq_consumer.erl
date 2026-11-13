@@ -59,10 +59,12 @@ Consumer's responsibilities:
     global_name/1
 ]).
 
--export_type([supported/0]).
+-export_type([supported_v2/0]).
 
 %% The MQ features that a node supports.
--type supported() :: #{purge := boolean(), serial_index := boolean(), reject_queues := boolean()}.
+-type supported_v2() :: #{
+    purge := boolean(), serial_index := boolean(), reject_queues := boolean()
+}.
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -206,7 +208,7 @@ ack_v1(Pid, SubscriberRef, MessageId, Ack) ->
 ping_v1(Pid, SubscriberRef) ->
     send_to_consumer_server(Pid, #mq_server_ping{subscriber_ref = SubscriberRef}).
 
--spec supported_v2() -> supported().
+-spec supported_v2() -> supported_v2().
 supported_v2() ->
     #{purge => true, serial_index => true, reject_queues => true}.
 
@@ -337,7 +339,7 @@ handle_persist_consumer_data(
         mq = #{consumer_persistence_interval := PersistenceInterval}, streams = Streams0
     } = State0
 ) ->
-    %% Report progress below the notification threshold, and repeat it for a restarted cleanup worker
+    %% Report progress to the cleanup workers
     State1 = State0#state{streams = emqx_mq_consumer_streams:flush_progress_reporters(Streams0)},
     case persist_consumer_data(_ClaimLeadership = true, State1) of
         {ok, State} ->
