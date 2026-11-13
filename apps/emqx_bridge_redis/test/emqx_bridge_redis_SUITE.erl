@@ -291,6 +291,12 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+get_action_metrics_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
+
+reset_action_metrics_api(TCConfig) ->
+    emqx_bridge_v2_testlib:reset_kind_metrics_api(TCConfig, #{}).
+
 format_topic(Base, I) ->
     iolist_to_binary(io_lib:format("~s/~2..0B", [Base, I rem ?KEYSHARDS])).
 
@@ -348,7 +354,7 @@ simple_create_rule_api(TCConfig) ->
 
 start_client() ->
     {ok, C} = emqtt:start_link(),
-    on_exit(fun() -> emqtt:stop(C) end),
+    on_exit(fun() -> catch emqtt:stop(C) end),
     {ok, _} = emqtt:connect(C),
     C.
 
@@ -428,7 +434,8 @@ t_check_replay(TCConfig) ->
                             batch := true,
                             result := {error, _}
                         }
-                    )
+                    ),
+                ct:pal("published")
             end),
             #{?snk_kind := redis_bridge_connector_send_done, batch := true, result := {ok, _}}
         ),
@@ -476,6 +483,69 @@ t_permanent_error(TCConfig) ->
     ),
     ok.
 
+-doc """
+Checks that individual commands in a batch get their individual responses for metrics.
+""".
+t_batch_individual_reply_results() ->
+    [{matrix, true}].
+t_batch_individual_reply_results(matrix) ->
+    [
+        [?tcp, Type, Sync, ?with_batch]
+     || Type <- [?single, ?sentinel, ?cluster],
+        Sync <- [?sync, ?async]
+    ];
+t_batch_individual_reply_results(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        ~"resource_opts" => #{~"worker_pool_size" => 1}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    {ok, Agent} = emqx_utils_agent:start_link(ok),
+    MkRes = fun() ->
+        emqx_utils_agent:get_and_update(
+            Agent,
+            fun
+                (ok) -> {ok, error};
+                (error) -> {{error, ~"ERR unknown command xxx"}, ok}
+            end
+        )
+    end,
+    emqx_common_test_helpers:with_mocks(
+        #{
+            eredis => #{
+                qp => fun(_PoolName, Commands) ->
+                    lists:map(fun(_) -> MkRes() end, Commands)
+                end
+            },
+            eredis_cluster => #{q => fun(_PoolName, _Command) -> MkRes() end}
+        },
+        fun() ->
+            lists:foreach(
+                fun(_) ->
+                    C = start_client(),
+                    emqtt:publish(C, Topic, ~"hey", [{qos, 0}]),
+                    emqtt:stop(C)
+                end,
+                lists:seq(1, 3)
+            ),
+            ?retry(
+                700,
+                5,
+                ?assertMatch(
+                    {200, #{
+                        ~"metrics" := #{
+                            ~"matched" := 3,
+                            ~"success" := 2,
+                            ~"failed" := 1
+                        }
+                    }},
+                    get_action_metrics_api(TCConfig)
+                )
+            )
+        end
+    ),
+    ok.
+
 t_auth_username_password(TCConfig) ->
     ?assertMatch(
         {201, #{<<"status">> := <<"connected">>}},
@@ -488,6 +558,35 @@ t_auth_username_password(TCConfig) ->
     ),
     ok.
 
+t_auth_username_password_timeout() ->
+    [{matrix, true}].
+t_auth_username_password_timeout(matrix) ->
+    [[?tcp, ?single]];
+t_auth_username_password_timeout(TCConfig) ->
+    with_failure(timeout, TCConfig, fun() ->
+        {201, #{~"status" := ~"disconnected", ~"status_reason" := Reason}} =
+            create_connector_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"username">> => <<"test_user">>,
+                    <<"password">> => <<"test_passwd">>
+                }
+            }),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, ~"unhealthy_target", [{capture, none}]),
+            #{reason => Reason}
+        ),
+        ok
+    end).
+
+t_auth_error_username_password() ->
+    [{matrix, true}].
+t_auth_error_username_password(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
 t_auth_error_username_password(TCConfig) ->
     ?assertMatch(
         {201, #{
@@ -504,6 +603,14 @@ t_auth_error_username_password(TCConfig) ->
     ok.
 
 %% Default config does not include username field
+t_auth_error_password_only() ->
+    [{matrix, true}].
+t_auth_error_password_only(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
 t_auth_error_password_only(TCConfig) ->
     ?assertMatch(
         {201, #{
@@ -512,6 +619,109 @@ t_auth_error_password_only(TCConfig) ->
         }},
         create_connector_api(TCConfig, #{
             <<"parameters">> => #{<<"password">> => <<"wrong_password">>}
+        })
+    ),
+    ok.
+
+t_auth_error_username_only() ->
+    [{matrix, true}].
+t_auth_error_username_only(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_username_only(TCConfig) ->
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{
+            <<"parameters">> => #{<<"username">> => <<"test_user">>}
+        })
+    ),
+    ok.
+
+t_auth_error_missing_auth() ->
+    [{matrix, true}].
+t_auth_error_missing_auth(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_missing_auth(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, connector_config, fun(Old) ->
+        maps:update_with(
+            ~"parameters",
+            fun(Ps) ->
+                maps:without([~"username", ~"password"], Ps)
+            end,
+            Old
+        )
+    end),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    ok.
+
+t_authz_error() ->
+    [{matrix, true}].
+t_authz_error(matrix) ->
+    [
+        [?tcp, Type]
+     || Type <- [?single, ?sentinel]
+    ];
+t_authz_error(TCConfig) ->
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := <<"{unhealthy_target,", _/binary>> = Reason
+    }} = create_connector_api(TCConfig, #{
+        ~"parameters" => #{~"username" => ~"useless"}
+    }),
+    ?assertEqual(match, re:run(Reason, ~"NOPERM ", [{capture, none}]), #{reason => Reason}),
+    ok.
+
+t_auth_error_password_sent_when_not_required() ->
+    [{matrix, true}].
+t_auth_error_password_sent_when_not_required(matrix) ->
+    [
+        [?tcp, ?single]
+    ];
+t_auth_error_password_sent_when_not_required(TCConfig) ->
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := <<"{unhealthy_target,", _/binary>> = Reason
+    }} = create_connector_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"server" => ~"redis-default-nopass",
+            ~"password" => ~"shouldn't send any"
+        }
+    }),
+    ?assertEqual(match, re:run(Reason, ~"ERR AUTH ", [{capture, none}]), #{reason => Reason}),
+    ok.
+
+t_auth_error_passwordless() ->
+    [{matrix, true}].
+t_auth_error_passwordless(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_passwordless(TCConfig) ->
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{
+            <<"parameters">> => #{<<"username">> => <<"passwordless">>}
         })
     ),
     ok.

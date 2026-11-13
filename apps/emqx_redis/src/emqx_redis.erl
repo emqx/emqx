@@ -30,6 +30,13 @@
 
 -export([do_cmd/3]).
 
+%% internal exports for redis-based modules
+-export([is_auth_error/1]).
+
+-ifdef(TEST).
+-export([map_result/1]).
+-endif.
+
 %% redis host don't need parse
 -define(REDIS_HOST_OPTIONS, #{
     default_port => ?REDIS_DEFAULT_PORT
@@ -319,24 +326,66 @@ do_query(InstId, Query, #{pool_name := PoolName, type := Type} = State) ->
                 connector => InstId,
                 query => Query,
                 reason => Reason
-            }),
-            case is_unrecoverable_error(Reason) of
-                true ->
-                    {error, {unrecoverable_error, Reason}};
-                false when Reason =:= ecpool_empty ->
-                    {error, {recoverable_error, Reason}};
-                false ->
-                    Result
-            end;
+            });
         _ ->
-            Result
+            ok
+    end,
+    map_result(Result).
+
+map_result(Results0) when is_list(Results0) ->
+    {Results, Tag} = lists:mapfoldl(
+        fun(Res0, Tag0) ->
+            case map_result1(Res0) of
+                {error, _} = Res ->
+                    {Res, error};
+                Res ->
+                    {Res, Tag0}
+            end
+        end,
+        ok,
+        Results0
+    ),
+    {Tag, Results};
+map_result(Result) ->
+    map_result1(Result).
+
+map_result1(ok) ->
+    ok;
+map_result1({ok, _} = Result) ->
+    Result;
+map_result1({error, Reason}) ->
+    map_error(Reason).
+
+map_error(Results) when is_list(Results) ->
+    [map_error1(R) || R <- Results];
+map_error(Reason) ->
+    map_error1(Reason).
+
+map_error1(Reason) ->
+    case is_unrecoverable_error(Reason) of
+        true ->
+            {error, {unrecoverable_error, Reason}};
+        false ->
+            {error, {recoverable_error, Reason}}
     end.
 
-is_unrecoverable_error(Results) when is_list(Results) ->
-    lists:any(fun is_unrecoverable_error/1, Results);
-is_unrecoverable_error({error, <<"ERR unknown command ", _/binary>>}) ->
+is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
     true;
-is_unrecoverable_error({error, invalid_cluster_command}) ->
+is_unrecoverable_error({error, {recoverable_error, _}}) ->
+    false;
+is_unrecoverable_error({error, Reason}) ->
+    is_unrecoverable_error(Reason);
+is_unrecoverable_error(<<"ERR unknown command ", _/binary>>) ->
+    true;
+is_unrecoverable_error(invalid_cluster_command) ->
+    true;
+is_unrecoverable_error(<<"ERR ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"WRONGTYPE ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"NOPERM ", _/binary>>) ->
+    true;
+is_unrecoverable_error(<<"WRONGPASS ", _/binary>>) ->
     true;
 is_unrecoverable_error(_) ->
     false.
@@ -384,10 +433,22 @@ do_get_status(Conn) ->
 
 sum_worker_results([]) ->
     ?status_connected;
-sum_worker_results([{error, <<"NOAUTH Authentication required.">>} = Error | _Rest]) ->
-    ?tp(emqx_redis_auth_required_error, #{}),
-    %% This requires user action to fix so we set the status to disconnected
-    {?status_disconnected, {unhealthy_target, Error}};
+sum_worker_results([{error, Reason} = Error | _Rest]) when is_binary(Reason) ->
+    case is_auth_error(Reason) of
+        true ->
+            ?tp(emqx_redis_auth_required_error, #{}),
+            %% This requires user action to fix so we set the status to disconnected
+            {?status_disconnected, {unhealthy_target, Error}};
+        false ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "emqx_redis_check_status_error",
+                    error => Error
+                }
+            ),
+            {?status_disconnected, Error}
+    end;
 sum_worker_results([{ok, _} | Rest]) ->
     sum_worker_results(Rest);
 sum_worker_results([Error | _Rest]) ->
@@ -407,24 +468,9 @@ do_cmd(Conn, _Type, {cmd, Command}) ->
 do_cmd(PoolName, cluster, {cmds, Commands}) ->
     % TODO
     % Cluster mode is currently incompatible with batching.
-    wrap_qp_result([eredis_cluster:q(PoolName, Command) || Command <- Commands]);
+    [eredis_cluster:q(PoolName, Command) || Command <- Commands];
 do_cmd(Conn, _Type, {cmds, Commands}) ->
-    wrap_qp_result(eredis:qp(Conn, Commands)).
-
-wrap_qp_result({error, _} = Error) ->
-    Error;
-wrap_qp_result(Results) when is_list(Results) ->
-    AreAllOK = lists:all(
-        fun
-            ({ok, _}) -> true;
-            ({error, _}) -> false
-        end,
-        Results
-    ),
-    case AreAllOK of
-        true -> {ok, Results};
-        false -> {error, Results}
-    end.
+    eredis:qp(Conn, Commands).
 
 %% ===================================================================
 %% parameters for connector
@@ -477,3 +523,28 @@ sentinel_auth(#{redis_type := sentinel} = Config) ->
     ];
 sentinel_auth(_) ->
     [].
+
+%% Sometimes, eredis_client might return an error during authentication phase (hence
+%% tagged authentication_error) that's not actually an authentication error, such as
+%% `{unexpected_data, {error, timeout}}`.
+is_auth_error(<<"-", Rest/binary>>) ->
+    is_auth_error1(Rest);
+is_auth_error(Reason) when is_binary(Reason) ->
+    is_auth_error1(Reason);
+is_auth_error(_) ->
+    false.
+
+is_auth_error1(<<"WRONGPASS ", _/binary>>) ->
+    true;
+is_auth_error1(<<"NOAUTH ", _/binary>>) ->
+    true;
+is_auth_error1(<<"ERR AUTH ", _/binary>>) ->
+    true;
+is_auth_error1(<<"NOPERM ", _/binary>>) ->
+    true;
+is_auth_error1(<<"ERR invalid password", _/binary>>) ->
+    true;
+is_auth_error1(<<"ERR client sent AUTH, but", _/binary>>) ->
+    true;
+is_auth_error1(_) ->
+    false.
