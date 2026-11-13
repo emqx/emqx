@@ -331,13 +331,13 @@ reconcile(State = #{last_membership := MembersLast}) ->
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
-    ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
+    ok = lists:foreach(fun record_node_left/1, MembersLast -- Members),
     %% 2. Find out if there are (possibly) orphaned routes in the routing table,
     %% or orphaned members in the shared subscription table.
     %% Mark them as down: they are most likely replicants.
     RunningNodes = mria:running_nodes(),
     OrphanNodes = [N || N <- list_orphan_nodes(RunningNodes), lookup_node_status(N) == notfound],
-    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    ok = lists:foreach(fun record_node_down/1, OrphanNodes),
     %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
     %% This is a fallback mechanism. It's also possible a node "leave" that triggered
     %% this reconcile has not yet finished "leaving". Since it's extremely unlikely,
@@ -539,10 +539,9 @@ pick_responsible(Task) ->
     %% Pick a responsible core node.
     %% We expect the same node to be picked as responsible across the cluster (unless
     %% the cluster is highly turbulent).
-    Nodes = lists:sort(mria_mnesia:running_nodes()),
-    case length(Nodes) of
-        0 -> node();
-        N -> lists:nth(1 + erlang:phash2(Task, N), Nodes)
+    case lists:sort(mria_mnesia:running_nodes()) of
+        [] -> node();
+        Nodes -> lists:nth(1 + erlang:phash2(Task, length(Nodes)), Nodes)
     end.
 
 %%
