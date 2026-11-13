@@ -21,6 +21,8 @@
 %% Defs
 %%------------------------------------------------------------------------------
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(ACTIONS_ROOT, "actions").
 -define(SOURCES_ROOT, "sources").
 
@@ -228,6 +230,7 @@ end_per_group(_Group, _Config) ->
 
 init_per_testcase(TestCase, Config) when
     TestCase =:= t_start_action_or_source_with_disabled_connector;
+    TestCase =:= t_application_stop;
     TestCase =:= t_action_types
 ->
     setup_auth_header_fn(Config),
@@ -664,6 +667,11 @@ get_action_api(Type, Name) ->
     Res = emqx_bridge_v2_testlib:get_bridge_api(action, Type, Name),
     emqx_mgmt_api_test_util:simplify_result(Res).
 
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
 create_source_api(Name, Type, Params) ->
     Res = emqx_bridge_v2_testlib:create_kind_api([
         {bridge_kind, source},
@@ -681,6 +689,22 @@ create_action_api(Name, Type, Params) ->
         {action_config, Params}
     ]),
     emqx_mgmt_api_test_util:simplify_result(Res).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+create_source_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:create_source_api(TCConfig, Overrides).
+
+create_kind_api(TCConfig, Overrides) ->
+    case ?config(bridge_kind, TCConfig) of
+        action ->
+            create_action_api(TCConfig, Overrides);
+        source ->
+            create_source_api(TCConfig, Overrides)
+    end.
 
 update_action_api(Name, Type, Params) ->
     Res = emqx_bridge_v2_testlib:update_bridge_api([
@@ -2894,4 +2918,46 @@ t_namespaced_load_on_restart(TCConfig0) when is_list(TCConfig0) ->
         get_runtime(ChanIdNS1, TCConfigNS1)
     ),
 
+    ok.
+
+-doc """
+Verifies that we unload both channels and connectors when the respective applications are
+stopped.
+""".
+t_application_stop(matrix) ->
+    [
+        [single, actions],
+        [single, sources]
+    ];
+t_application_stop(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_kind_api(TCConfig, #{}),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?assertMatch(
+        {ok, _, #{added_channels := Chans}} when map_size(Chans) == 1,
+        emqx_resource:get_instance(ConnResId)
+    ),
+    on_exit(fun() -> application:start(emqx_bridge) end),
+    ct:pal("stopping emqx_bridge"),
+    ok = application:stop(emqx_bridge),
+    ?assertMatch(
+        {ok, _, #{added_channels := Chans}} when map_size(Chans) == 0,
+        emqx_resource:get_instance(ConnResId)
+    ),
+    on_exit(fun() -> application:start(emqx_connector) end),
+    ct:pal("stopping emqx_connector"),
+    ok = application:stop(emqx_connector),
+    ?assertMatch({error, not_found}, emqx_resource:get_instance(ConnResId)),
+    %% restart
+    ok = application:start(emqx_connector),
+    ?assertMatch(
+        %% 1 already here because the channel is already in the config
+        {ok, _, #{added_channels := Chans}} when map_size(Chans) == 1,
+        emqx_resource:get_instance(ConnResId)
+    ),
+    ok = application:start(emqx_bridge),
+    ?assertMatch(
+        {ok, _, #{added_channels := Chans}} when map_size(Chans) == 1,
+        emqx_resource:get_instance(ConnResId)
+    ),
     ok.
