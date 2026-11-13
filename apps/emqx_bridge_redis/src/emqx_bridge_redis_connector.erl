@@ -81,7 +81,12 @@ on_start(InstId, Config) ->
                 redis_bridge_connector_start_error,
                 #{error => Error}
             ),
-            throw({unhealthy_target, Reason});
+            case emqx_redis:is_auth_error(Reason) of
+                true ->
+                    throw({unhealthy_target, Reason});
+                false ->
+                    Error
+            end;
         {error, _} = Error ->
             ?tp(
                 redis_bridge_connector_start_error,

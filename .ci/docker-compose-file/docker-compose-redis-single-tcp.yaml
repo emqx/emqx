@@ -4,8 +4,20 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/single-tcp:/usr/local/etc/redis/
-    #ports:
-      #- "6379:6379"
+    expose:
+      - 6379
+    command: redis-server /usr/local/etc/redis/redis.conf
+    restart: always
+    networks:
+      - emqx_bridge
+
+  redis_default_nopass:
+    container_name: redis-default-nopass
+    image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
+    volumes:
+      - ./redis/single-tcp-default-nopass:/usr/local/etc/redis/
+    expose:
+      - 6379
     command: redis-server /usr/local/etc/redis/redis.conf
     restart: always
     networks:

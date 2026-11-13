@@ -16,6 +16,8 @@
 %% Helper fns
 %%------------------------------------------------------------------------------
 
+str(X) -> emqx_utils_conv:str(X).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -83,3 +85,30 @@ map_result_test_() ->
         )
     ] ++
         [Mk(Case) || Case <- Cases, Mk <- [MkSingleTest, MkBatchTest, MkMixedBatchTest]].
+
+is_auth_error_test_() ->
+    AuthErrors = [
+        ~"-WRONGPASS mocked",
+        ~"WRONGPASS mocked",
+        ~"NOAUTH mocked",
+        ~"ERR AUTH mocked",
+        ~"NOPERM mocked",
+        %% reportedly, these are returned by older redis versions (5 and earlier)
+        ~"ERR invalid password",
+        ~"ERR client sent AUTH, but no password is set"
+    ],
+    NonAuthErrors = [
+        tcp_closed,
+        ssl_closed,
+        no_connection,
+        ~"WRONGTYPE mocked",
+        ~"CLUSTERDOWN mocked"
+    ],
+    [
+        {Err, ?_assert(emqx_redis:is_auth_error(Err))}
+     || Err <- AuthErrors
+    ] ++
+        [
+            {str(Err), ?_assertNot(emqx_redis:is_auth_error(Err))}
+         || Err <- NonAuthErrors
+        ].

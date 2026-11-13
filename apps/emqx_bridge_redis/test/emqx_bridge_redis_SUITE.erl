@@ -558,6 +558,35 @@ t_auth_username_password(TCConfig) ->
     ),
     ok.
 
+t_auth_username_password_timeout() ->
+    [{matrix, true}].
+t_auth_username_password_timeout(matrix) ->
+    [[?tcp, ?single]];
+t_auth_username_password_timeout(TCConfig) ->
+    with_failure(timeout, TCConfig, fun() ->
+        {201, #{~"status" := ~"disconnected", ~"status_reason" := Reason}} =
+            create_connector_api(TCConfig, #{
+                <<"parameters">> => #{
+                    <<"username">> => <<"test_user">>,
+                    <<"password">> => <<"test_passwd">>
+                }
+            }),
+        ?assertEqual(
+            nomatch,
+            re:run(Reason, ~"unhealthy_target", [{capture, none}]),
+            #{reason => Reason}
+        ),
+        ok
+    end).
+
+t_auth_error_username_password() ->
+    [{matrix, true}].
+t_auth_error_username_password(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
 t_auth_error_username_password(TCConfig) ->
     ?assertMatch(
         {201, #{
@@ -574,6 +603,14 @@ t_auth_error_username_password(TCConfig) ->
     ok.
 
 %% Default config does not include username field
+t_auth_error_password_only() ->
+    [{matrix, true}].
+t_auth_error_password_only(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
 t_auth_error_password_only(TCConfig) ->
     ?assertMatch(
         {201, #{
@@ -582,6 +619,109 @@ t_auth_error_password_only(TCConfig) ->
         }},
         create_connector_api(TCConfig, #{
             <<"parameters">> => #{<<"password">> => <<"wrong_password">>}
+        })
+    ),
+    ok.
+
+t_auth_error_username_only() ->
+    [{matrix, true}].
+t_auth_error_username_only(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_username_only(TCConfig) ->
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{
+            <<"parameters">> => #{<<"username">> => <<"test_user">>}
+        })
+    ),
+    ok.
+
+t_auth_error_missing_auth() ->
+    [{matrix, true}].
+t_auth_error_missing_auth(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_missing_auth(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, connector_config, fun(Old) ->
+        maps:update_with(
+            ~"parameters",
+            fun(Ps) ->
+                maps:without([~"username", ~"password"], Ps)
+            end,
+            Old
+        )
+    end),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    ok.
+
+t_authz_error() ->
+    [{matrix, true}].
+t_authz_error(matrix) ->
+    [
+        [?tcp, Type]
+     || Type <- [?single, ?sentinel]
+    ];
+t_authz_error(TCConfig) ->
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := <<"{unhealthy_target,", _/binary>> = Reason
+    }} = create_connector_api(TCConfig, #{
+        ~"parameters" => #{~"username" => ~"useless"}
+    }),
+    ?assertEqual(match, re:run(Reason, ~"NOPERM ", [{capture, none}]), #{reason => Reason}),
+    ok.
+
+t_auth_error_password_sent_when_not_required() ->
+    [{matrix, true}].
+t_auth_error_password_sent_when_not_required(matrix) ->
+    [
+        [?tcp, ?single]
+    ];
+t_auth_error_password_sent_when_not_required(TCConfig) ->
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := <<"{unhealthy_target,", _/binary>> = Reason
+    }} = create_connector_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"server" => ~"redis-default-nopass",
+            ~"password" => ~"shouldn't send any"
+        }
+    }),
+    ?assertEqual(match, re:run(Reason, ~"ERR AUTH ", [{capture, none}]), #{reason => Reason}),
+    ok.
+
+t_auth_error_passwordless() ->
+    [{matrix, true}].
+t_auth_error_passwordless(matrix) ->
+    [
+        [Transport, Type]
+     || Transport <- [?tcp, ?tls],
+        Type <- [?single, ?sentinel]
+    ];
+t_auth_error_passwordless(TCConfig) ->
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_connector_api(TCConfig, #{
+            <<"parameters">> => #{<<"username">> => <<"passwordless">>}
         })
     ),
     ok.
