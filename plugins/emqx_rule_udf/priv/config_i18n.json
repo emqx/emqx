@@ -1,0 +1,12 @@
+{
+  "$url_label": {"en": "Function Server URL", "zh": "函数服务器 URL"},
+  "$url_desc": {"en": "Base URL of the emqx-rule-udf/1 function server, for example http://127.0.0.1:8080. Use https:// for TLS.", "zh": "emqx-rule-udf/1 函数服务器的基础 URL，例如 http://127.0.0.1:8080。使用 https:// 启用 TLS。"},
+  "$token_label": {"en": "Token", "zh": "令牌"},
+  "$token_desc": {"en": "Bearer token for the function server. Leave empty when the server has no authentication.", "zh": "函数服务器的 Bearer 令牌。服务器未启用认证时留空。"},
+  "$pool_size_label": {"en": "Pool Size", "zh": "连接池大小"},
+  "$pool_size_desc": {"en": "Number of HTTP connections to the function server on each node.", "zh": "每个节点到函数服务器的 HTTP 连接数。"},
+  "$connect_timeout_label": {"en": "Connect Timeout (ms)", "zh": "连接超时（毫秒）"},
+  "$connect_timeout_desc": {"en": "Timeout for opening a connection to the function server.", "zh": "建立到函数服务器连接的超时时间。"},
+  "$request_timeout_label": {"en": "Request Timeout (ms)", "zh": "请求超时（毫秒）"},
+  "$request_timeout_desc": {"en": "Timeout for one request. Set it longer than the call timeout of the function server.", "zh": "单个请求的超时时间。应大于函数服务器的调用超时。"}
+}
