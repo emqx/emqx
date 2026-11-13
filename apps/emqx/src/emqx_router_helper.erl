@@ -4,16 +4,18 @@
 
 %% Router helper process.
 %%
-%% NOTICE: this process is deprecated, it's only used for v2 routing
-%% schema.
-%%
 %% Responsibility is twofold:
-%% 1. Cleaning own portion of the global routing table when restarted.
+%% 1. Cleaning own portion of the global routing table when restarted
+%%    (v2 routing schema only, see `post_start/0').
 %%    The assumption is that the node has crashed (worst-case), so the
 %%    previous incarnation's routes are still present upon restart.
-%% 2. Managing portions of global routing table belonging to dead / "left"
+%% 2. Managing portions of cluster-wide tables belonging to dead / "left"
 %%    cluster members, i.e. members that are not supposed to come back
-%%    online again.
+%%    online again: the global routing table (v2 routing schema only) and
+%%    the shared subscription table (both routing schemas).
+%%    With the v3 routing schema, Mria removes the routes of a node that
+%%    goes down (`auto_clean'), but nothing does the same for the shared
+%%    subscription table.
 %%
 %% Only core nodes are responsible for the latter task. Moreover, helper
 %% adopts the following operational model:
@@ -246,7 +248,6 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_stats:cancel_update(route_stats),
     ekka:unmonitor(membership).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -330,13 +331,13 @@ reconcile(State = #{last_membership := MembersLast}) ->
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
-    ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
-    %% 2. Find out if there are (possibly) orphaned routes in the routing table.
+    ok = lists:foreach(fun record_node_left/1, MembersLast -- Members),
+    %% 2. Find out if there are (possibly) orphaned routes in the routing table,
+    %% or orphaned members in the shared subscription table.
     %% Mark them as down: they are most likely replicants.
     RunningNodes = mria:running_nodes(),
-    RoutingNodes = list_routing_nodes(),
-    OrphanNodes = [N || N <- RoutingNodes -- RunningNodes, lookup_node_status(N) == notfound],
-    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    OrphanNodes = [N || N <- list_orphan_nodes(RunningNodes), lookup_node_status(N) == notfound],
+    ok = lists:foreach(fun record_node_down/1, OrphanNodes),
     %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
     %% This is a fallback mechanism. It's also possible a node "leave" that triggered
     %% this reconcile has not yet finished "leaving". Since it's extremely unlikely,
@@ -437,7 +438,7 @@ purge_dead_node(Node) ->
 
 purge_dead_node_trans(Node) ->
     StillKnown = lookup_node_status(Node) =/= notfound,
-    case StillKnown andalso node_has_routes(Node) of
+    case StillKnown andalso node_has_state(Node) of
         true ->
             case cores() of
                 Nodes = [_ | _] ->
@@ -470,13 +471,37 @@ add_routing_node(Node) ->
     end.
 
 remove_routing_node(Node) ->
-    mria:dirty_delete(?ROUTING_NODE_V2, Node).
+    case emqx_router:get_schema_vsn() of
+        v3 -> ok;
+        v2 -> mria:dirty_delete(?ROUTING_NODE_V2, Node)
+    end.
 
 list_routing_nodes() ->
-    ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
+    case emqx_router:get_schema_vsn() of
+        v3 -> [];
+        v2 -> ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end))
+    end.
 
 node_has_routes(Node) ->
-    ets:member(?ROUTING_NODE_V2, Node).
+    case emqx_router:get_schema_vsn() of
+        v3 -> false;
+        v2 -> ets:member(?ROUTING_NODE_V2, Node)
+    end.
+
+%% Nodes that are not running, but still own routes (v2 routing schema only)
+%% or shared subscription members.
+%% Only core nodes purge, so only core nodes scan the shared subscription table.
+list_orphan_nodes(RunningNodes) ->
+    RoutingNodes = list_routing_nodes() -- RunningNodes,
+    case am_core() of
+        true ->
+            RoutingNodes ++ emqx_shared_sub:member_nodes(RunningNodes ++ RoutingNodes);
+        false ->
+            RoutingNodes
+    end.
+
+node_has_state(Node) ->
+    node_has_routes(Node) orelse emqx_shared_sub:has_members_on(Node).
 
 %%
 
@@ -514,10 +539,9 @@ pick_responsible(Task) ->
     %% Pick a responsible core node.
     %% We expect the same node to be picked as responsible across the cluster (unless
     %% the cluster is highly turbulent).
-    Nodes = lists:sort(mria_mnesia:running_nodes()),
-    case length(Nodes) of
-        0 -> node();
-        N -> lists:nth(1 + erlang:phash2(Task, N), Nodes)
+    case lists:sort(mria_mnesia:running_nodes()) of
+        [] -> node();
+        Nodes -> lists:nth(1 + erlang:phash2(Task, length(Nodes)), Nodes)
     end.
 
 %%
