@@ -446,6 +446,7 @@ handle_result({error, {error, _} = InnerError}, Request, QueryMode, ConnResId) -
     handle_result(InnerError, Request, QueryMode, ConnResId);
 handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
+    Reason =:= einval;
     %% this comes directly from `gun'...
     element(1, Reason) =:= closed;
     Reason =:= closing;
