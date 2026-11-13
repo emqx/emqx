@@ -633,7 +633,10 @@ handle_msg({Passive, _Sock}, State0) when
         {ok, State} ->
             {ok, Msgs1, State};
         {ok, Msgs2, State} ->
-            {ok, append_msgs(Msgs1, Msgs2), State}
+            {ok, append_msgs(Msgs1, Msgs2), State};
+        {stop, _Reason, _State} = Stop ->
+            %% The socket closed before it could be activated again.
+            Stop
     end;
 handle_msg(
     Deliver = #deliver{},
