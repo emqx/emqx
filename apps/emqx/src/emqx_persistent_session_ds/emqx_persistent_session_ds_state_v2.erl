@@ -54,7 +54,7 @@
 ]).
 
 %% Behavior callbacks:
--export([pmap_encode_key/3, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
+-export([pmap_encode_key/2, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
 
 -export_type([session_iterator/0, subscription_iterator/0]).
 
@@ -74,7 +74,7 @@
 %% TODO: https://github.com/erlang/otp/issues/9841
 -dialyzer(
     {nowarn_function, [
-        pmap_encode_key/3,
+        pmap_encode_key/2,
         pmap_decode_key/2,
         ser_stream_key/1,
         deser_stream_key/1,
@@ -487,18 +487,18 @@ open_tx(ClientId) ->
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).
 new_pmap(Pmap) ->
-    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap)).
+    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap), pmap_kind(Pmap)).
 
-pmap_encode_key(?top_metadata, MetaKey, _Val) ->
+pmap_encode_key(?top_metadata, MetaKey) ->
     atom_to_binary(MetaKey, latin1);
-pmap_encode_key(?top_streams, Key, _Val) ->
+pmap_encode_key(?top_streams, Key) ->
     ser_stream_key(Key);
-pmap_encode_key(?top_subscriptions, Topic, _Val) ->
+pmap_encode_key(?top_subscriptions, Topic) ->
     'DurableSession':encode('TopicFilter', wrap_topic(Topic));
-pmap_encode_key(?top_seqnos, Track, _Val) ->
+pmap_encode_key(?top_seqnos, Track) ->
     ?assert(Track < 255),
     <<Track:8>>;
-pmap_encode_key(_, Key, _Val) ->
+pmap_encode_key(_, Key) ->
     term_to_binary(Key).
 
 pmap_decode_key(?top_metadata, Key) ->
@@ -738,4 +738,10 @@ pmap_name(Pmap) ->
         ?streams -> ?top_streams;
         ?ranks -> ?top_ranks;
         ?awaiting_rel -> ?top_awaiting_rel
+    end.
+
+pmap_kind(Pmap) ->
+    case Pmap of
+        ?awaiting_rel -> diff;
+        _ -> dirty
     end.

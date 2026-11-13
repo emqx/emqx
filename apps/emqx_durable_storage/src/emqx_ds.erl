@@ -73,6 +73,7 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_del_topic/1,
     tx_ttv_assert_present/3,
     tx_ttv_assert_absent/2,
+    tx_lock/4,
     tx_on_success/1
 ]).
 
@@ -1386,6 +1387,8 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
 -define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
 -define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
+-define(tx_ops_wlock, emqx_ds_tx_ctx_wlock).
+-define(tx_ops_dlock, emqx_ds_tx_ctx_dlock).
 -define(tx_ops_side_effect, emqx_ds_tx_ctx_side_effect).
 
 %% Transaction throws:
@@ -1575,6 +1578,33 @@ tx_write({Topic, Time, Value}) ->
             error(badarg)
     end.
 
+-doc """
+
+Put delete (`d`) or write (`w`) lock on a topic-filter.
+
+NOTE: semantics of this function may be somewhat suprising,
+as transaction trying to "take" the lock may be itself aborted on conflict,
+which happens at commit time.
+
+In builtin backends this function can be used to optimize memory usage:
+if transaction updates multiple keys matching a common topic filter,
+it may be wise to take a lock on that entire topic filter
+to avoid tracking conflicts for the individual keys.
+
+""".
+-spec tx_lock(topic_filter(), time(), time() | ?ds_tx_ts_monotonic | infinity, w | d) -> ok.
+tx_lock(TopicFilter, From, To, Kind) ->
+    case is_topic_filter(TopicFilter) of
+        true when ?is_time_range(From, To) ->
+            case Kind of
+                w -> tx_push_op(?tx_ops_wlock, {TopicFilter, From, To});
+                d -> tx_push_op(?tx_ops_dlock, {TopicFilter, From, To});
+                _ -> error({badkind, Kind})
+            end;
+        _ ->
+            error(badarg)
+    end.
+
 -doc "Equivalent to `tx_del_topic(TopicFilter, 0, infinity)`.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
 -spec tx_del_topic(topic_filter()) -> ok.
@@ -1597,7 +1627,7 @@ tx_del_topic(TopicFilter, From, To) ->
     case is_topic_filter(TopicFilter) of
         true when ?is_time_range(From, To) ->
             tx_push_op(?tx_ops_del_topic, {TopicFilter, From, To});
-        false ->
+        _ ->
             error(badarg)
     end.
 
@@ -2259,6 +2289,8 @@ trans_inner(DB, Fun, Opts) ->
                 _ = put(?tx_ops_del_topic, []),
                 _ = put(?tx_ops_assert_present, []),
                 _ = put(?tx_ops_assert_absent, []),
+                _ = put(?tx_ops_wlock, []),
+                _ = put(?tx_ops_dlock, []),
                 _ = put(?tx_ops_side_effect, []),
                 Ret = Fun(),
                 Tx = #{
@@ -2266,7 +2298,9 @@ trans_inner(DB, Fun, Opts) ->
                     ?ds_tx_read => erase(?tx_ops_read),
                     ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
                     ?ds_tx_expected => erase(?tx_ops_assert_present),
-                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent)
+                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent),
+                    ?ds_tx_wlock => erase(?tx_ops_wlock),
+                    ?ds_tx_dlock => erase(?tx_ops_dlock)
                 },
                 case Tx of
                     #{
@@ -2274,9 +2308,11 @@ trans_inner(DB, Fun, Opts) ->
                         ?ds_tx_read := [],
                         ?ds_tx_delete_topic := [],
                         ?ds_tx_expected := [],
-                        ?ds_tx_unexpected := []
+                        ?ds_tx_unexpected := [],
+                        ?ds_tx_wlock := [],
+                        ?ds_tx_dlock := []
                     } ->
-                        %% Nothing to commit, apply side effects now:
+                        %% Nothing to commit. Apply side effects now:
                         tx_eval_side_effects(erase(?tx_ops_side_effect)),
                         {nop, Ret};
                     _ ->
@@ -2299,6 +2335,8 @@ trans_inner(DB, Fun, Opts) ->
         _ = erase(?tx_ops_del_topic),
         _ = erase(?tx_ops_assert_present),
         _ = erase(?tx_ops_assert_absent),
+        _ = erase(?tx_ops_wlock),
+        _ = erase(?tx_ops_dlock),
         _ = erase(?tx_ops_side_effect)
     end.
 
