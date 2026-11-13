@@ -275,8 +275,9 @@ t_drop_batch_error(Config) ->
 -doc "A zero retention cutoff leaves data intact and does not submit an empty deletion range".
 t_gc_zero_cutoff(Config) ->
     DB = ?config(db, Config),
+    %% Twice the current time keeps `now - period` negative, so GC clamps the cutoff to 0.
     Queue0 = maps:merge(queue(true), #{
-        data_retention_period => erlang:system_time(millisecond) + 1000
+        data_retention_period => 2 * erlang:system_time(millisecond)
     }),
     Topic0 = message_topic(Queue0),
     [Shard0 | _] = emqx_ds:list_shards(DB),
