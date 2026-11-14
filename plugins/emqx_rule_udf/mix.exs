@@ -100,7 +100,7 @@ defmodule EMQXRuleUdf.MixProject do
           emqx: "~> #{emqx_major_minor()}"
         ],
         description:
-          "Store Python programs in EMQX and call them from rule SQL with udf('name', ...). " <>
+          "Store programs in EMQX and call them from rule SQL with udf('name', ...). " <>
             "An emqx-rule-udf/1 function server runs them in a sandbox.",
         index: "/ui"
       ]

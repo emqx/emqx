@@ -6,7 +6,6 @@
 -define(PLUGIN_NAME, <<"emqx_rule_udf">>).
 -define(PROGRAM_TAB, emqx_rule_udf_program).
 -define(DB_SHARD, emqx_rule_udf_shard).
--define(DEFAULT_RUNTIME, <<"python3">>).
 -define(MAX_SOURCE_BYTES, 65536).
 %% `\z`, not `$`: PCRE `$` also matches before a trailing newline.
 -define(NAME_RE, "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}\\z").

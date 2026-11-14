@@ -109,11 +109,11 @@ get_source(#{<<"source">> := Source}) when is_binary(Source) ->
 get_source(_) ->
     error_json(400, <<"BAD_REQUEST">>, <<"'source' must be a string">>).
 
-get_runtime(Body) ->
-    case maps:get(<<"runtime">>, Body, ?DEFAULT_RUNTIME) of
-        Runtime when is_binary(Runtime), Runtime =/= <<>> -> {ok, Runtime};
-        _ -> error_json(400, <<"BAD_REQUEST">>, <<"'runtime' must be a string">>)
-    end.
+%% The function server decides which runtimes exist (`GET /v1/info`).
+get_runtime(#{<<"runtime">> := Runtime}) when is_binary(Runtime), Runtime =/= <<>> ->
+    {ok, Runtime};
+get_runtime(_) ->
+    error_json(400, <<"BAD_REQUEST">>, <<"'runtime' must be a non-empty string">>).
 
 upload(Name, Runtime, Source) ->
     case emqx_rule_udf_client:upload(Name, Runtime, Source) of

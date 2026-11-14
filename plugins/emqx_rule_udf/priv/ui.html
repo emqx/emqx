@@ -41,11 +41,11 @@
   .list .meta { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
   .empty { color: var(--muted); padding: 8px; }
   label { display: block; color: var(--muted); font-size: 12px; margin: 10px 0 4px; }
-  input[type=text], textarea {
+  input[type=text], select, textarea {
     width: 100%; border: 1px solid var(--border); border-radius: 4px; background: var(--panel);
     color: var(--text); padding: 8px; font-family: var(--mono); font-size: 13px;
   }
-  input[type=text]:disabled { opacity: .7; }
+  input[type=text]:disabled, select:disabled { opacity: .7; }
   textarea { resize: vertical; tab-size: 4; white-space: pre; }
   #source { min-height: 360px; }
   #args { min-height: 60px; }
@@ -72,7 +72,8 @@
     <span id="server">checking function server…</span>
   </header>
   <p class="hint">Programs run on the function server. Call one from rule SQL with
-    <code>udf('name', arg1, arg2, ...)</code>. A <code>python3</code> program must define <code>handle(*args)</code>.</p>
+    <code>udf('name', arg1, arg2, ...)</code>. The function server lists the runtimes it offers.
+    For example, a <code>python3</code> program must define <code>handle(*args)</code>.</p>
 
   <div class="layout">
     <div class="panel">
@@ -85,7 +86,10 @@
       <input id="name" type="text" maxlength="64" spellcheck="false" autocomplete="off" placeholder="temp-convert.py">
       <div id="meta" class="info"></div>
 
-      <label for="source">Source (python3)</label>
+      <label for="runtime">Runtime</label>
+      <select id="runtime"></select>
+
+      <label for="source">Source</label>
       <textarea id="source" spellcheck="false"></textarea>
 
       <div class="row">
@@ -112,7 +116,9 @@
   const base = window.location.pathname.replace(/\/ui\/?$/, "");
   const NAME_RE = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$/;
   const $ = (id) => document.getElementById(id);
-  const TEMPLATE = "def handle(s):\n    return s.upper()\n";
+  // Starter sources for the runtimes the reference server offers. Other runtimes start empty.
+  const TEMPLATES = { python3: "def handle(s):\n    return s.upper()\n" };
+  let runtimes = []; // runtime names from the function server, in its order
   let current = null; // name of the program in the editor, or null for a new one
 
   async function api(path, options) {
@@ -148,6 +154,7 @@
     try {
       const s = await api("/server");
       if (s.reachable) {
+        runtimes = (s.info.runtimes || []).map((r) => r.name);
         const rt = (s.info.runtimes || []).map((r) => r.name + (r.version ? " " + r.version : "")).join(", ");
         el.textContent = (s.info.server || "function server") + " · " + (s.info.protocol || "") + " · " + rt;
         el.className = "ok";
@@ -187,7 +194,7 @@
       if (p.name === current) li.className = "sel";
       const meta = document.createElement("span");
       meta.className = "meta";
-      meta.textContent = p.size + " bytes · " + new Date(p.updated_at_ms).toLocaleString();
+      meta.textContent = p.runtime + " · " + p.size + " bytes · " + new Date(p.updated_at_ms).toLocaleString();
       li.appendChild(meta);
       li.addEventListener("click", () => openProgram(p.name));
       ul.appendChild(li);
@@ -198,7 +205,9 @@
     current = p ? p.name : null;
     $("name").value = p ? p.name : "";
     $("name").disabled = !!p;
-    $("source").value = p ? p.source : TEMPLATE;
+    setRuntimes(p ? p.runtime : runtimes[0]);
+    $("runtime").disabled = !!p;
+    $("source").value = p ? p.source : (TEMPLATES[$("runtime").value] || "");
     $("delete").disabled = !p;
     $("run").disabled = !p;
     $("meta").textContent = p
@@ -207,6 +216,21 @@
     updateSql();
     show($("saveMsg"));
     show($("runMsg"));
+  }
+
+  // A saved program keeps its runtime even when the server no longer lists it.
+  function setRuntimes(selected) {
+    const sel = $("runtime");
+    const names = runtimes.slice();
+    if (selected && !names.includes(selected)) names.push(selected);
+    sel.innerHTML = "";
+    names.forEach((n) => {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = n;
+      sel.appendChild(o);
+    });
+    if (selected) sel.value = selected;
   }
 
   function updateSql() {
@@ -229,12 +253,16 @@
       show($("saveMsg"), "Invalid name. Use 1 to 64 characters from A-Z a-z 0-9 . _ - and do not start with '.'.", "err");
       return;
     }
+    if (!$("runtime").value) {
+      show($("saveMsg"), "No runtime. The function server lists none, or it is unreachable.", "err");
+      return;
+    }
     $("save").disabled = true;
     show($("saveMsg"), "Saving…");
     try {
       const p = await api("/programs/" + encodeURIComponent(name), {
         method: "PUT",
-        body: JSON.stringify({ runtime: "python3", source: $("source").value }),
+        body: JSON.stringify({ runtime: $("runtime").value, source: $("source").value }),
       });
       setEditor(p);
       show($("saveMsg"), "Saved. The function server accepted version " + p.sha256.slice(0, 12) + ".", "ok");
@@ -290,13 +318,21 @@
     if ((ev.ctrlKey || ev.metaKey) && ev.key === "s") { ev.preventDefault(); save(); }
   });
   $("name").addEventListener("input", updateSql);
+  $("runtime").addEventListener("change", () => {
+    // Swap the starter source only when the user has not edited it.
+    const src = $("source").value;
+    if (src === "" || Object.values(TEMPLATES).includes(src)) {
+      $("source").value = TEMPLATES[$("runtime").value] || "";
+    }
+  });
   $("new").addEventListener("click", () => { setEditor(null); loadList(); $("name").focus(); });
   $("save").addEventListener("click", save);
   $("delete").addEventListener("click", remove);
   $("run").addEventListener("click", run);
 
   setEditor(null);
-  loadServer();
+  // The runtime list comes from the server: fill the new-program form again.
+  loadServer().then(() => { if (current === null && !$("name").value) setEditor(null); });
   loadList();
 })();
 </script>

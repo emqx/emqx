@@ -52,8 +52,10 @@ Then set the function server in the plugin config (Dashboard, or
 
 ## Programs
 
-- A program has a name, a runtime (`python3`) and a source. A `python3` program
-  defines `handle(*args)`.
+- A program has a name, a runtime and a source. The function server lists the
+  runtimes it offers in `GET /v1/info`, and the plugin does not depend on any
+  one of them. The reference server offers `python3`: such a program defines
+  `handle(*args)`.
 - A name has 1 to 64 characters from `A-Z a-z 0-9 . _ -` and must not start with
   `.`. The name is the first argument of `udf(...)`.
 - EMQX stores the programs in a replicated `mria` table, so every node has all of
@@ -77,7 +79,7 @@ plugin API under `/api/v5/plugin_api/emqx_rule_udf/`:
 | `GET server` | State of the function server (`GET /v1/info`). |
 | `GET programs` | All programs, without the source. |
 | `GET programs/{name}` | One program, with the source. |
-| `PUT programs/{name}` | Create or replace a program. Body: `{"runtime": "python3", "source": "..."}`. |
+| `PUT programs/{name}` | Create or replace a program. Body: `{"runtime": "python3", "source": "..."}`. `runtime` is required. |
 | `DELETE programs/{name}` | Delete a program. |
 | `POST programs/{name}/call` | Run the saved program once. Body: `{"args": [...]}`. |
 

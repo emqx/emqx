@@ -133,6 +133,24 @@ t_disallowed_import_is_rejected_and_not_saved(_Config) ->
     ),
     ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
 
+t_missing_runtime_is_rejected(_Config) ->
+    Name = <<"no-runtime.py">>,
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        api(put, ["programs", Name], #{<<"source">> => ?UPPER_SRC})
+    ),
+    ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
+
+t_unsupported_runtime_is_rejected_and_not_saved(_Config) ->
+    %% The plugin passes any runtime through; the function server decides.
+    Name = <<"lua-prog">>,
+    Body = #{<<"runtime">> => <<"lua5">>, <<"source">> => <<"return 1">>},
+    ?assertMatch(
+        {422, #{<<"code">> := <<"UNSUPPORTED_RUNTIME">>}},
+        api(put, ["programs", Name], Body)
+    ),
+    ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
+
 t_bad_name_is_rejected(_Config) ->
     ?assertMatch({400, #{<<"code">> := <<"BAD_NAME">>}}, save(<<".hidden">>, ?UPPER_SRC)).
 
