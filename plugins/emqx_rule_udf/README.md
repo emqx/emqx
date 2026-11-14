@@ -67,6 +67,19 @@ Then set the function server in the plugin config (Dashboard, or
   `FUNCTION_NOT_FOUND`. EMQX then uploads the program from its table and
   retries the call once.
 
+## Backup and restore
+
+The cluster data backup (`emqx ctl data export` and the Dashboard backup) does
+not include plugin tables. It does not save the programs or this plugin's
+config. Back them up separately:
+
+- Config: `GET /api/v5/plugins/emqx_rule_udf-<vsn>/config`. Restore with `PUT` to
+  the same path.
+- Programs: list with `GET programs` and fetch each one with `GET programs/{name}`
+  (see "Web UI and API"). Restore each with `PUT programs/{name}`. The files in
+  `<data_dir>/plugins/emqx_rule_udf/programs/` hold the sources too, but not the
+  runtimes.
+
 ## Web UI and API
 
 The Dashboard shows the editor page of the plugin. It is a plain text area with a
