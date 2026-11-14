@@ -39,7 +39,7 @@ identical record, 1 when any error was reported, and 2 on bad usage. Errors for
 one package do not stop the other packages from being recorded.
 
 Usage:
-  package_manifests.py --packages-dir packages --version 6.3.1 --tag 6.3.1
+  package_manifests.py --packages-dir packages --version 5.8.12 --tag e5.8.12
                        [--profile emqx-enterprise] [--git-dir .]
                        [--out-dir DIR] [--publish] [--run-url URL]
                        [--repo emqx/emqx-package-manifests] [--branch master]
