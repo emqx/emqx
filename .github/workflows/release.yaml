@@ -124,35 +124,6 @@ jobs:
                -X POST \
                -d "{\"repo\":\"emqx/emqx\", \"tag\": \"${{ env.ref_name }}\" }" \
                ${{ secrets.EMQX_IO_RELEASE_API }}
-      - name: Push to packagecloud.io
-        if: steps.gate.outputs.publish == 'true'
-        env:
-          PROFILE: ${{ steps.profile.outputs.profile }}
-          VERSION: ${{ steps.profile.outputs.version }}
-          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
-        run: |
-          set -eu
-          REPO='emqx-enterprise5'
-          function push() {
-            docker run -t --rm -e PACKAGECLOUD_TOKEN=$PACKAGECLOUD_TOKEN -v $(pwd)/$2:/w/$2 -w /w ghcr.io/emqx/package_cloud push emqx/$REPO/$1 $2
-          }
-          push "debian/bullseye" "packages/$PROFILE-$VERSION-debian11-amd64.deb"
-          push "debian/bullseye" "packages/$PROFILE-$VERSION-debian11-arm64.deb"
-          push "debian/bookworm" "packages/$PROFILE-$VERSION-debian12-amd64.deb"
-          push "debian/bookworm" "packages/$PROFILE-$VERSION-debian12-arm64.deb"
-          push "debian/trixie" "packages/$PROFILE-$VERSION-debian13-amd64.deb"
-          push "debian/trixie" "packages/$PROFILE-$VERSION-debian13-arm64.deb"
-          push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-amd64.deb"
-          push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-arm64.deb"
-          push "ubuntu/noble" "packages/$PROFILE-$VERSION-ubuntu24.04-amd64.deb"
-          push "ubuntu/noble" "packages/$PROFILE-$VERSION-ubuntu24.04-arm64.deb"
-          push "el/8" "packages/$PROFILE-$VERSION-el8-amd64.rpm"
-          push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
-          push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"
-          push "el/9" "packages/$PROFILE-$VERSION-el9-arm64.rpm"
-          push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
-          push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
-
       - name: Upload to snap store
         if: steps.gate.outputs.publish == 'true'
         env:
