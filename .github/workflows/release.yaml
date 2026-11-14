@@ -70,6 +70,103 @@ jobs:
       # Packages are not attached to the GitHub release. The release notes link
       # to the emqx.com downloads instead; generate them with
       # scripts/rel/print-download-links.py --md.
+      - name: Select manifest publication
+        id: manifest_gate
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PROFILE: ${{ steps.profile.outputs.profile }}
+          VERSION: ${{ steps.profile.outputs.version }}
+          PUBLISH: ${{ (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts }}
+        run: |
+          set -euo pipefail
+          if [ "$PROFILE" = emqx-enterprise ] &&
+             [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] &&
+             [ "$TAG" = "e$VERSION" ]; then
+            echo "ga=true" >> "$GITHUB_OUTPUT"
+            if [ "$PUBLISH" = true ]; then
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      # The manifest tool runs from the workflow's own commit. For a release event
+      # that is the tagged commit. For workflow_dispatch it lets a dry run inspect
+      # a tag that predates the tool.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.manifest_gate.outputs.ga == 'true'
+        with:
+          ref: ${{ github.sha }}
+          path: _manifest_tool
+          sparse-checkout: scripts/rel/package_manifests.py
+          sparse-checkout-cone-mode: false
+      - name: Fetch the release tag object
+        if: steps.manifest_gate.outputs.ga == 'true'
+        continue-on-error: true
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+      - name: Configure trusted SSH release signers
+        if: steps.manifest_gate.outputs.ga == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SIGNERS: ${{ vars.RELEASE_SIGNERS }}
+        run: |
+          set -euo pipefail
+          : "${RELEASE_SIGNERS:?Set repository variable RELEASE_SIGNERS to space-separated GitHub usernames}"
+          if [[ "$RELEASE_SIGNERS" == *$'\n'* || "$RELEASE_SIGNERS" == *$'\r'* ]]; then
+            echo "::error::RELEASE_SIGNERS must be a space-separated list on one line"
+            exit 1
+          fi
+          read -r -a release_signers <<< "$RELEASE_SIGNERS"
+          if [ "${#release_signers[@]}" -eq 0 ]; then
+            echo "::error::RELEASE_SIGNERS must contain at least one GitHub username"
+            exit 1
+          fi
+          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
+          for user in "${release_signers[@]}"; do
+            if [[ ! "$user" =~ ^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$ ]]; then
+              echo "::error::RELEASE_SIGNERS contains an invalid GitHub username"
+              exit 1
+            fi
+            keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
+            test -n "$keys"
+            printf '%s\n' "$keys"
+          done > "$allowed_signers"
+          git config gpg.ssh.allowedSignersFile "$allowed_signers"
+      - name: Generate GitHub App token for emqx-package-manifests
+        id: app-token
+        if: steps.manifest_gate.outputs.publish == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AUTH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: emqx-package-manifests
+      # Record manifests before the distribution uploads. Report registration
+      # errors at the end so the uploads can still complete.
+      - name: Record package manifests
+        id: manifests
+        if: steps.manifest_gate.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          VERSION: ${{ steps.profile.outputs.version }}
+        run: |
+          python3 _manifest_tool/scripts/rel/package_manifests.py \
+            --packages-dir packages --version "$VERSION" --tag "$TAG" --publish \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+      - name: Dry-run package manifests
+        if: >-
+          steps.manifest_gate.outputs.ga == 'true' &&
+          steps.manifest_gate.outputs.publish != 'true' &&
+          github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          VERSION: ${{ steps.profile.outputs.version }}
+        run: |
+          python3 _manifest_tool/scripts/rel/package_manifests.py \
+            --packages-dir packages --version "$VERSION" --tag "$TAG"
       - name: update to emqx.io
         if: github.event_name == 'release' || inputs.publish_release_artifacts
         run: |
@@ -118,3 +215,9 @@ jobs:
           push "amazon/2" "packages/$PROFILE-$VERSION-amzn2-arm64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
+
+      - name: Fail the job when package manifests were not recorded
+        if: ${{ !cancelled() && steps.manifests.outcome == 'failure' }}
+        run: |
+          echo "::error::Package manifests were not recorded. See the 'Record package manifests' step."
+          exit 1
