@@ -167,6 +167,18 @@ Response `200`:
 - When the request has `UDF-Function-Sha256` and the server has a different
   version, the server MUST NOT run the call. It MUST return
   `409 SHA256_MISMATCH`.
+- The request MAY carry the function, so that any instance of the server can
+  run it:
+
+  ```json
+  {"args": ["hello"], "function": {"runtime": "python3", "source": "def handle(s): ..."}}
+  ```
+
+  Such a request MUST have `UDF-Function-Sha256`, and the version of `function`
+  (section 4) MUST equal it, or the server returns `400 BAD_REQUEST`. When the
+  server does not have this version, it MUST check and load `function` as
+  `PUT /v1/functions/{name}` does, with the same errors, and then run the call.
+  The function stays loaded for later calls.
 - The server MUST accept concurrent calls, to the same function and to
   different functions. It MAY limit concurrency and return `503 UNAVAILABLE`.
 - A call MUST NOT see data from a call to a different function.
@@ -258,9 +270,11 @@ A client SHOULD do these things:
   server does not need to keep it.
 - Send `UDF-Function-Sha256` on every call. Behind a load balancer, this makes
   sure that a call never runs an old version on one instance of the server.
-- On `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH`, upload the function again and
-  retry the call once. A server that restarts loses no data this way, so the
-  server does not need persistent storage.
+- On `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH`, repeat the call once with
+  `function` in the body (section 5.7). The repeated call loads and runs the
+  function in one request, so it works when a load balancer sends it to another
+  instance than the first call. A server that restarts loses no data this way,
+  and the instances behind a load balancer need no shared storage.
 - Set a request timeout a little longer than the server call timeout.
 
 ## 10. Security

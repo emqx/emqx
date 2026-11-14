@@ -168,7 +168,7 @@ t_function_error_is_returned(_Config) ->
     {200, _} = save(Name, <<"def handle(x):\n    return x / 0\n">>),
     ?assertMatch({422, #{<<"code">> := <<"FUNCTION_ERROR">>}}, call(Name, [1])).
 
-t_program_is_uploaded_again_when_server_lost_it(Config) ->
+t_program_is_sent_again_when_server_lost_it(Config) ->
     Name = <<"reupload.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
     %% The server forgets all functions on restart: simulate that.
@@ -176,6 +176,25 @@ t_program_is_uploaded_again_when_server_lost_it(Config) ->
     ?assertEqual(404, server_request(Config, get, "/v1/functions/" ++ binary_to_list(Name))),
     ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])),
     ?assertEqual(200, server_request(Config, get, "/v1/functions/" ++ binary_to_list(Name))).
+
+t_call_works_when_no_instance_keeps_the_program(Config) ->
+    %% Behind a load balancer, each request may reach an instance that does not
+    %% have the program. The proxy simulates that: it deletes the program on the
+    %% server before it forwards a request for it.
+    {ok, ProxyURL} = start_forgetful_proxy(Config),
+    try
+        NameVsn = ?config(plugin_name_vsn, Config),
+        #{<<"server">> := Server} = Conf = plugin_config(Config),
+        {204, _} = plugin_config_request(
+            put, NameVsn, Conf#{<<"server">> := Server#{<<"url">> := ProxyURL}}
+        ),
+        Name = <<"lb.py">>,
+        {200, _} = save(Name, ?UPPER_SRC),
+        ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])),
+        ?assertEqual(<<"XYZ">>, emqx_rule_udf_client:call(Name, [<<"xyz">>]))
+    after
+        cowboy:stop_listener(?MODULE)
+    end.
 
 t_delete_program(_Config) ->
     Name = <<"to-delete.py">>,
@@ -287,6 +306,42 @@ plugin_config_request(Method, NameVsn, Body) ->
     emqx_mgmt_api_test_util:simplify_decode_result(
         emqx_mgmt_api_test_util:request_api(Method, URL, "", Headers, Body, #{return_all => true})
     ).
+
+%% An HTTP proxy to the function server that deletes a function before it
+%% forwards a request for it.
+start_forgetful_proxy(Config) ->
+    Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, server_url(Config)}]}]),
+    {ok, _} = cowboy:start_clear(?MODULE, [{port, 0}], #{env => #{dispatch => Dispatch}}),
+    Port = ranch:get_port(?MODULE),
+    {ok, iolist_to_binary(["http://127.0.0.1:", integer_to_list(Port)])}.
+
+%% cowboy handler of the proxy
+init(Req0, ServerURL) ->
+    Path = binary_to_list(cowboy_req:path(Req0)),
+    {ok, Body, Req} = cowboy_req:read_body(Req0),
+    Headers = [
+        {binary_to_list(K), binary_to_list(V)}
+     || {K, V} <- maps:to_list(cowboy_req:headers(Req)),
+        lists:member(K, [<<"authorization">>, <<"udf-function-sha256">>])
+    ],
+    case string:split(Path, "/", all) of
+        ["", "v1", "functions", Name | _] ->
+            {ok, _} = httpc:request(
+                delete, {ServerURL ++ "/v1/functions/" ++ Name, Headers}, [], []
+            );
+        _ ->
+            ok
+    end,
+    Method = binary_to_atom(string:lowercase(cowboy_req:method(Req))),
+    Request =
+        case Body of
+            <<>> -> {ServerURL ++ Path, Headers};
+            _ -> {ServerURL ++ Path, Headers, "application/json", Body}
+        end,
+    {ok, {{_, Status, _}, _, RespBody}} =
+        httpc:request(Method, Request, [], [{body_format, binary}]),
+    {ok, cowboy_req:reply(Status, #{<<"content-type">> => <<"application/json">>}, RespBody, Req),
+        ServerURL}.
 
 plugin_package() ->
     Root = emqx_common_test_helpers:proj_root(),

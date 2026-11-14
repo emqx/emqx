@@ -13,7 +13,7 @@ them (`PROTOCOL.md`, section 10). EMQX and the server talk the emqx-rule-udf/1
 protocol over HTTP. `PROTOCOL.md` specifies it, so a server can be written in any
 language.
 
-The reference server is the image `ghcr.io/emqx/emqx-rule-udf-wasm-server:0.1.0`
+The reference server is the image `ghcr.io/emqx/emqx-rule-udf-wasm-server:0.2.0`
 (source: [emqx/docker-images](https://github.com/emqx/docker-images), directory
 `emqx-rule-udf-wasm-server`). It runs each `python3` program in CPython on
 WebAssembly, with no file, network, process or environment access, and with a
@@ -26,10 +26,12 @@ docker run -d --name emqx-rule-udf-server -p 127.0.0.1:8080:8080 \
   -e UDF_TOKEN="$(openssl rand -hex 32)" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 256 --memory 1g \
-  ghcr.io/emqx/emqx-rule-udf-wasm-server:0.1.0
+  ghcr.io/emqx/emqx-rule-udf-wasm-server:0.2.0
 ```
 
 Run it as a sidecar of each EMQX node, or as a service behind a load balancer.
+The instances behind a load balancer need no shared storage. The plugin needs
+server 0.2.0 or later.
 It keeps no state that EMQX needs (see "Programs" below).
 
 ## Build and install
@@ -64,8 +66,8 @@ Then set the function server in the plugin config (Dashboard, or
   operators. EMQX reads the table, not the files.
 - The function server keeps nothing that EMQX needs. When it restarts, or when a
   call reaches an instance that does not have the program, the server replies
-  `FUNCTION_NOT_FOUND`. EMQX then uploads the program from its table and
-  retries the call once.
+  `FUNCTION_NOT_FOUND`. EMQX then repeats the call once with the program from
+  its table in the request, and the server loads it and runs the call.
 
 ## Backup and restore
 

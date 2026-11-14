@@ -2,7 +2,7 @@ services:
   rule_udf_server:
     container_name: rule-udf-server
     hostname: rule-udf-server
-    image: ghcr.io/emqx/emqx-rule-udf-wasm-server:0.1.0
+    image: ghcr.io/emqx/emqx-rule-udf-wasm-server:0.2.0
     environment:
       UDF_TOKEN: ct-token
     read_only: true

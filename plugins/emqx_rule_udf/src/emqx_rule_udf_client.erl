@@ -11,10 +11,13 @@ evaluates the rule. They read the client settings from `persistent_term` and the
 program from `emqx_rule_udf_store`, and send `POST /v1/functions/{name}/call` through
 an `ehttpc` pool.
 
+After a `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH` reply, the call is repeated
+once with the program in its body. The server loads it and runs the call in one
+request, so this works when a load balancer sends the two requests to different
+instances.
+
 The `gen_server` owns the HTTP pool, which it restarts when the plugin config
-changes. It also serializes the uploads that a call asks for after a
-`FUNCTION_NOT_FOUND` or `SHA256_MISMATCH` reply, so that many calls that see the
-same reply cause one upload.
+changes.
 """.
 
 -behaviour(gen_server).
@@ -38,7 +41,6 @@ same reply cause one upload.
 
 -define(POOL, emqx_rule_udf_http).
 -define(PT_CLIENT, {?MODULE, client}).
--define(UPLOAD_CALL_TIMEOUT, 30_000).
 -define(DEFAULT_URL, <<"http://127.0.0.1:8080">>).
 
 -type client() :: #{
@@ -66,9 +68,9 @@ call(Name, Args) ->
 try_call(Name, Args) ->
     maybe
         {ok, Client} ?= client(),
-        {ok, #?PROGRAM_TAB{sha256 = Sha256}} ?= lookup(Name),
-        {ok, Body} ?= encode_args(Args),
-        call_with_reupload(Client, Name, Sha256, Body)
+        {ok, Program} ?= lookup(Name),
+        {ok, Body} ?= encode_call(#{<<"args">> => Args}),
+        call_with_program(Client, Program, Args, Body)
     end.
 
 client() ->
@@ -83,24 +85,25 @@ lookup(Name) ->
         {error, not_found} -> {error, #{reason => program_not_found}}
     end.
 
-encode_args(Args) ->
+encode_call(Request) ->
     %% No `force_utf8': a binary that is not valid UTF-8 fails the call instead
     %% of reaching the program with replaced characters.
-    case emqx_utils_json:safe_encode(#{<<"args">> => Args}, []) of
+    case emqx_utils_json:safe_encode(Request, []) of
         {ok, Body} -> {ok, Body};
         {error, Reason} -> {error, #{reason => args_not_json, detail => Reason}}
     end.
 
-call_with_reupload(Client, Name, Sha256, Body) ->
-    FailedAt = erlang:monotonic_time(),
+%% Send the call without the program. When the server does not have this
+%% version, send it once more with the program.
+call_with_program(Client, #?PROGRAM_TAB{name = Name, sha256 = Sha256} = Program, Args, Body) ->
     case do_call(Client, Name, Sha256, Body) of
         {error, #{code := Code}} when
             Code =:= <<"FUNCTION_NOT_FOUND">>; Code =:= <<"SHA256_MISMATCH">>
         ->
-            case ensure_uploaded(Name, Sha256, FailedAt) of
-                ok -> do_call(Client, Name, Sha256, Body);
-                {error, _} = Error -> Error
-            end;
+            #?PROGRAM_TAB{runtime = Runtime, source = Source} = Program,
+            Function = #{<<"runtime">> => Runtime, <<"source">> => Source},
+            {ok, Body2} = encode_call(#{<<"args">> => Args, <<"function">> => Function}),
+            do_call(Client, Name, Sha256, Body2);
         Other ->
             Other
     end.
@@ -115,16 +118,6 @@ do_call(Client, Name, Sha256, Body) ->
             {error, #{reason => bad_response, body => Other}};
         {error, _} = Error ->
             Error
-    end.
-
-ensure_uploaded(Name, Sha256, FailedAt) ->
-    try
-        gen_server:call(
-            ?MODULE, {ensure_uploaded, Name, Sha256, FailedAt}, ?UPLOAD_CALL_TIMEOUT
-        )
-    catch
-        exit:{timeout, _} -> {error, #{reason => upload_timeout}};
-        exit:{noproc, _} -> {error, #{reason => client_not_running}}
     end.
 
 %%--------------------------------------------------------------------
@@ -154,15 +147,6 @@ it replies, so `{ok, Sha256}` means that calls can run it.
 """.
 -spec upload(binary(), binary(), binary()) -> {ok, binary()} | {error, map()}.
 upload(Name, Runtime, Source) ->
-    case do_upload(Name, Runtime, Source) of
-        {ok, Sha256} = Ok ->
-            gen_server:cast(?MODULE, {uploaded, Name, Sha256, erlang:monotonic_time()}),
-            Ok;
-        Error ->
-            Error
-    end.
-
-do_upload(Name, Runtime, Source) ->
     maybe
         {ok, Client} ?= client(),
         Body = emqx_utils_json:encode(#{<<"runtime">> => Runtime, <<"source">> => Source}),
@@ -210,7 +194,7 @@ version(Runtime, Source) ->
 
 init([]) ->
     process_flag(trap_exit, true),
-    State = #{server => undefined, uploaded => #{}},
+    State = #{server => undefined},
     case apply_config(load_plugin_config(), State) of
         {ok, NewState} ->
             {ok, NewState};
@@ -224,14 +208,9 @@ handle_call({update_config, RawConfig}, _From, State) ->
         {ok, NewState} -> {reply, ok, NewState};
         {error, _} = Error -> {reply, Error, State}
     end;
-handle_call({ensure_uploaded, Name, Sha256, FailedAt}, _From, State) ->
-    {Reply, NewState} = do_ensure_uploaded(Name, Sha256, FailedAt, State),
-    {reply, Reply, NewState};
 handle_call(_Req, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
-handle_cast({uploaded, Name, Sha256, At}, #{uploaded := Uploaded} = State) ->
-    {noreply, State#{uploaded => Uploaded#{Name => {Sha256, At}}}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -265,8 +244,7 @@ apply_config(RawConfig, #{server := OldServer} = State) ->
             _ = ehttpc_sup:stop_pool(?POOL),
             case start_pool(NewServer) of
                 ok ->
-                    %% A new server may not have the programs: forget all uploads.
-                    {ok, State#{server => NewServer, uploaded => #{}}};
+                    {ok, State#{server => NewServer}};
                 {error, _} = Error ->
                     Error
             end;
@@ -334,44 +312,6 @@ sni(Host) -> str(Host).
 
 wrap_token(<<>>) -> undefined;
 wrap_token(Token) -> emqx_secret:wrap(Token).
-
-%%--------------------------------------------------------------------
-%% Upload on demand
-%%--------------------------------------------------------------------
-
-%% Upload `Name' unless an upload of the same version finished after the caller
-%% saw the failure: the callers that queue up behind one upload do not repeat it.
-do_ensure_uploaded(Name, Sha256, FailedAt, #{uploaded := Uploaded} = State) ->
-    case Uploaded of
-        #{Name := {Sha256, At}} when At > FailedAt ->
-            {ok, State};
-        _ ->
-            case upload_stored(Name, Sha256) of
-                ok ->
-                    At = erlang:monotonic_time(),
-                    {ok, State#{uploaded => Uploaded#{Name => {Sha256, At}}}};
-                {error, _} = Error ->
-                    {Error, State}
-            end
-    end.
-
-upload_stored(Name, Sha256) ->
-    case emqx_rule_udf_store:lookup(Name) of
-        {ok, #?PROGRAM_TAB{sha256 = Sha256, runtime = Runtime, source = Source}} ->
-            case do_upload(Name, Runtime, Source) of
-                {ok, _} ->
-                    ok;
-                {error, Reason} = Error ->
-                    ?LOG(warning, #{
-                        msg => "udf_program_upload_failed", name => Name, reason => Reason
-                    }),
-                    Error
-            end;
-        {ok, _Changed} ->
-            {error, #{reason => program_changed}};
-        {error, not_found} ->
-            {error, #{reason => program_not_found}}
-    end.
 
 %%--------------------------------------------------------------------
 %% HTTP
