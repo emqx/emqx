@@ -1,0 +1,94 @@
+name: Verify GA release tag
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      require_ga:
+        default: false
+        type: boolean
+    outputs:
+      ref:
+        description: Verified GA commit, or the original non-GA ref
+        value: ${{ jobs.verify.outputs.ref }}
+      tag_object:
+        description: Verified annotated tag object
+        value: ${{ jobs.verify.outputs.tag_object }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ steps.verify.outputs.commit || steps.select.outputs.ref }}
+      tag_object: ${{ steps.verify.outputs.tag_object }}
+    steps:
+      - name: Select release ref
+        id: select
+        env:
+          RELEASE_REF: ${{ inputs.ref }}
+          REQUIRE_GA: ${{ inputs.require_ga }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_REF#refs/tags/}"
+          if [[ "$tag" =~ ^e?[0-9]+\.[0-9]+\.[0-9]+(-patch\.[0-9]+)?$ ]]; then
+            echo "ga=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          elif [ "$REQUIRE_GA" = true ]; then
+            echo "::error::GA publication requires a GA release tag"
+            exit 1
+          else
+            echo "ga=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "ref=$RELEASE_REF" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.select.outputs.ga == 'true'
+        with:
+          ref: refs/tags/${{ steps.select.outputs.tag }}
+          fetch-depth: 0
+      - name: Configure trusted SSH release signers
+        id: signers
+        if: steps.select.outputs.ga == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SIGNERS: ${{ vars.RELEASE_SIGNERS }}
+        run: |
+          set -euo pipefail
+          : "${RELEASE_SIGNERS:?Set repository variable RELEASE_SIGNERS to space-separated GitHub usernames}"
+          if [[ "$RELEASE_SIGNERS" == *$'\n'* || "$RELEASE_SIGNERS" == *$'\r'* ]]; then
+            echo "::error::RELEASE_SIGNERS must be a space-separated list on one line"
+            exit 1
+          fi
+          read -r -a release_signers <<< "$RELEASE_SIGNERS"
+          if [ "${#release_signers[@]}" -eq 0 ]; then
+            echo "::error::RELEASE_SIGNERS must contain at least one GitHub username"
+            exit 1
+          fi
+          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
+          for user in "${release_signers[@]}"; do
+            if [[ ! "$user" =~ ^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$ ]]; then
+              echo "::error::RELEASE_SIGNERS contains an invalid GitHub username"
+              exit 1
+            fi
+            keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
+            test -n "$keys"
+            printf '%s\n' "$keys"
+          done > "$allowed_signers"
+          git config gpg.ssh.allowedSignersFile "$allowed_signers"
+      - name: Verify GA release tag
+        id: verify
+        if: steps.select.outputs.ga == 'true'
+        env:
+          TAG: ${{ steps.select.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ref="refs/tags/$TAG"
+          git verify-tag "$ref"
+          commit=$(git rev-parse "$ref^{commit}")
+          test "$commit" = "$(git rev-parse HEAD)"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "tag_object=$(git rev-parse "$ref")" >> "$GITHUB_OUTPUT"
