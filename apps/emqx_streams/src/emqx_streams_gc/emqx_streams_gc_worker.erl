@@ -14,8 +14,8 @@ The logic of GC is different for different types of streams.
 
 - For regular unlimited streams, we use the same logic as the regular message database, i.e.
 regularly delete the expired slabs.
-- Then, for lastvalue or/and limited streams, we iterate over all the streams and delete the expired data
-via ranged `tx_del_topic`.
+- Each last-value slab has a linked worker that traverses the registry lazily and deletes
+expired data in asynchronous batches. A failed slab does not stop other slab workers.
 
 NOTE: We call `emqx_utils_stream` objects `iterators' here to avoid confusion.
 """.
@@ -28,13 +28,11 @@ NOTE: We call `emqx_utils_stream` objects `iterators' here to avoid confusion.
 -export([start_link/0, child_spec/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, handle_continue/2, terminate/2]).
 
--define(CONSUME_BATCH_SIZE, 100).
-
 %%--------------------------------------------------------------------
 %% Messages
 %%--------------------------------------------------------------------
 
--record(gc, {}).
+-record(gc_done, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -73,8 +71,15 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(#gc{}, State) ->
-    gc_next_lastvalue_batch(State).
+handle_info({'EXIT', Pid, _Reason}, #{workers := Workers0} = State) when
+    is_map_key(Pid, Workers0)
+->
+    Workers = maps:remove(Pid, Workers0),
+    maybe_done(Workers),
+    {noreply, State#{workers := Workers}};
+handle_info(#gc_done{}, State) ->
+    ?tp(info, streams_gc_done, #{}),
+    {stop, normal, State}.
 
 terminate(_Reason, _State) ->
     ?tp_debug(streams_gc_worker_terminated, #{reason => _Reason}),
@@ -90,31 +95,27 @@ terminate(_Reason, _State) ->
 
 start_gc_lastvalue_streams() ->
     ?tp_debug(streams_gc_lastvalue_streams_started, #{}),
-    erlang:send_after(0, self(), #gc{}),
-    #{iterator => lastvalue_streams_iterator()}.
+    {Slabs, Errors} = emqx_ds:list_slabs(?STREAMS_MESSAGE_LASTVALUE_DB, #{}),
+    %% Shards that fail to report their slabs are skipped in this run.
+    case Errors of
+        [] -> ok;
+        _ -> ?tp(warning, streams_gc_lastvalue_list_slabs_failed, #{errors => Errors})
+    end,
+    Workers = maps:from_list([
+        begin
+            {ok, Pid} = emqx_streams_gc_slab_worker:start_link(Slab),
+            {Pid, true}
+        end
+     || Slab <- maps:keys(Slabs)
+    ]),
+    maybe_done(Workers),
+    #{workers => Workers}.
 
-gc_next_lastvalue_batch(#{iterator := Iterator0} = State) ->
-    case emqx_utils_stream:consume(?CONSUME_BATCH_SIZE, Iterator0) of
-        {Streams, Iterator} ->
-            ok = gc_lastvalue_streams(Streams),
-            erlang:send_after(0, self(), #gc{}),
-            {noreply, State#{iterator => Iterator}};
-        Streams when is_list(Streams) ->
-            ok = gc_lastvalue_streams(Streams),
-            ?tp(info, streams_gc_done, #{}),
-            {stop, normal, State}
-    end.
-
-gc_lastvalue_streams(Streams) ->
-    emqx_streams_message_db:delete_expired_data(Streams).
-
-lastvalue_streams_iterator() ->
-    emqx_utils_stream:filter(
-        fun(Stream) ->
-            not emqx_streams_prop:is_append_only(Stream)
-        end,
-        emqx_streams_registry:list()
-    ).
+maybe_done(Workers) when map_size(Workers) =:= 0 ->
+    self() ! #gc_done{},
+    ok;
+maybe_done(_) ->
+    ok.
 
 %%
 %% Append-Only Queue GC

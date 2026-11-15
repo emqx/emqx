@@ -412,7 +412,7 @@ on_get_status(_InstId, #{pid := Pid, health_check_error := {delay, Delay}}) ->
         true -> ?status_connected;
         false -> ?status_disconnected
     end;
-on_get_status(ConnResId, #{health_check_agent := Agent}) ->
+on_get_status(ConnResId, #{health_check_agent := Agent} = ConnState) ->
     case get_agent_action(Agent, resource_health_check) of
         {ask, Pid} ->
             Alias = alias([reply]),
@@ -424,7 +424,10 @@ on_get_status(ConnResId, #{health_check_agent := Agent}) ->
                     Result
             end;
         {notify, Pid, Status} when ?IS_STATUS(Status) ->
-            Pid ! {returning_resource_health_check_result, ConnResId, Status},
+            Ctx = #{
+                conn_state => ConnState
+            },
+            Pid ! {returning_resource_health_check_result, ConnResId, Status, Ctx},
             Status;
         {Status, Msg} when ?IS_STATUS(Status) ->
             {Status, Msg};
@@ -441,8 +444,25 @@ on_get_status(_InstId, #{pid := Pid}) ->
 on_add_channel(ConnResId, #{add_channel_agent := Agent} = ConnSt0, ChanId, ChanCfg) ->
     case get_agent_action(Agent, add_channel) of
         {notify, Pid, continue} ->
-            Pid ! {attempted_to_add_channel, ConnResId, ChanId, ChanCfg},
+            Ctx = #{
+                conn_res_id => ConnResId,
+                chan_id => ChanId,
+                chan_cfg => ChanCfg,
+                conn_state => ConnSt0,
+                action => continue
+            },
+            Pid ! {attempted_to_add_channel, Ctx},
             do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg);
+        {notify, Pid, {error, _} = Result} ->
+            Ctx = #{
+                conn_res_id => ConnResId,
+                chan_id => ChanId,
+                chan_cfg => ChanCfg,
+                conn_state => ConnSt0,
+                action => Result
+            },
+            Pid ! {attempted_to_add_channel, Ctx},
+            Result;
         continue ->
             do_on_add_channel(ConnResId, ConnSt0, ChanId, ChanCfg)
     end;
@@ -486,8 +506,8 @@ do_on_remove_channel(_ConnResId, ConnSt0, ChanId) ->
 on_get_channels(ConnResId) ->
     persistent_term:get(?PT_CHAN_KEY(ConnResId), []).
 
-on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
-    case get_agent_action(Agent, channel_health_check) of
+on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent} = ConnState) ->
+    case get_agent_action(Agent, channel_health_check, continue) of
         {ask, Pid} ->
             Alias = alias([reply]),
             Pid ! {waiting_health_check_result, Alias, channel, ConnResId, ChanId},
@@ -498,12 +518,17 @@ on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
         {notify, Pid, Status} when ?IS_STATUS(Status) ->
             Pid ! {returning_channel_health_check_result, ConnResId, ChanId, Status},
             Status;
+        continue ->
+            do_on_get_channel_status(ConnResId, ChanId, ConnState);
         Result ->
             Result
     end;
 on_get_channel_status(_ConnResId, ChanId, #{channel_health_check_fn := Fn} = ConnState) ->
     Fn(ChanId, ConnState);
-on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
+on_get_channel_status(ConnResId, ChanId, ConnState) ->
+    do_on_get_channel_status(ConnResId, ChanId, ConnState).
+
+do_on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
     case Chans of
         #{ChanId := #{health_check_delay := Delay}} ->
             ?tp(connector_demo_channel_health_check_delay, #{}),
@@ -707,5 +732,19 @@ get_agent_action(Agent, Key) ->
                 {Action, Old#{Key := Actions}};
             #{Key := Action} when not is_list(Action) ->
                 {Action, Old}
+        end
+    end).
+
+get_agent_action(Agent, Key, Default) ->
+    emqx_utils_agent:get_and_update(Agent, fun(Old) ->
+        case Old of
+            #{Key := [Action]} ->
+                {Action, Old};
+            #{Key := [Action | Actions]} ->
+                {Action, Old#{Key := Actions}};
+            #{Key := Action} when not is_list(Action) ->
+                {Action, Old};
+            #{} ->
+                {Default, Old}
         end
     end).

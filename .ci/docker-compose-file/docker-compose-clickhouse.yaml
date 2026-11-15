@@ -8,7 +8,22 @@ services:
       - ./clickhouse/config.xml:/etc/clickhouse-server/config.d/config.xml
     expose:
       - "8123"
-    ports:
-      - "8123:8123"
     networks:
       - emqx_bridge
+
+  clickhouse_tls_lb:
+    container_name: clickhouse_tls_lb
+    image: public.ecr.aws/nginx/nginx:1.27-bookworm
+    restart: always
+    expose:
+      - 8124
+    networks:
+      - emqx_bridge
+    depends_on:
+      clickhouse:
+        condition: service_started
+    volumes:
+      - ./clickhouse/tls.conf:/etc/nginx/conf.d/default.conf
+      - ./certs/ca.crt:/opt/certs/ca.crt
+      - ./certs/server.crt:/opt/certs/server.crt
+      - ./certs/server.key:/opt/certs/server.key

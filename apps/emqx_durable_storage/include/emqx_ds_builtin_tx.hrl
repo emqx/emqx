@@ -23,4 +23,14 @@
     meta :: term()
 }).
 
+-record(ds_del_batch, {
+    db :: emqx_ds:db(),
+    stream :: emqx_ds:ds_specific_stream(),
+    range :: emqx_ds:topic_range(),
+    batch_size :: pos_integer(),
+    alias :: reference(),
+    dirty :: boolean(),
+    reserved
+}).
+
 -endif.

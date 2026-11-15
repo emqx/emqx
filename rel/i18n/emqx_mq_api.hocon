@@ -42,6 +42,9 @@ emqx_mq_api {
     cannot_create_message_queue {
         desc: "Cannot create message queue"
     }
+    message_queue_being_deleted {
+        desc: "Message queue is being deleted"
+    }
     message_queue_not_found {
         desc: "Message queue not found"
     }

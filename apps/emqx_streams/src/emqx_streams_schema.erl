@@ -139,7 +139,7 @@ fields(stream_individual_limits) ->
 fields(stream_lastvalue_api_put) ->
     without_fields([name, topic_filter], stream_fields(true));
 fields(stream_lastvalue_api_get) ->
-    stream_fields(true);
+    stream_fields(true) ++ [deleted_at_field()];
 fields(stream_lastvalue_api_post) ->
     stream_fields(true);
 %%
@@ -148,7 +148,7 @@ fields(stream_lastvalue_api_post) ->
 fields(stream_regular_api_put) ->
     without_fields([name, topic_filter], stream_fields(false));
 fields(stream_regular_api_get) ->
-    stream_fields(false);
+    stream_fields(false) ++ [deleted_at_field()];
 fields(stream_regular_api_post) ->
     stream_fields(false);
 %%
@@ -182,6 +182,10 @@ desc(_) ->
 
 stream_sctype_api_get() ->
     stream_sctype(ref(stream_lastvalue_api_get), ref(stream_regular_api_get)).
+
+%% Only the streams listed while their deletion is pending have this field.
+deleted_at_field() ->
+    {deleted_at, mk(non_neg_integer(), #{required => false, desc => ?DESC(deleted_at)})}.
 
 stream_sctype_api_put() ->
     stream_sctype(ref(stream_lastvalue_api_put), ref(stream_regular_api_put)).

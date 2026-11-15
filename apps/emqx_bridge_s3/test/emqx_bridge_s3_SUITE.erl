@@ -143,6 +143,9 @@ create_connector_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
     ).
 
+delete_connector_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
+
 create_action_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
@@ -314,6 +317,24 @@ t_custom_headers(TCConfig) ->
     ok.
 
 -doc """
+Checks that we don't crash the `emqx_bridge_s3_upload:convert_action` converter when the
+raw config does not include `resource_opts`.
+
+For yet unknown reasons, despite having a default `#{}` value, this apparently does not
+reach the converter (maybe some recent change in hocon?).
+""".
+t_missing_resource_opts(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Cfg) ->
+        maps:remove(~"resource_opts", Cfg)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_action_api(TCConfig, #{})
+    ),
+    ok.
+
+-doc """
 Smoke test for handling non-successful HTTP responses without any bodies.
 
 Before the fix, `emqx_s3_utils:map_error_details` would crash on the `undefined` body.
@@ -340,6 +361,32 @@ t_http_error_no_body(TCConfig) ->
         {201, #{
             ~"status" := ~"disconnected",
             ~"status_reason" := ~"AWS error: response status 307 and no body"
+        }},
+        create_connector_api(TCConfig, #{
+            ~"host" => ~"127.0.0.1",
+            ~"port" => Port
+        })
+    ),
+    {204, _} = delete_connector_api(TCConfig),
+    emqx_utils_http_test_server:set_handler(
+        fun(Req, State) ->
+            Rep =
+                cowboy_req:reply(
+                    503,
+                    #{
+                        <<"content-type">> => <<"application/xml">>,
+                        <<"location">> => <<"https://xxx.s3-sa-east-1.amazonaws.com/xxx">>
+                    },
+                    <<"">>,
+                    Req
+                ),
+            {ok, Rep, State}
+        end
+    ),
+    ?assertMatch(
+        {201, #{
+            ~"status" := ~"disconnected",
+            ~"status_reason" := ~"AWS error: response status 503 and no body"
         }},
         create_connector_api(TCConfig, #{
             ~"host" => ~"127.0.0.1",

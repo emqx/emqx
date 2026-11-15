@@ -210,14 +210,15 @@ convert_actions(Conf = #{}, Opts) ->
 convert_actions(undefined, _) ->
     undefined.
 
-convert_action(Conf = #{<<"parameters">> := Params, <<"resource_opts">> := ResourceOpts}, _) ->
+convert_action(Conf = #{<<"parameters">> := Params}, _) ->
+    ResourceOpts = maps:get(<<"resource_opts">>, Conf, #{}),
     case Params of
         #{<<"mode">> := <<"aggregated">>} ->
             Conf;
         #{} ->
             %% NOTE: Disable batching for direct uploads.
             NResourceOpts = ResourceOpts#{<<"batch_size">> => 1, <<"batch_time">> => 0},
-            Conf#{<<"resource_opts">> := NResourceOpts}
+            Conf#{<<"resource_opts">> => NResourceOpts}
     end.
 
 %% Interpreting options

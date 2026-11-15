@@ -21,9 +21,13 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
     is_present/2,
     match/1,
     delete/1,
+    delete/2,
+    mark_deleting/1,
+    is_deleting/1,
     update/2,
     list/0,
     list/2,
+    list_all/2,
     stream_count/0
 ]).
 
@@ -158,6 +162,8 @@ match(Topic) ->
             case mnesia:dirty_read(?STREAMS_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
+                [#?STREAMS_REGISTRY_INDEX_TAB{extra = #{deleted_at := _}}] ->
+                    [];
                 [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
                     [record_to_stream(Rec)]
             end
@@ -214,31 +220,38 @@ is_present(Name, TopicFilter) ->
 Delete the Stream by its name.
 """.
 -spec delete(emqx_streams_types:stream_name()) -> ok | not_found | {error, term()}.
-delete(?LEGACY_STREAM_NAME(TopicFilter)) ->
-    Key = make_legacy_key(TopicFilter),
-    do_delete(Key);
 delete(Name) ->
+    case find(Name) of
+        {ok, #{id := Id}} -> delete(Name, Id);
+        not_found -> not_found
+    end.
+
+-doc "Delete a stream only if its name still identifies the requested stream".
+-spec delete(emqx_streams_types:stream_name(), emqx_streams_types:stream_id()) ->
+    ok | not_found | {error, term()}.
+delete(?LEGACY_STREAM_NAME(TopicFilter), Id) ->
+    Key = make_legacy_key(TopicFilter),
+    do_delete(Key, Id);
+delete(Name, Id) ->
     ?tp_debug(mq_registry_delete, #{name => Name}),
     case mnesia:dirty_read(?STREAMS_REGISTRY_NAME_INDEX_TAB, Name) of
-        [] ->
-            not_found;
         [#?STREAMS_REGISTRY_NAME_INDEX_TAB{topic_filter = TopicFilter, id = Id} = IndexRec] ->
             Key = make_key(TopicFilter, Id),
-            case do_delete(Key) of
+            case do_delete(Key, Id) of
                 {error, _} = Error ->
                     Error;
                 %% `ok` or `not_found`
                 Res ->
                     ok = mria:dirty_delete_object(IndexRec),
                     Res
-            end
+            end;
+        _ ->
+            not_found
     end.
 
-do_delete(Key) ->
+do_delete(Key, Id) ->
     case mnesia:dirty_read(?STREAMS_REGISTRY_INDEX_TAB, Key) of
-        [] ->
-            not_found;
-        [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
+        [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
             Stream = record_to_stream(Rec),
             %% TODO Drop consumer groups when they appear
             case emqx_streams_message_db:drop(Stream) of
@@ -246,7 +259,39 @@ do_delete(Key) ->
                     ok = mria:dirty_delete_object(Rec);
                 {error, _} = Error ->
                     Error
-            end
+            end;
+        _ ->
+            not_found
+    end.
+
+-doc """
+Mark the Stream as being deleted. Publishing and listing ignore a marked Stream.
+A repeated mark keeps the first `deleted_at`.
+""".
+-spec mark_deleting(emqx_streams_types:stream()) -> ok | not_found.
+mark_deleting(#{id := Id} = Stream) ->
+    Key = stream_key(Stream),
+    {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
+            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id, extra = #{deleted_at := _}}] ->
+                ok;
+            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id, extra = Extra} = Rec] ->
+                DeletedAt = erlang:system_time(millisecond),
+                mnesia:write(Rec#?STREAMS_REGISTRY_INDEX_TAB{
+                    extra = Extra#{deleted_at => DeletedAt}
+                });
+            _ ->
+                not_found
+        end
+    end),
+    Result.
+
+-doc "Check whether the Stream is marked as being deleted".
+-spec is_deleting(emqx_streams_types:stream()) -> boolean().
+is_deleting(#{id := Id} = Stream) ->
+    case mnesia:dirty_read(?STREAMS_REGISTRY_INDEX_TAB, stream_key(Stream)) of
+        [#?STREAMS_REGISTRY_INDEX_TAB{id = Id, extra = #{deleted_at := _}}] -> true;
+        _ -> false
     end.
 
 -doc """
@@ -270,6 +315,7 @@ Update the Stream by its name.
     | not_found
     | {error, is_lastvalue_not_allowed_to_be_updated}
     | {error, limit_presence_cannot_be_updated_for_regular_streams}
+    | {error, being_deleted}
     | {error, term()}.
 update(?LEGACY_STREAM_NAME(TopicFilter), UpdateFields) ->
     Key = make_legacy_key(TopicFilter),
@@ -288,6 +334,8 @@ do_update(Key, UpdateFields0) ->
     case mnesia:dirty_read(?STREAMS_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
+        [#?STREAMS_REGISTRY_INDEX_TAB{extra = #{deleted_at := _}}] ->
+            {error, being_deleted};
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
             #{id := Id} = Stream = record_to_stream(Rec),
             IsLastValueOld = emqx_streams_prop:is_lastvalue(Stream),
@@ -305,7 +353,7 @@ do_update(Key, UpdateFields0) ->
     end.
 
 -doc """
-List all MQs.
+List all Streams, except the Streams marked as being deleted.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_streams_types:stream()).
 list() ->
@@ -313,28 +361,44 @@ list() ->
         fun({_Key, Stream}) ->
             Stream
         end,
-        record_iterator_to_streams(record_iterator())
+        record_iterator_to_streams(skip_deleting(record_iterator()))
     ).
 
 -doc """
-List at most `Limit` MQs starting from `Cursor` position.
+List at most `Limit` Streams starting from `Cursor` position, except the Streams marked as
+being deleted.
 """.
 -spec list(cursor(), non_neg_integer()) ->
     {ok, [emqx_streams_types:stream()], cursor()} | {error, bad_cursor}.
 list(Cursor, Limit) when Limit >= 1 ->
     case key_from_cursor(Cursor) of
         {ok, Key} ->
-            {Streams, CursorNext} = do_list(Key, Limit),
+            {Streams, CursorNext} = do_list(skip_deleting(record_iterator(Key)), Limit),
             {ok, Streams, CursorNext};
         {error, bad_cursor} ->
             {error, bad_cursor}
     end.
 
-do_list(StartKey, Limit) ->
+-doc """
+List at most `Limit` Streams starting from `Cursor` position, including the Streams marked as
+being deleted.
+""".
+-spec list_all(cursor(), non_neg_integer()) ->
+    {ok, [emqx_streams_types:stream()], cursor()} | {error, bad_cursor}.
+list_all(Cursor, Limit) when Limit >= 1 ->
+    case key_from_cursor(Cursor) of
+        {ok, Key} ->
+            {Streams, CursorNext} = do_list(record_iterator(Key), Limit),
+            {ok, Streams, CursorNext};
+        {error, bad_cursor} ->
+            {error, bad_cursor}
+    end.
+
+do_list(RecordIterator, Limit) ->
     KeyStreams0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
             Limit + 1,
-            record_iterator_to_streams(record_iterator(StartKey))
+            record_iterator_to_streams(RecordIterator)
         )
     ),
     case length(KeyStreams0) < Limit + 1 of
@@ -407,9 +471,15 @@ next_key(Key) ->
 
 record_iterator_to_streams(Iterator) ->
     emqx_utils_stream:chainmap(
-        fun(#?STREAMS_REGISTRY_INDEX_TAB{key = Key} = Rec) ->
-            [{Key, record_to_stream(Rec)}]
+        fun(#?STREAMS_REGISTRY_INDEX_TAB{key = Key, extra = Extra} = Rec) ->
+            [{Key, maps:merge(record_to_stream(Rec), maps:with([deleted_at], Extra))}]
         end,
+        Iterator
+    ).
+
+skip_deleting(Iterator) ->
+    emqx_utils_stream:filter(
+        fun(#?STREAMS_REGISTRY_INDEX_TAB{extra = Extra}) -> not is_map_key(deleted_at, Extra) end,
         Iterator
     ).
 
@@ -419,15 +489,21 @@ make_key(TopicFilter, Id) ->
 make_legacy_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
 
+stream_key(#{name := ?LEGACY_STREAM_NAME(TopicFilter)}) ->
+    make_legacy_key(TopicFilter);
+stream_key(#{topic_filter := TopicFilter, id := Id}) ->
+    make_key(TopicFilter, Id).
+
 update_index(Key, Id, UpdateFields) ->
     {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
         case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
-            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
+            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id, extra = Extra0} = Rec] ->
                 Stream0 = record_to_stream(Rec),
                 Stream = emqx_utils_maps:deep_merge(Stream0, UpdateFields),
-                Record = stream_to_record(Stream),
-                %% Important: preserve the key
-                mnesia:write(Record#?STREAMS_REGISTRY_INDEX_TAB{key = Key}),
+                #?STREAMS_REGISTRY_INDEX_TAB{extra = Extra1} = Record = stream_to_record(Stream),
+                %% Important: preserve the key and the deletion mark
+                Extra = maps:merge(Extra1, maps:with([deleted_at], Extra0)),
+                mnesia:write(Record#?STREAMS_REGISTRY_INDEX_TAB{key = Key, extra = Extra}),
                 {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
             _ ->
                 not_found

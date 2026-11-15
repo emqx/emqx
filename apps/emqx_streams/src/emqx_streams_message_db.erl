@@ -43,7 +43,7 @@ Facade for all operations with the message database.
 
 -export([
     add_regular_db_generation/0,
-    delete_expired_data/1,
+    gc_info/2,
     regular_db_slab_info/0,
     drop_regular_db_slab/1,
     initial_generations/1
@@ -81,8 +81,6 @@ Facade for all operations with the message database.
 
 -define(STREAMS_MESSAGE_DB_APPEND_RETRY, 3).
 -define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
--define(STREAMS_MESSAGE_DB_DELETE_RETRY, 1).
--define(STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
 -define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).
@@ -387,60 +385,11 @@ decode_message(Bin) ->
 add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?STREAMS_MESSAGE_REGULAR_DB).
 
--spec delete_expired_data([emqx_streams_types:stream()]) -> ok.
-delete_expired_data(Streams) ->
-    Shards = emqx_ds:list_shards(?STREAMS_MESSAGE_LASTVALUE_DB),
-    Refs = lists:filtermap(
-        fun(Shard) ->
-            TxOpts = #{
-                db => ?STREAMS_MESSAGE_LASTVALUE_DB,
-                shard => Shard,
-                generation => ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
-                sync => false
-            },
-            Indices = [dirty_index(Stream, Shard) || Stream <- Streams],
-            Res = emqx_ds:trans(TxOpts, fun() ->
-                lists:foreach(
-                    fun({Stream, Index}) -> tx_stream_delete_expired_data(Stream, Index) end,
-                    lists:zip(Streams, Indices)
-                )
-            end),
-            case Res of
-                {async, Ref, _} ->
-                    {true, Ref};
-                {nop, ok} ->
-                    false;
-                {error, IsRecoverable, Reason} ->
-                    ?tp(error, streams_message_db_delete_expired_error, #{
-                        is_recoverable => IsRecoverable,
-                        reason => Reason,
-                        shard => Shard
-                    }),
-                    false
-            end
-        end,
-        Shards
-    ),
-    lists:foreach(
-        fun(Ref) ->
-            receive
-                ?ds_tx_commit_reply(Ref, Reply) ->
-                    case emqx_ds:tx_commit_outcome(?STREAMS_MESSAGE_LASTVALUE_DB, Ref, Reply) of
-                        {ok, _} ->
-                            ok;
-                        {error, IsRecoverable, Reason} ->
-                            ?tp(error, streams_message_db_delete_expired_error, #{
-                                streams => Streams,
-                                is_recoverable => IsRecoverable,
-                                reason => Reason
-                            })
-                    end
-            end
-        end,
-        Refs
-    ).
-
-tx_stream_delete_expired_data(Stream, Index) ->
+-doc "Compute this stream's retention cutoff for one last-value slab".
+-spec gc_info(emqx_streams_types:stream(), emqx_ds:slab()) ->
+    skip | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time()}.
+gc_info(Stream, {Shard, _}) ->
+    Index = dirty_index(Stream, Shard),
     DataRetentionPeriod = emqx_streams_prop:data_retention_period(Stream),
     DataRetentionPeriodUs = erlang:convert_time_unit(DataRetentionPeriod, millisecond, microsecond),
     TimeRetentionDeadline = max(now_us() - DataRetentionPeriodUs, 0),
@@ -453,7 +402,11 @@ tx_stream_delete_expired_data(Stream, Index) ->
         end,
     DeleteTill = max(TimeRetentionDeadline, LimitsDeadline),
     Topic = stream_message_topic(Stream, '#'),
-    emqx_ds:tx_del_topic(Topic, 0, DeleteTill).
+    %% Dirty GC assumes this past cutoff precedes leader-assigned monotonic insert timestamps.
+    case DeleteTill of
+        0 -> skip;
+        _ -> #{topic => Topic, cutoff => DeleteTill}
+    end.
 
 -spec regular_db_slab_info() ->
     {ok, #{emqx_ds:slab() => emqx_ds:slab_info()}}
@@ -655,94 +608,7 @@ need_reply(Message) ->
     end.
 
 delete(DB, Topics) ->
-    {_Time, Errors} = timer:tc(fun() ->
-        %% NOTE
-        %% This is a temporary workaround for the behavior of the ds tx manager.
-        %% Simultaneous asycnhronous txs to the same shard having a new generation
-        %% may result to a conflict.
-        %% So we delete in groups with all different shards.
-        lists:flatmap(
-            fun(Slabs) ->
-                do_delete(DB, Topics, ?STREAMS_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
-            end,
-            slabs_by_generation(DB)
-        )
-    end),
-    ?tp_debug(streams_message_db_delete, #{
-        topic => Topics,
-        time => us_to_ms(_Time),
-        errors => Errors
-    }),
-    case Errors of
-        [] ->
-            ok;
-        _ ->
-            {error, Errors}
-    end.
-
-slabs_by_generation(DB) ->
-    ByGeneration = lists:foldl(
-        fun({_Shard, Generation} = Slab, Acc) ->
-            maps:update_with(Generation, fun(Slabs) -> [Slab | Slabs] end, [Slab], Acc)
-        end,
-        #{},
-        maps:keys(emqx_ds:list_slabs(DB))
-    ),
-    maps:values(ByGeneration).
-
-do_delete(_DB, _Topics, 0, _Slabs, Errors) ->
-    Errors;
-do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
-    Refs = lists:map(
-        fun({Shard, Generation} = Slab) ->
-            TxOpts = #{
-                db => DB,
-                shard => Shard,
-                generation => Generation,
-                sync => false,
-                retries => ?STREAMS_MESSAGE_DB_DELETE_RETRY,
-                retry_interval => ?STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY
-            },
-            {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
-                lists:foreach(
-                    fun(Topic) ->
-                        emqx_ds:tx_del_topic(Topic)
-                    end,
-                    Topics
-                )
-            end),
-            {Ref, Slab}
-        end,
-        Slabs0
-    ),
-    Errors = lists:filtermap(
-        fun({Ref, Slab}) ->
-            receive
-                ?ds_tx_commit_reply(Ref, Reply) ->
-                    case emqx_ds:tx_commit_outcome(DB, Ref, Reply) of
-                        {ok, _} ->
-                            false;
-                        {error, IsRecoverable, Reason} ->
-                            ?tp(warning, streams_message_db_delete_error, #{
-                                topics => Topics,
-                                is_recoverable => IsRecoverable,
-                                reason => Reason,
-                                slab => Slab
-                            }),
-                            {true, {Slab, {IsRecoverable, Reason}}}
-                    end
-            end
-        end,
-        Refs
-    ),
-    case Errors of
-        [] ->
-            [];
-        _ ->
-            {Slabs, _} = lists:unzip(Errors),
-            timer:sleep(?STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY),
-            do_delete(DB, Topics, Retries - 1, Slabs, Errors)
-    end.
+    emqx_mq_ds_queue_deleter:delete(DB, Topics).
 
 stream_message_topic(#{topic_filter := TopicFilter, id := Id} = _Stream, Key) ->
     ?STREAMS_MESSAGE_DB_TOPIC(TopicFilter, Id, Key).

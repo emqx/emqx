@@ -16,7 +16,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    root_converter/1
 ]).
 
 %% Examples
@@ -179,6 +180,15 @@ fields(Field) when
 ->
     emqx_bridge_v2_schema:api_fields(Field, ?ACTION_TYPE, fields(datalayers_action)).
 
+root_converter("config_connector") ->
+    fun arrow_flight_tls_defaults/2;
+root_converter("post_connector") ->
+    fun arrow_flight_tls_defaults/2;
+root_converter("put_connector") ->
+    fun arrow_flight_tls_defaults/2;
+root_converter(_) ->
+    undefined.
+
 desc("config") ->
     ?DESC("desc_config");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
@@ -201,6 +211,51 @@ desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
+
+arrow_flight_tls_defaults(
+    Conf0 = #{
+        <<"parameters">> := #{<<"driver_type">> := <<"arrow_flight">>},
+        <<"ssl">> := #{<<"enable">> := Enable} = SSL
+    },
+    _HoconOpts
+) ->
+    case is_tls_enabled(Enable) of
+        true ->
+            Defaults = #{
+                <<"cacertfile">> => <<"system_default">>,
+                <<"verify">> => <<"verify_peer">>
+            },
+            Conf0#{<<"ssl">> => maps:merge(Defaults, drop_unset_arrow_flight_tls(SSL))};
+        false ->
+            Conf0
+    end;
+arrow_flight_tls_defaults(Conf0, _HoconOpts) ->
+    Conf0.
+
+is_tls_enabled(true) -> true;
+is_tls_enabled(<<"true">>) -> true;
+is_tls_enabled("true") -> true;
+is_tls_enabled(_) -> false.
+
+drop_unset_arrow_flight_tls(SSL) ->
+    maps:filter(
+        fun
+            (<<"cacertfile">>, Value) -> not is_blank_cacertfile(Value);
+            (<<"verify">>, Value) -> not is_unset_tls_value(Value);
+            (_Key, _Value) -> true
+        end,
+        SSL
+    ).
+
+is_unset_tls_value(undefined) -> true;
+is_unset_tls_value(null) -> true;
+is_unset_tls_value(_) -> false.
+
+is_blank_cacertfile(undefined) -> true;
+is_blank_cacertfile(null) -> true;
+is_blank_cacertfile(<<>>) -> true;
+is_blank_cacertfile([]) -> true;
+is_blank_cacertfile(_) -> false.
 
 write_syntax(type) ->
     emqx_bridge_influxdb:write_syntax_type();

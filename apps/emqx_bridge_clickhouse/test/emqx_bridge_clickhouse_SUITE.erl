@@ -133,6 +133,7 @@ connector_config(Overrides) ->
         <<"pool_size">> => 2,
         <<"username">> => <<"default">>,
         <<"password">> => <<"public">>,
+        <<"ssl">> => #{<<"enable">> => false},
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
@@ -447,4 +448,20 @@ do_t_heavy_batching(TCConfig) ->
     ?assertEqual(NumberOfMessages, maps:size(KeySet)),
     CheckKey = fun(Key) -> maps:get(Key, KeySet, false) end,
     true = lists:all(CheckKey, lists:seq(1, NumberOfMessages)),
+    ok.
+
+-doc """
+Smoke test to ensure correct hackney tls opts.
+
+In particular, that we can connect to a server with certs from an untrusted CA when using
+`verify_none`.
+""".
+t_tls_verify_none(TCConfig) ->
+    ?assertMatch(
+        {201, #{~"status" := ~"connected"}},
+        create_connector_api(TCConfig, #{
+            ~"url" => ~"https://clickhouse_tls_lb:8124",
+            ~"ssl" => #{~"enable" => true, ~"verify" => ~"verify_none"}
+        })
+    ),
     ok.
