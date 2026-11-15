@@ -206,7 +206,7 @@ do_ready_mqs(State = #state{}) ->
 
     %% Start components that require DB readiness
     ok = emqx_mq_quota_buffer:start(?MQ_QUOTA_BUFFER, quota_buffer_options()),
-    ok = emqx_mq_sup:start_gc_scheduler(),
+    ok = emqx_mq_sup:start_services(),
 
     %% Hook into EMQX
     %% Claim handling of `$queue` topics to ourselves
@@ -226,7 +226,7 @@ do_stop_mqs(State = #state{status = Status}) ->
             ok = emqx_topic:enable_queue_alias_to_share(true),
             ok = emqx_mq:unregister_hooks(),
             _ = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
-            ok = emqx_mq_sup:stop_gc_scheduler();
+            ok = emqx_mq_sup:stop_services();
         _ ->
             %% Not fully started: only metrics and DB were started
             ok

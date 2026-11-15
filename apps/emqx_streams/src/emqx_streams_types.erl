@@ -31,7 +31,9 @@ The module contains basic types for the Streams application.
     key_expression := emqx_variform:compiled(),
     limits := limits(),
     data_retention_period := interval_ms(),
-    read_max_unacked := non_neg_integer()
+    read_max_unacked := non_neg_integer(),
+    %% Set only in listings, while the Stream deletion is pending.
+    deleted_at => non_neg_integer()
 }.
 
 -export_type([

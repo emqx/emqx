@@ -6,7 +6,8 @@
 %% connectivity check
 -export([
     http_connectivity/2,
-    tcp_connectivity/3
+    tcp_connectivity/3,
+    to_hackney_tls_client_opts/1
 ]).
 
 -export([resolve_dns/2]).
@@ -39,3 +40,19 @@ tcp_connectivity(Host, Port, Timeout) ->
 %% @doc Mostly for meck.
 resolve_dns(DNS, Type) ->
     inet_res:lookup(DNS, in, Type).
+
+-doc """
+Wrapper for `emqx_tls_lib:to_client_opts/1` when construction options for `hackney`.
+
+`hackney` is a bit clunky and has weird options.  In particular, even if one sets
+`verify_none` in their TLS options, if `{insecure, true}` is not also specified, `hackney`
+will ignore the former and force `verify_peer`...
+""".
+to_hackney_tls_client_opts(#{} = SSLOpts0) ->
+    SSLOpts1 = emqx_tls_lib:to_client_opts(SSLOpts0),
+    case proplists:get_value(verify, SSLOpts1, undefined) of
+        verify_none ->
+            [{insecure, true} | SSLOpts1];
+        _ ->
+            SSLOpts1
+    end.

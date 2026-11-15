@@ -14,11 +14,8 @@ The logic of GC is different for different types of queues.
 
 - For regular queues, we use the same logic as the regular message database, i.e.
 regularly delete the expired slabs.
-- Then, for lastvalue queues, we iterate over all the queues and delete the expired data
-via ranged `tx_del_topic`.
-
-Each lastvalue queue GC is implemented as handling an individual message, to make
-the worker easily interruptable.
+- Each last-value slab has a linked worker that traverses the registry lazily and deletes
+expired data in asynchronous batches. A failed slab does not stop other slab workers.
 """.
 
 -behaviour(gen_server).
@@ -29,13 +26,11 @@ the worker easily interruptable.
 -export([start_link/0, child_spec/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, handle_continue/2, terminate/2]).
 
--define(CONSUME_BATCH_SIZE, 100).
-
 %%--------------------------------------------------------------------
 %% Messages
 %%--------------------------------------------------------------------
 
--record(gc, {}).
+-record(gc_done, {}).
 
 %%--------------------------------------------------------------------
 %% API
@@ -74,8 +69,15 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
     {noreply, State}.
 
-handle_info(#gc{}, State) ->
-    gc_next_lastvalue_batch(State).
+handle_info({'EXIT', Pid, _Reason}, #{workers := Workers0} = State) when
+    is_map_key(Pid, Workers0)
+->
+    Workers = maps:remove(Pid, Workers0),
+    maybe_done(Workers),
+    {noreply, State#{workers := Workers}};
+handle_info(#gc_done{}, State) ->
+    ?tp(info, mq_gc_done, #{}),
+    {stop, normal, State}.
 
 terminate(_Reason, _State) ->
     ?tp_debug(mq_gc_worker_terminated, #{reason => _Reason}),
@@ -91,31 +93,27 @@ terminate(_Reason, _State) ->
 
 start_gc_lastvalue_queues() ->
     ?tp_debug(mq_gc_lastvalue_queues_started, #{}),
-    erlang:send_after(0, self(), #gc{}),
-    #{stream => lastvalue_mq_stream()}.
+    {Slabs, Errors} = emqx_ds:list_slabs(?MQ_MESSAGE_LASTVALUE_DB, #{}),
+    %% Shards that fail to report their slabs are skipped in this run.
+    case Errors of
+        [] -> ok;
+        _ -> ?tp(warning, mq_gc_lastvalue_list_slabs_failed, #{errors => Errors})
+    end,
+    Workers = maps:from_list([
+        begin
+            {ok, Pid} = emqx_mq_gc_slab_worker:start_link(Slab),
+            {Pid, true}
+        end
+     || Slab <- maps:keys(Slabs)
+    ]),
+    maybe_done(Workers),
+    #{workers => Workers}.
 
-gc_next_lastvalue_batch(#{stream := Stream0} = State) ->
-    case emqx_utils_stream:consume(?CONSUME_BATCH_SIZE, Stream0) of
-        {MQs, Stream} ->
-            ok = gc_lastvalue_queues(MQs),
-            erlang:send_after(0, self(), #gc{}),
-            {noreply, State#{stream => Stream}};
-        MQs when is_list(MQs) ->
-            ok = gc_lastvalue_queues(MQs),
-            ?tp(info, mq_gc_done, #{}),
-            {stop, normal, State}
-    end.
-
-gc_lastvalue_queues(MQs) ->
-    emqx_mq_message_db:delete_expired_data(MQs).
-
-lastvalue_mq_stream() ->
-    emqx_utils_stream:filter(
-        fun(MQ) ->
-            not emqx_mq_prop:is_append_only(MQ)
-        end,
-        emqx_mq_registry:list()
-    ).
+maybe_done(Workers) when map_size(Workers) =:= 0 ->
+    self() ! #gc_done{},
+    ok;
+maybe_done(_) ->
+    ok.
 
 %%
 %% Append-Only Queue GC

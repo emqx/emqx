@@ -140,7 +140,7 @@ fields(message_queue_api_lastvalue_put) ->
     without_fields([name, topic_filter], message_queue_fields(true)) ++
         message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_get) ->
-    message_queue_fields(true) ++ message_queue_lastvalue_fields();
+    message_queue_fields(true) ++ message_queue_lastvalue_fields() ++ [deleted_at_field()];
 fields(message_queue_lastvalue_api_post) ->
     message_queue_fields(true) ++ message_queue_lastvalue_fields();
 %%
@@ -149,7 +149,7 @@ fields(message_queue_lastvalue_api_post) ->
 fields(message_queue_api_regular_put) ->
     without_fields([name, topic_filter], message_queue_fields(false));
 fields(message_queue_regular_api_get) ->
-    message_queue_fields(false);
+    message_queue_fields(false) ++ [deleted_at_field()];
 fields(message_queue_regular_api_post) ->
     message_queue_fields(false);
 %%
@@ -183,6 +183,10 @@ desc(_) ->
 
 mq_sctype_api_get() ->
     mq_sctype(ref(message_queue_lastvalue_api_get), ref(message_queue_regular_api_get)).
+
+%% Only the queues listed while their deletion is pending have this field.
+deleted_at_field() ->
+    {deleted_at, mk(non_neg_integer(), #{required => false, desc => ?DESC(deleted_at)})}.
 
 mq_sctype_api_put() ->
     mq_sctype(ref(message_queue_api_lastvalue_put), ref(message_queue_api_regular_put)).

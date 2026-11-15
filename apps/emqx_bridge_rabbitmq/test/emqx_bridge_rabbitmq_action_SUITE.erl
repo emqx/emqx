@@ -230,6 +230,13 @@ payload(Overrides) ->
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
 
+get_pool_workers(TCConfig) ->
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    lists:map(
+        fun({_, Pid}) -> Pid end,
+        ecpool:workers(ConnResId)
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -541,5 +548,20 @@ t_action_dynamic(TCConfig) ->
             }},
             get_action_metrics_api(TCConfig)
         )
+    ),
+    ok.
+
+t_heartbeat_seconds(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        ~"heartbeat" => ~"1s"
+    }),
+    WorkerPids = [_ | _] = get_pool_workers(TCConfig),
+    lists:foreach(
+        fun(WorkerPid) ->
+            {ok, ClientPid} = ecpool_worker:client(WorkerPid),
+            Info = amqp_connection:info(ClientPid, [heartbeat]),
+            ?assertMatch(#{heartbeat := 1}, maps:from_list(Info))
+        end,
+        WorkerPids
     ),
     ok.

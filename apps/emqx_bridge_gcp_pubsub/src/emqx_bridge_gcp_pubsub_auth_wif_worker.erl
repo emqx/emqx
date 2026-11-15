@@ -78,6 +78,7 @@ Represents the blueprint of what needs to be done for a token step.
     %% query_string := fun((step_context()) -> [{binary(), binary()}]),
     body := fun((step_context()) -> binary()),
     headers := fun((step_context()) -> map()),
+    req_opts := fun((step_context()) -> list()),
     extract_result := fun((#{body := binary()}) -> {ok, #{token => binary()}} | {error, term()})
 }.
 
@@ -319,12 +320,14 @@ eval_step(Step, StepContext) ->
         url := URLFn,
         body := BodyFn,
         headers := HeadersFn,
+        req_opts := ReqOptsFn,
         extract_result := ExtractResultFn
     } = Step,
     URL = URLFn(StepContext),
     Body = BodyFn(StepContext),
     Headers = HeadersFn(StepContext),
-    Res = ?MODULE:request(Method, URL, Headers, Body, _ReqOpts = []),
+    ReqOpts = ReqOptsFn(StepContext),
+    Res = ?MODULE:request(Method, URL, Headers, Body, ReqOpts),
     case Res of
         {error, Reason} ->
             {error, Reason};

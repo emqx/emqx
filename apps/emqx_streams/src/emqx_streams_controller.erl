@@ -204,7 +204,7 @@ do_ready_streams(State = #state{}) ->
 
     %% Start components that require DB readiness
     ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
-    ok = emqx_streams_sup:start_gc_scheduler(),
+    ok = emqx_streams_sup:start_services(),
     ok = emqx_streams:register_hooks(),
 
     ok = set_status(started),
@@ -219,7 +219,7 @@ do_stop_streams(State = #state{status = Status}) ->
         started ->
             ok = emqx_streams:unregister_hooks(),
             _ = emqx_mq_quota_buffer:stop(?STREAMS_QUOTA_BUFFER),
-            ok = emqx_streams_sup:stop_gc_scheduler();
+            ok = emqx_streams_sup:stop_services();
         _ ->
             %% Not fully started: only metrics and DB were started
             ok

@@ -1,7 +1,26 @@
 services:
   opents_server:
     container_name: opents
-    image: petergrace/opentsdb-docker:${OPENTS_TAG}
+    image: petergrace/opentsdb-docker:9aa7f88
     restart: always
+    expose:
+      - 4242
     networks:
       - emqx_bridge
+
+  opents_tls_lb:
+    container_name: opents_tls_lb
+    image: public.ecr.aws/nginx/nginx:1.27-bookworm
+    restart: always
+    expose:
+      - 4243
+    networks:
+      - emqx_bridge
+    depends_on:
+      opents_server:
+        condition: service_started
+    volumes:
+      - ./opents/tls.conf:/etc/nginx/conf.d/default.conf
+      - ./certs/ca.crt:/opt/certs/ca.crt
+      - ./certs/server.crt:/opt/certs/server.crt
+      - ./certs/server.key:/opt/certs/server.key
