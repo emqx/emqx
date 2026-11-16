@@ -193,9 +193,10 @@
 }).
 
 %% Durable per-part counter watermark. A row means the part's full ACK list
-%% has been reflected in bcast_msg_meta_counter. It is written with the partial
-%% marker deletion and counter update in one transaction, so a failed report
-%% can never leave a half-applied decrement.
+%% has been reflected in bcast_msg_meta_counter. New deliveries write this row
+%% once with a dirty write and a delivery-level reporter projects the counter;
+%% the legacy recovery path uses a transaction so an older delivery cannot be
+%% left half-applied.
 -record(bcast_msg_part_accounted, {
     delivery_id :: binary(),
     shard :: non_neg_integer() | delivery,

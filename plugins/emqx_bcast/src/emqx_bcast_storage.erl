@@ -830,36 +830,99 @@ get_delivery(DeliveryId) ->
 %% The durable counter is decremented once per completed shard-part. A part
 %% with several devices therefore leaves the counter above the exact
 %% unacknowledged count until its last device ACKs. Device ACK markers are
-%% already persisted for every partial ACK, so project them here instead of
-%% paying a counter write on every hot-path ACK. Keeping the smaller value also
-%% preserves the counter's conservative crash semantics for legacy deliveries
-%% whose ACK history predates per-device markers.
+%% persisted for unfinished parts, so project them here instead of paying a
+%% counter write on every hot-path ACK.
+%%
+%% A new delivery has a `{shard = delivery, acked = 0}` sentinel. Its completed
+%% parts are represented by part-accounting rows and have no full marker. Count
+%% partial markers only for shards not in that completed set: the counter
+%% already excludes completed parts, and subtracting those same devices from
+%% the full target would report them as pending again.
+%%
+%% Deliveries committed by an older build have no sentinel and may retain
+%% full-part or per-device markers from completed parts. Their marker history
+%% cannot be classified safely, so keep the previous conservative upper-bound
+%% projection for them.
 projected_pending_count(
     #bcast_msg{
         delivery_id = DeliveryId,
+        product_key = ProductKey,
         target_ack_count = Target,
         device_names = DeviceNames
     },
     Counter
 ) ->
-    Acked =
-        try
+    AckedDevices = acked_device_set(DeliveryId),
+    Accounts = part_accounts(DeliveryId),
+    case has_delivery_account(Accounts) of
+        true ->
+            CompletedShards = maps:from_keys(
+                [Shard || #bcast_msg_part_accounted{shard = Shard} <- Accounts, is_integer(Shard)],
+                true
+            ),
+            CompletedAcked = lists:sum([
+                Acked
+             || #bcast_msg_part_accounted{shard = Shard, acked = Acked} <- Accounts,
+                is_integer(Shard)
+            ]),
+            PartialAcked = count_unfinished_partial_acks(
+                ProductKey, DeviceNames, AckedDevices, CompletedShards
+            ),
+            FromCounter = max(0, Counter - PartialAcked),
+            FromAccounts = max(0, Target - CompletedAcked - PartialAcked),
+            min(FromCounter, FromAccounts);
+        false ->
+            AckedInTarget = count_acked_in_target(DeviceNames, AckedDevices),
+            min(Counter, max(0, Target - AckedInTarget))
+    end.
+
+acked_device_set(DeliveryId) ->
+    try
+        maps:from_keys(
             lists:append([
                 DNs
              || #bcast_msg_acked{device_names = DNs} <-
                     mnesia:dirty_read(?TAB_MSG_ACKED, DeliveryId)
-            ])
-        catch
-            _:_ -> []
-        end,
-    case Acked of
-        [] ->
-            Counter;
-        _ ->
-            AckedSet = maps:from_keys(Acked, true),
-            AckedInTarget = length([DN || DN <- lists:usort(DeviceNames), maps:is_key(DN, AckedSet)]),
-            min(Counter, max(0, Target - AckedInTarget))
+            ]),
+            true
+        )
+    catch
+        _:_ -> #{}
     end.
+
+part_accounts(DeliveryId) ->
+    try mnesia:dirty_read(?TAB_MSG_PART_ACCOUNTED, DeliveryId) of
+        Accounts -> Accounts
+    catch
+        _:_ -> []
+    end.
+
+has_delivery_account(Accounts) ->
+    lists:any(
+        fun
+            (#bcast_msg_part_accounted{shard = delivery}) -> true;
+            (_) -> false
+        end,
+        Accounts
+    ).
+
+count_unfinished_partial_acks(ProductKey, DeviceNames, AckedDevices, CompletedShards) ->
+    length([
+        DN
+     || DN <- lists:usort(DeviceNames),
+        maps:is_key(DN, AckedDevices),
+        not maps:is_key(
+            emqx_bcast_index_owner:shard_of({ProductKey, DN}),
+            CompletedShards
+        )
+    ]).
+
+count_acked_in_target(DeviceNames, AckedDevices) ->
+    length([
+        DN
+     || DN <- lists:usort(DeviceNames),
+        maps:is_key(DN, AckedDevices)
+    ]).
 
 -spec deliveries_for_device(product_key(), device_name()) ->
     {ok, [{#bcast_msg{}, api_msg_id() | undefined}]}.

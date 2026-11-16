@@ -41,7 +41,15 @@
 -behaviour(gen_server).
 
 -export([start_link/1]).
--export([shard_count/0, owner_node/0, is_owner/0, shard_of/1, shard_owner/1]).
+-export([
+    shard_count/0,
+    owner_node/0,
+    is_owner/0,
+    shard_of/1,
+    shard_of_delivery/1,
+    shard_owner/1,
+    part_report_applied/2
+]).
 -export([
     append_batch/1,
     remove_batch/1,
@@ -194,9 +202,10 @@
 %% Ack bookkeeping is per delivery *part*: one shard, one delivery. Counted
 %% acks update this shard's local counters (`part_pending` / `part_applied`).
 %% A non-final ACK joins a per-delivery buffer, and the flush replaces that
-%% part's previous partial marker. The final ACK deletes the partial marker and
-%% writes the part watermark plus remaining-ack decrement in one transaction.
-%% A completed part therefore needs no `bcast_msg_acked` row at all.
+%% part's previous partial marker. The final ACK writes one immutable part
+%% watermark dirty, deletes the partial marker, and notifies a delivery-level
+%% reporter. The reporter owns counter projection and the single completion
+%% transaction, so a completed part needs no `bcast_msg_acked` row at all.
 
 %% Partial ACK markers are coalesced per delivery. A 1000-device delivery
 %% produces about 21 acknowledgements per index shard, so writing each one
@@ -204,6 +213,7 @@
 %% buffered marker remains well inside the pull side's 30-second ACK recovery
 %% window.
 -define(PARTIAL_ACK_FLUSH_MS, 500).
+-define(PART_REPORT_RETRY_MS, 1000).
 
 -spec start_link(integer()) -> gen_server:start_ret().
 start_link(Shard) ->
@@ -228,6 +238,13 @@ shard_of(Key) ->
 -spec did_shard_of(binary()) -> pos_integer().
 did_shard_of(Did) ->
     erlang:phash2(Did, ?SHARD_COUNT).
+
+shard_of_delivery(Did) ->
+    did_shard_of(Did).
+
+part_report_applied(Shard, Did) ->
+    cast_shard(Shard, {part_report_applied, Did}),
+    ok.
 
 %% The global quota counter owner: the lexicographically smallest
 %% running core node. All shards (wherever they run) update this one ETS
@@ -299,6 +316,9 @@ init([Shard]) ->
         %% again when the delivery itself is gone (see prune_ended_parts/1).
         part_pending => #{},
         part_applied => #{},
+        part_totals => #{},
+        part_report_pending => #{},
+        part_reporter_monitors => #{},
         %% Counted ACKs waiting for the next durable marker flush, and the
         %% exact device list of this part's last flushed marker. The persisted
         %% list lets the next flush replace the row instead of appending one
@@ -306,6 +326,7 @@ init([Shard]) ->
         partial_ack_buf => #{},
         partial_ack_persisted => #{},
         partial_ack_flush_ref => undefined,
+        part_report_retry_ref => undefined,
         %% deliveries whose marker-based completion aborted its transaction:
         %% #{Did => true}, retried by the periodic cleanup tick
         pending_completions => #{},
@@ -1623,6 +1644,8 @@ handle_call({device_delivery_entries, _Key}, _From, State) ->
 handle_call(_Req, _From, State) ->
     {reply, {error, not_active}, State}.
 
+handle_cast({part_report_applied, Did}, State = #{active := true}) ->
+    {noreply, drop_part_accounting(Did, State)};
 handle_cast({release_batch, Releases}, State = #{active := true}) ->
     %% Batched async release (one cast per shard instead of one per
     %% release): idempotent per entry, claim lease is the backstop.
@@ -1686,6 +1709,27 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
     %% pass on top of it, and identical timers that each arm the next one
     %% multiply the poll rate instead of sustaining it.
     {noreply, drive_and_apply(ensure, remember_owner_set(State))};
+handle_info(
+    {'DOWN', Ref, process, Reporter, _Reason},
+    State = #{part_reporter_monitors := Monitors}
+) when is_map_key(Reporter, Monitors) ->
+    case maps:get(Reporter, Monitors) of
+        Ref ->
+            Pending = maps:map(
+                fun
+                    (_Did, {accepted, Reporter0}) when Reporter0 =:= Reporter -> pending;
+                    (_Did, Status) -> Status
+                end,
+                maps:get(part_report_pending, State)
+            ),
+            State1 = State#{
+                part_report_pending => Pending,
+                part_reporter_monitors => maps:remove(Reporter, Monitors)
+            },
+            {noreply, arm_part_report_retry(State1)};
+        _StaleRef ->
+            {noreply, State}
+    end;
 handle_info({drive_result, Pid, Result}, State = #{shard := 0}) ->
     %% The coordinator reports once and exits. Only the drive this shard is
     %% waiting for is applied, and only while this shard still owns partition 0:
@@ -1840,6 +1884,9 @@ handle_info(quota_recount_done, State = #{shard := 0}) ->
 handle_info(flush_partial_acks, State) ->
     State1 = State#{partial_ack_flush_ref => undefined},
     {noreply, flush_partial_ack_markers(State1)};
+handle_info(retry_part_reports, State) ->
+    State1 = State#{part_report_retry_ref => undefined},
+    {noreply, retry_unreported_parts(State1)};
 handle_info(maybe_gc, State) ->
     {noreply, maybe_fullsweep(State)};
 handle_info(_Info, State) ->
@@ -2831,7 +2878,8 @@ rebuild_unaccounted_part(
     case AllAcked of
         false ->
             ToAdd = [DN || DN <- MyDNs, not maps:is_key(DN, Acked)],
-            {append_delivery_entries(State, ProductKey, DeliveryId, ToAdd), Completed};
+            State1 = append_delivery_entries(State, ProductKey, DeliveryId, ToAdd),
+            {set_part_total(DeliveryId, length(MyDNs), State1), Completed};
         true when map_size(Completed) >= ?MAX_HEAL_PER_DRIVE ->
             {State, Completed};
         true ->
@@ -3110,6 +3158,11 @@ acked_device_set(Did) ->
 
 reset_state(State) ->
     ok = emqx_bcast_utils:cancel_timer(maps:get(partial_ack_flush_ref, State, undefined)),
+    ok = emqx_bcast_utils:cancel_timer(maps:get(part_report_retry_ref, State, undefined)),
+    lists:foreach(
+        fun(Ref) -> erlang:demonitor(Ref, [flush]) end,
+        maps:values(maps:get(part_reporter_monitors, State, #{}))
+    ),
     State#{
         queues => #{},
         dids => #{},
@@ -3122,9 +3175,13 @@ reset_state(State) ->
         orphan_cursor => 0,
         part_pending => #{},
         part_applied => #{},
+        part_totals => #{},
+        part_report_pending => #{},
+        part_reporter_monitors => #{},
         partial_ack_buf => #{},
         partial_ack_persisted => #{},
-        partial_ack_flush_ref => undefined
+        partial_ack_flush_ref => undefined,
+        part_report_retry_ref => undefined
     }.
 
 %% Live gauges for this shard's partition: queued = live pending minus
@@ -3259,7 +3316,8 @@ append_entry(State, Key = {PK, DN}, Did) ->
             State2 = put_in(dids, Key3, Ts, State1),
             State3 = incr_in(counts, Key, State2),
             State3b = bump_part_pending(Did, 1, State3),
-            {State4, Decr} = reserve_dec(State3b, Key),
+            State3c = bump_part_total(Did, 1, State3b),
+            {State4, Decr} = reserve_dec(State3c, Key),
             {State4, 1 - Decr}
     end.
 
@@ -3985,6 +4043,13 @@ bump_part_pending(Did, Delta, State) ->
     Pending = maps:get(Did, maps:get(part_pending, State), 0),
     State#{part_pending => (maps:get(part_pending, State))#{Did => Pending + Delta}}.
 
+bump_part_total(Did, Delta, State) ->
+    Total = maps:get(Did, maps:get(part_totals, State), 0),
+    State#{part_totals => (maps:get(part_totals, State))#{Did => Total + Delta}}.
+
+set_part_total(Did, Total, State) ->
+    State#{part_totals => (maps:get(part_totals, State))#{Did => Total}}.
+
 %% One counted ack: one more applied, one fewer to wait for.
 note_part_ack(Did, State) ->
     Applied = maps:get(Did, maps:get(part_applied, State), 0) + 1,
@@ -4002,8 +4067,21 @@ maybe_report_part(Did, Applied, State) when Applied > 0 ->
     case maps:get(Did, maps:get(part_pending, State), 0) of
         0 ->
             PartialDNs = maps:get(Did, maps:get(partial_ack_persisted, State), []),
-            case report_part_done(maps:get(shard, State), Did, Applied, PartialDNs) of
-                ok -> drop_part_accounting(Did, State);
+            %% Applied already includes the ACKs represented by PartialDNs.
+            %% The durable total is the fallback after a rebuild, when ACKs
+            %% from the previous shard incarnation are not in Applied.
+            Accounted = max(
+                Applied,
+                maps:get(Did, maps:get(part_totals, State), 0)
+            ),
+            case
+                report_part_accounted(
+                    maps:get(shard, State), Did, Accounted, PartialDNs, State
+                )
+            of
+                {accepted, State1} -> State1;
+                {queued, State1} -> arm_part_report_retry(State1);
+                reported -> drop_part_accounting(Did, State);
                 {error, _} -> State
             end;
         _ ->
@@ -4013,12 +4091,39 @@ maybe_report_part(_Did, _Applied, State) ->
     State.
 
 drop_part_accounting(Did, State) ->
-    State#{
+    Reporter =
+        case maps:get(Did, maps:get(part_report_pending, State), pending) of
+            {accepted, Pid} -> Pid;
+            _ -> undefined
+        end,
+    State1 = State#{
         part_pending => maps:remove(Did, maps:get(part_pending, State)),
         part_applied => maps:remove(Did, maps:get(part_applied, State)),
+        part_totals => maps:remove(Did, maps:get(part_totals, State)),
+        part_report_pending => maps:remove(Did, maps:get(part_report_pending, State)),
         partial_ack_buf => maps:remove(Did, maps:get(partial_ack_buf, State)),
         partial_ack_persisted => maps:remove(Did, maps:get(partial_ack_persisted, State))
-    }.
+    },
+    State2 = maybe_demonitor_reporter(Reporter, State1),
+    maybe_cancel_part_report_retry(State2).
+
+maybe_demonitor_reporter(undefined, State) ->
+    State;
+maybe_demonitor_reporter(Reporter, State = #{part_reporter_monitors := Monitors}) ->
+    StillUsed = lists:any(
+        fun
+            ({accepted, Pid}) -> Pid =:= Reporter;
+            (_) -> false
+        end,
+        maps:values(maps:get(part_report_pending, State))
+    ),
+    case {StillUsed, maps:take(Reporter, Monitors)} of
+        {false, {Ref, Remaining}} ->
+            erlang:demonitor(Ref, [flush]),
+            State#{part_reporter_monitors => Remaining};
+        _ ->
+            State
+    end.
 
 %% Drop the accounting of deliveries that no longer exist, so a delivery that
 %% ended without a complete acknowledgement - the ordinary offline-device case
@@ -4035,6 +4140,8 @@ prune_ended_parts(State) ->
     Dids = lists:usort(
         maps:keys(maps:get(part_pending, State)) ++
             maps:keys(maps:get(part_applied, State)) ++
+            maps:keys(maps:get(part_totals, State)) ++
+            maps:keys(maps:get(part_report_pending, State)) ++
             maps:keys(maps:get(partial_ack_buf, State)) ++
             maps:keys(maps:get(partial_ack_persisted, State))
     ),
@@ -4049,12 +4156,15 @@ prune_ended_parts(State) ->
         Dids
     ).
 
-%% A read failure must neither take the cleanup tick (and with it the shard)
-%% down nor drop accounting on a guess: keep it for the next tick.
+%% Existence is all this path needs. A dirty_read would copy the complete
+%% delivery row, including every target device name, once per partial-marker
+%% flush. Both operations inspect the local ram_copies table directly; the
+%% member check avoids returning and serializing the large value. If the table
+%% is temporarily unavailable, keep the accounting for the next tick.
 delivery_row_gone(Did) ->
-    try mnesia:dirty_read(?TAB_MSG_REC, Did) of
-        [] -> true;
-        [_] -> false
+    try ets:member(?TAB_MSG_REC, Did) of
+        true -> false;
+        false -> true
     catch
         _:_ -> false
     end.
@@ -4078,12 +4188,131 @@ retry_unreported_parts(State) ->
         maps:get(part_pending, State, #{})
     ).
 
-%% One durable transaction for a finished part. The partial-marker deletion,
-%% per-part accounting watermark, and counter update either all commit or all
-%% abort. A delivery created by this build has the watermark sentinel and every
-%% later part update is O(1). A delivery persisted before the watermark existed
-%% has no sentinel, so its first part report falls back once to marker-based
-%% reconciliation.
+%% New deliveries already have a per-part accounting table. The source shard
+%% records its completed part as an immutable, idempotent row and asks the
+%% delivery shard to project the counter and complete the delivery. This path
+%% deliberately has no Mnesia transaction: a transaction is serialized below
+%% at delivery granularity, not once for each of the 48 index shards.
+report_part_accounted(Shard, Did, Accounted, PartialDNs, State) ->
+    case local_part_account_mode(Did) of
+        new ->
+            write_part_account_once(Shard, Did, Accounted, PartialDNs, State);
+        legacy ->
+            case report_part_done(Shard, Did, Accounted, PartialDNs) of
+                ok -> reported;
+                {error, _} = Error -> Error
+            end;
+        unknown ->
+            {error, accounting_unavailable}
+    end.
+
+write_part_account_once(Shard, Did, Accounted, PartialDNs, State) ->
+    case maps:find(Did, maps:get(part_report_pending, State)) of
+        {ok, accepted} ->
+            {accepted, State};
+        {ok, pending} ->
+            notify_part_reporter(Shard, Did, PartialDNs, State);
+        error ->
+            try
+                ok = mnesia:dirty_write(#bcast_msg_part_accounted{
+                    delivery_id = Did,
+                    shard = Shard,
+                    acked = Accounted
+                }),
+                State1 = State#{
+                    part_report_pending => maps:put(
+                        Did, pending, maps:get(part_report_pending, State)
+                    )
+                },
+                notify_part_reporter(Shard, Did, PartialDNs, State1)
+            catch
+                Class:Reason:Stacktrace ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_part_account_write_failed",
+                        delivery_id => Did,
+                        shard => Shard,
+                        exception => Class,
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    }),
+                    {error, {Class, Reason}}
+            end
+    end.
+
+notify_part_reporter(Shard, Did, PartialDNs, State) ->
+    try
+        ok = delete_partial_ack_marker(Did, PartialDNs),
+        {ok, Reporter} = emqx_bcast_part_reporter:part_accounted(node(), Shard, Did),
+        {accepted, track_part_reporter(Did, Reporter, State)}
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "bcast_part_reporter_notify_failed",
+                delivery_id => Did,
+                shard => Shard,
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {queued, State}
+    end.
+
+track_part_reporter(Did, Reporter, State = #{part_report_pending := Pending}) ->
+    Monitors = maps:get(part_reporter_monitors, State),
+    State1 = State#{
+        part_report_pending => maps:put(Did, {accepted, Reporter}, Pending)
+    },
+    case maps:is_key(Reporter, Monitors) of
+        true ->
+            State1;
+        false ->
+            Ref = erlang:monitor(process, Reporter),
+            State1#{
+                part_reporter_monitors => maps:put(Reporter, Ref, Monitors)
+            }
+    end.
+
+local_part_account_mode(Did) ->
+    try ets:lookup(?TAB_MSG_PART_ACCOUNTED, Did) of
+        Accounts ->
+            case has_delivery_account(Accounts) of
+                true -> new;
+                false -> legacy
+            end
+    catch
+        _:_ -> unknown
+    end.
+
+arm_part_report_retry(State = #{part_report_retry_ref := undefined}) ->
+    Ref = erlang:send_after(?PART_REPORT_RETRY_MS, self(), retry_part_reports),
+    State#{part_report_retry_ref => Ref};
+arm_part_report_retry(State) ->
+    State.
+
+maybe_cancel_part_report_retry(State) ->
+    HasUnreported = maps:fold(
+        fun(Did, Pending, Acc) ->
+            Acc orelse
+                (Pending =:= 0 andalso
+                    maps:get(Did, maps:get(part_applied, State), 0) > 0)
+        end,
+        false,
+        maps:get(part_pending, State, #{})
+    ),
+    case HasUnreported of
+        true ->
+            State;
+        false ->
+            ok = emqx_bcast_utils:cancel_timer(
+                maps:get(part_report_retry_ref, State, undefined)
+            ),
+            State#{part_report_retry_ref => undefined}
+    end.
+
+%% Legacy recovery transaction for a finished part. A delivery created before
+%% the watermark existed has no sentinel, so its report rebuilds the accounting
+%% from marker history. New deliveries take the lock-free accounting path
+%% above; only their final delivery completion runs a transaction.
 report_part_done(Shard, Did, Applied, PartialDNs) ->
     try
         do_report_part_done(Shard, Did, Applied, PartialDNs)
