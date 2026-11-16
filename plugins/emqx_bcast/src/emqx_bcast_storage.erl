@@ -957,6 +957,8 @@ cleanup_expired(PartAccountingContinuation) ->
 %% deleting a delivery on such a node leaves its rows behind. Scan a bounded
 %% slice per cleanup tick with a persisted ETS continuation; only rows whose
 %% delivery and meta are both gone are deleted.
+cleanup_orphan_part_accounting({retry_orphans, Dids, Next}) ->
+    retry_orphan_part_accounting(Dids, Next);
 cleanup_orphan_part_accounting(Continuation) ->
     MatchSpec = [
         {
@@ -985,8 +987,10 @@ cleanup_orphan_part_accounting(Continuation) ->
                     not ets:member(?TAB_MSG_REC, Did),
                     not ets:member(?TAB_MSG_META, Did)
                 ],
-                ok = delete_orphan_part_accounting(Orphans),
-                Next
+                case delete_orphan_part_accounting(Orphans) of
+                    ok -> Next;
+                    {error, _} -> {retry_orphans, Orphans, Next}
+                end
         end
     catch
         error:badarg ->
@@ -994,10 +998,26 @@ cleanup_orphan_part_accounting(Continuation) ->
             undefined
     end.
 
+retry_orphan_part_accounting(Dids, Next) ->
+    try
+        StillOrphans = [
+            Did
+         || Did <- Dids,
+            not ets:member(?TAB_MSG_REC, Did),
+            not ets:member(?TAB_MSG_META, Did)
+        ],
+        case delete_orphan_part_accounting(StillOrphans) of
+            ok -> Next;
+            {error, _} -> {retry_orphans, StillOrphans, Next}
+        end
+    catch
+        error:badarg -> undefined
+    end.
+
 delete_orphan_part_accounting([]) ->
     ok;
 delete_orphan_part_accounting(Dids) ->
-    case
+    try
         mnesia:transaction(
             fun() ->
                 lists:foreach(
@@ -1021,7 +1041,17 @@ delete_orphan_part_accounting(Dids) ->
                 count => length(Dids),
                 reason => Reason
             }),
-            ok
+            {error, Reason}
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "bcast_orphan_part_accounting_reclaim_failed",
+                count => length(Dids),
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {error, {Class, Reason}}
     end.
 
 %%--------------------------------------------------------------------

@@ -929,9 +929,8 @@ t_global_quota_clamps_unmatched_release(_Config) ->
         true = ets:insert(bcast_quota_ets, {global, Previous})
     end.
 
--doc "backfill_meta_from_projection must not overwrite live meta rows when\n"
-"the meta table exceeds the scan budget (regression): partially-acked\n"
-"counters survive a takeover rebuild.".
+-doc "Legacy meta counters must be normalized to the full target across the\n"
+"entire table, including rows beyond the cleanup scan budget.".
 t_backfill_preserves_live_meta_over_budget(_Config) ->
     PK = <<"PN2">>,
     DN = <<"DN2">>,
@@ -968,15 +967,55 @@ t_backfill_preserves_live_meta_over_budget(_Config) ->
     %% Trigger the takeover rebuild: drive_activation runs backfill on
     %% shard 0.
     ok = emqx_bcast_index_owner:rebuild_index(),
-    %% Every existing meta row must keep its counter (3); a reset would
-    %% write max(0, 5 - 0) = 5 for the rows the bounded scan missed.
+    %% Every existing meta row starts from the legacy remaining value 3 and
+    %% must be normalized to the full target 5. A bounded read-side scan would
+    %% leave the rows beyond its window at 3.
     Counters = mnesia:dirty_select(
         bcast_msg_meta,
         [{#bcast_msg_meta{counter = '$1', _ = '_'}, [], ['$1']}]
     ),
     ?assertEqual(N, length(Counters)),
-    ?assertEqual([], [C || C <- Counters, C =:= 5]),
-    ?assertEqual(N, length([C || C <- Counters, C =:= 3])).
+    ?assertEqual(N, length([C || C <- Counters, C =:= 5])),
+    ?assertEqual([], [C || C <- Counters, C =:= 3]).
+
+-doc "A legacy meta row that an older build backfilled with the remaining count\n"
+"must be normalized to the delivery's full target during activation.".
+t_backfill_normalizes_legacy_remaining_meta(_Config) ->
+    PK = <<"PLEGACYREMAIN">>,
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"legacy remaining meta">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    Now = emqx_bcast_utils:now_sec(),
+    ok = mnesia:dirty_write(#bcast_msg{
+        delivery_id = DeliveryId,
+        msg_id = MsgGuid,
+        product_key = PK,
+        topic_template = <<"tpl">>,
+        target_ack_count = 3,
+        counter = 1,
+        device_names = [<<"D1">>, <<"D2">>, <<"D3">>],
+        created_at = Now,
+        expires_at = Now + 86400
+    }),
+    ok = mnesia:dirty_write(#bcast_msg_meta{
+        delivery_id = DeliveryId,
+        msg_id = MsgGuid,
+        topic_template = <<"tpl">>,
+        counter = 1
+    }),
+    ok = mnesia:dirty_write(#bcast_msg_meta_counter{
+        delivery_id = DeliveryId,
+        counter = 1
+    }),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    ?assertMatch(
+        [#bcast_msg_meta{counter = 3}],
+        mnesia:dirty_read(bcast_msg_meta, DeliveryId)
+    ),
+    ?assertMatch(
+        [#bcast_msg_meta_counter{counter = 3}],
+        mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)
+    ).
+
 -doc "process_ack removes the delivery index entry for the acking device.".
 t_process_ack(_Config) ->
     {ApiMsgId, MsgGuid} = emqx_bcast_id:generate_message_id(),
@@ -1011,7 +1050,7 @@ t_mgmt_pending_count_tracks_partial_ack_in_same_shard(_Config) ->
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
     ?assertEqual(1, maps:get(<<"PendingCount">>, Resp)),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
-    {error, 404, _, Gone} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
+    {error, 404, _, Gone} = wait_delivery_not_found(Id),
     ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, Gone)).
 
 -doc "PendingCount subtracts both completed-part ACKs and partial ACKs from\n"
@@ -1028,14 +1067,14 @@ t_mgmt_pending_count_completed_part_plus_partial_ack(_Config) ->
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B1, B2], 3
     ),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    ?assertEqual(2, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 2),
     counted = emqx_bcast_storage:process_ack(PK, B1, DeliveryId),
     flush_partial_acks(PK, B1),
     Id = emqx_bcast_utils:guid_to_uuid(DeliveryId),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
     ?assertEqual(1, maps:get(<<"PendingCount">>, Resp)),
     counted = emqx_bcast_storage:process_ack(PK, B2, DeliveryId),
-    {error, 404, _, Gone} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
+    {error, 404, _, Gone} = wait_delivery_not_found(Id),
     ?assertEqual(<<"DeliveryNotFound">>, maps:get(<<"Code">>, Gone)).
 
 -doc "the delivery record is deleted once all devices have acked.".
@@ -1109,7 +1148,7 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     Accounts = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
     ?assert(
@@ -1229,7 +1268,7 @@ t_committed_part_report_survives_rebuild(_Config) ->
     ),
     ok = emqx_bcast_index_owner:rebuild_index(),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
     %% Rebuild after the committed report: A is skipped, B remains owed.
     ok = emqx_bcast_index_owner:rebuild_index(),
@@ -1274,7 +1313,7 @@ t_part_report_retries_when_reporter_unavailable(_Config) ->
     %% The durable account row survived. The cleanup tick retries the reporter
     %% and projects A's completed part without duplicating the row.
     ok = gen_server:call(Name, {cleanup_local}, 30000),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assert(wait_until(fun() -> ack_counter(DeliveryId) =:= 1 end, 100)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     ?assertEqual(2, length(mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId))),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
@@ -1322,6 +1361,314 @@ t_part_report_resumes_after_reporter_restart(_Config) ->
     ),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "A slow reporter must not block the source index shard. The ACK path\n"
+"publishes the durable part report asynchronously and retries the notification\n"
+"until the reporter acknowledges receipt.".
+t_part_report_does_not_block_ack_on_reporter(_Config) ->
+    PK = <<"PREPORTERASYNC">>,
+    [A] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter async">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A], 1
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    ReporterName = emqx_bcast_part_reporter:shard_name(ReporterShard),
+    Reporter = whereis(ReporterName),
+    ok = sys:suspend(Reporter),
+    Parent = self(),
+    Ack = spawn(fun() ->
+        Result = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        Parent ! {ack_result, self(), Result}
+    end),
+    AckResult =
+        receive
+            {ack_result, Ack, counted} -> counted
+        after 500 ->
+            timeout
+        end,
+    ok = sys:resume(Reporter),
+    case AckResult of
+        counted ->
+            ok;
+        timeout ->
+            receive
+                {ack_result, Ack, counted} -> ok
+            after 5000 ->
+                ?assert(false)
+            end
+    end,
+    ?assertEqual(counted, AckResult),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "A reporter-local read miss can be replication lag. It must retry instead\n"
+"of confirming the source part as if the delivery had been deleted.".
+t_reporter_retries_when_delivery_rows_replicate_late(_Config) ->
+    PK = <<"PREPLICALAG">>,
+    [A] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter replication lag">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A], 1
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    Reporter = whereis(emqx_bcast_part_reporter:shard_name(ReporterShard)),
+    meck:new(emqx_bcast_replica_read, [passthrough, no_link]),
+    try
+        meck:expect(emqx_bcast_replica_read, delivery_target, fun
+            (Did) when Did =:= DeliveryId ->
+                case self() =:= Reporter of
+                    true -> unavailable;
+                    false -> meck:passthrough([Did])
+                end;
+            (Did) ->
+                meck:passthrough([Did])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        timer:sleep(100)
+    after
+        meck:unload(emqx_bcast_replica_read)
+    end,
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "Deleting a delivery must release any reporter pending state, including a\n"
+"delivery that had one completed part and one device still offline.".
+t_reporter_pending_pruned_when_delivery_is_deleted(_Config) ->
+    PK = <<"PREPORTERPRUNE">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter pending prune">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    ReporterName = emqx_bcast_part_reporter:shard_name(ReporterShard),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assert(wait_until(fun() -> reporter_has_pending(ReporterName, DeliveryId) end, 100)),
+    ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+    ?assertNot(wait_until(fun() -> reporter_has_pending(ReporterName, DeliveryId) end, 20)).
+
+-doc "A slow pending sweep is the backstop when a deletion notification is lost.\n"
+"It must eventually remove entries whose delivery rows no longer exist without\n"
+"requiring a reporter restart.".
+t_reporter_pending_sweep_prunes_lost_forget(_Config) ->
+    PK = <<"PREPORTERSWEEP">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter pending sweep">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    ReporterName = emqx_bcast_part_reporter:shard_name(ReporterShard),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assert(wait_until(fun() -> reporter_has_pending(ReporterName, DeliveryId) end, 100)),
+    ok = mnesia:dirty_delete(bcast_msg, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_meta, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_meta_counter, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_acked, DeliveryId),
+    ok = mnesia:dirty_delete(bcast_msg_part_accounted, DeliveryId),
+    ?assert(
+        wait_until(
+            fun() -> not reporter_has_pending(ReporterName, DeliveryId) end,
+            150
+        )
+    ).
+
+-doc "The delivery reporter must use bcast_msg.target_ack_count. A meta counter\n"
+"backfilled from an older build can contain the remaining count and must not\n"
+"become the new completion target.".
+t_reporter_uses_full_target_not_meta_remaining(_Config) ->
+    PK = <<"PREPORTERTARGET">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter full target">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    [#bcast_msg_meta{} = Meta] = mnesia:dirty_read(bcast_msg_meta, DeliveryId),
+    ok = mnesia:dirty_write(Meta#bcast_msg_meta{counter = 1}),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "The legacy transactional part-report path must also use the delivery\n"
+"target when an upstream activation has not normalized a remaining meta value.".
+t_legacy_part_report_uses_full_target_before_normalize(_Config) ->
+    PK = <<"PLEGACYREPORTTARGET">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"legacy report full target">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = mnesia:dirty_delete(bcast_msg_part_accounted, DeliveryId),
+    [#bcast_msg_meta{} = Meta] = mnesia:dirty_read(bcast_msg_meta, DeliveryId),
+    ok = mnesia:dirty_write(Meta#bcast_msg_meta{counter = 1}),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ok = wait_ack_counter(DeliveryId, 1),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "An account-row write failure must arm the one-second report retry. Waiting\n"
+"for the generic cleanup tick can delay an otherwise complete delivery for the\n"
+"full cleanup interval.".
+t_part_account_write_failure_retries_automatically(_Config) ->
+    PK = <<"PREPORTWRITEFAIL">>,
+    [A] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter account write failure">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A], 1
+    ),
+    Shard = emqx_bcast_index_owner:shard_of({PK, A}),
+    ShardPid = whereis(index_shard_name(Shard)),
+    Attempt = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_write, fun
+            (Record = #bcast_msg_part_accounted{}) ->
+                case self() =:= ShardPid andalso atomics:add_get(Attempt, 1, 1) =:= 1 of
+                    true -> erlang:error(injected_account_write_failure);
+                    false -> meck:passthrough([Record])
+                end;
+            (Record) ->
+                meck:passthrough([Record])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId)
+    after
+        meck:unload(mnesia)
+    end,
+    ?assert(atomics:get(Attempt, 1) >= 1),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "Once a part account row is durable, buffered or previously-persisted\n"
+"partial ACK markers for that completed part must not be flushed again.".
+t_completed_part_clears_buffered_partial_ack(_Config) ->
+    PK = <<"PPARTBUFCLEAR">>,
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    [B] = same_shard_dns(PK, 1, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"completed part buffer clear">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2, B], 3
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
+    ?assert(
+        lists:any(
+            fun(#bcast_msg_part_accounted{shard = Shard}) ->
+                Shard =:= emqx_bcast_index_owner:shard_of({PK, A1})
+            end,
+            mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)
+        )
+    ),
+    flush_partial_acks(PK, A1),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})).
+
+-doc "A source account row that never becomes visible must not keep the\n"
+"reporter in a 20ms retry loop. Repeated misses use bounded exponential backoff.".
+t_missing_source_account_retries_with_backoff(_Config) ->
+    PK = <<"PREPORTBACKOFF">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter missing source backoff">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    Reporter = whereis(emqx_bcast_part_reporter:shard_name(ReporterShard)),
+    MissingShard = emqx_bcast_index_owner:shard_of({PK, A}),
+    Reads = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_read, fun
+            (Tab, Key) when Tab =:= ?TAB_MSG_PART_ACCOUNTED, Key =:= DeliveryId ->
+                case self() =:= Reporter of
+                    true ->
+                        atomics:add(Reads, 1, 1),
+                        [];
+                    false ->
+                        meck:passthrough([Tab, Key])
+                end;
+            (Tab, Key) ->
+                meck:passthrough([Tab, Key])
+        end),
+        {ok, _} = emqx_bcast_part_reporter:part_accounted(node(), MissingShard, DeliveryId),
+        timer:sleep(500)
+    after
+        meck:unload(mnesia)
+    end,
+    emqx_bcast_part_reporter:forget_delivery(DeliveryId),
+    ?assert(atomics:get(Reads, 1) =< 10).
+
+-doc "The reporter must retry when its local copy has not yet received the\n"
+"source part's durable account row. A missing copy is not a completed part and\n"
+"is not evidence that the delivery was deleted.".
+t_reporter_retries_missing_account_copy(_Config) ->
+    PK = <<"PREPACCCOPY">>,
+    [A] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter account copy lag">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A], 1
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    Reporter = whereis(emqx_bcast_part_reporter:shard_name(ReporterShard)),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_read, fun
+            (Tab, Key) when Tab =:= ?TAB_MSG_PART_ACCOUNTED, Key =:= DeliveryId ->
+                case self() =:= Reporter of
+                    true -> [];
+                    false -> meck:passthrough([Tab, Key])
+                end;
+            (Tab, Key) ->
+                meck:passthrough([Tab, Key])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        timer:sleep(100)
+    after
+        meck:unload(mnesia)
+    end,
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "An asynchronous report is retried until the reporter acknowledges receipt.\n"
+"Losing the first cast or receiving it while the reporter restarts must not\n"
+"leave a completed part stranded.".
+t_part_report_retries_until_reporter_ack(_Config) ->
+    PK = <<"PREPACKRETRY">>,
+    [A] = same_shard_dns(PK, 0, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter ack retry">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A], 1
+    ),
+    Shard = emqx_bcast_index_owner:shard_of({PK, A}),
+    ShardPid = whereis(index_shard_name(Shard)),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    ReporterTarget = {emqx_bcast_part_reporter:shard_name(ReporterShard), node()},
+    Attempts = atomics:new(1, []),
+    meck:new(emqx_bcast_part_reporter, [passthrough, no_link]),
+    try
+        meck:expect(emqx_bcast_part_reporter, part_accounted, fun(Node, SourceShard, Did) ->
+            case self() =:= ShardPid andalso atomics:add_get(Attempts, 1, 1) =:= 1 of
+                true -> {ok, ReporterTarget};
+                false -> meck:passthrough([Node, SourceShard, Did])
+            end
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100))
+    after
+        meck:unload(emqx_bcast_part_reporter)
+    end,
+    ?assert(atomics:get(Attempts, 1) >= 2).
 
 -doc "The normal completed-part report stays in the source shard's lock-free\n"
 "accounting path. It must not read the full delivery row, copy the ACK marker\n"
@@ -1386,7 +1733,7 @@ t_missing_counter_rebuilt_by_part_report(_Config) ->
     ok = mnesia:dirty_delete(bcast_msg_meta_counter, DeliveryId),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
     ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
@@ -1673,6 +2020,7 @@ t_rebuild_skips_counted_acked_devices(_Config) ->
             Shard =:= emqx_bcast_index_owner:shard_of({PK, DN1})
         ]
     ),
+    ok = wait_ack_counter(DeliveryId, 1),
     %% Rebuild the index (forced, as on an activation drive).
     ok = emqx_bcast_index_owner:rebuild_index(),
     %% DN1's entry is not resurrected; DN2's is still pending.
@@ -1768,6 +2116,59 @@ t_cleanup_reclaims_orphan_part_accounting(_Config) ->
     ok = mnesia:dirty_delete(bcast_msg_meta_counter, DeliveryId),
     {ok, _Continuation} = emqx_bcast_storage:cleanup_expired(undefined),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
+
+-doc "A failed orphan accounting delete must retain the failed scan slice as\n"
+"the next continuation. Otherwise the next tick scans past those rows and\n"
+"they survive until the bounded scan wraps around the table.".
+t_cleanup_retries_failed_orphan_part_accounting(_Config) ->
+    Dids = [
+        iolist_to_binary(io_lib:format("orphan-accounting-~4..0B", [I]))
+     || I <- lists:seq(1, 1100)
+    ],
+    [
+        ok = mnesia:dirty_write(#bcast_msg_part_accounted{
+            delivery_id = Did,
+            shard = 0,
+            acked = 1
+        })
+     || Did <- Dids
+    ],
+    MatchSpec = [
+        {
+            #bcast_msg_part_accounted{delivery_id = '$1', _ = '_'},
+            [],
+            ['$1']
+        }
+    ],
+    {FirstChunk, _Next} = ets:select(
+        ?TAB_MSG_PART_ACCOUNTED, MatchSpec, 1000
+    ),
+    ?assertEqual(1000, length(FirstChunk)),
+    TestPid = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    RetryContinuation =
+        try
+            meck:expect(mnesia, transaction, fun(Fun, Retries) ->
+                case self() =:= TestPid of
+                    true -> {aborted, injected_orphan_delete_failure};
+                    false -> meck:passthrough([Fun, Retries])
+                end
+            end),
+            {ok, Continuation} = emqx_bcast_storage:cleanup_expired(undefined),
+            Continuation
+        after
+            meck:unload(mnesia)
+        end,
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, hd(FirstChunk))),
+    {ok, _NextContinuation} = emqx_bcast_storage:cleanup_expired(RetryContinuation),
+    ?assertEqual(
+        [],
+        [
+            Did
+         || Did <- FirstChunk,
+            mnesia:dirty_read(bcast_msg_part_accounted, Did) =/= []
+        ]
+    ).
 
 -doc "A crash inside promoter batch processing must be contained: the\n"
 "intake take is atomic (dequeue-then-process), so an uncaught worker\n"
@@ -3044,6 +3445,25 @@ ack_counter(Did) ->
         [] -> undefined
     end.
 
+wait_ack_counter(Did, Expected) ->
+    ?assert(wait_until(fun() -> ack_counter(Did) =:= Expected end, 100)),
+    ok.
+
+wait_delivery_not_found(Id) ->
+    wait_delivery_not_found(Id, 100).
+
+wait_delivery_not_found(Id, Attempts) ->
+    Reply = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
+    case Reply of
+        {error, 404, _, _} ->
+            Reply;
+        _ when Attempts > 0 ->
+            timer:sleep(100),
+            wait_delivery_not_found(Id, Attempts - 1);
+        _ ->
+            Reply
+    end.
+
 state_tab(PK, DN) ->
     emqx_bcast_pull_shard:tab(emqx_bcast_pull_shard:shard_of(PK, DN), bcast_client_state).
 
@@ -3343,6 +3763,41 @@ t_resume_resync_keeps_filters_when_qos_is_unknown(_Config) ->
     end,
     cleanup_row(PK, DN),
     emqx_bcast:unregister_device(PK, DN, self()).
+
+-doc "A session takeover resumes with a new channel pid. Retiring the old\n"
+"generation must not erase the filters before the resumed session can use\n"
+"them as a fallback while the broker's subscription record is between writes.".
+t_resume_new_pid_resync_keeps_filters_when_qos_is_unknown(_Config) ->
+    PK = <<"PRESYNCNEWPID">>,
+    DN = <<"DRESYNCNEWPID">>,
+    Filter = <<"/PRESYNCNEWPID/DRESYNCNEWPID/user/get">>,
+    Name = emqx_bcast_pull_shard:shard_name(emqx_bcast_pull_shard:shard_of(PK, DN)),
+    NewPid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    _ = emqx_bcast:register_device(PK, DN, self()),
+    ets:insert(state_tab(PK, DN), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = self(),
+        topics = [{Filter, 1}]
+    }),
+    meck:new(emqx_broker, [passthrough, no_link]),
+    try
+        meck:expect(emqx_broker, subscriptions, fun(_Pid) -> [{Filter, #{}}] end),
+        gen_server:cast(Name, {resume, DN, NewPid, PK}),
+        _ = sys:get_state(Name),
+        ?assertMatch(#bcast_client_state{pid = NewPid}, row_lookup(PK, DN)),
+        ?assertEqual([{Filter, 1}], row_topics_of(PK, DN))
+    after
+        meck:unload(emqx_broker),
+        cleanup_row(PK, DN),
+        catch emqx_bcast:unregister_device(PK, DN, NewPid),
+        NewPid ! stop
+    end.
 
 -doc "While an ack is in flight (ack-in-flight marker set), a subscribe\n"
 "trigger for that client must not stage a want_next (pull returns no_more).".
@@ -5156,7 +5611,7 @@ t_ack_part_report_commits_watermark_and_counter(_Config) ->
     ok = emqx_bcast_index_owner:rebuild_index(),
     counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
     counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     [Account] = [
         A
@@ -5794,6 +6249,16 @@ t_ack_part_report_failure_retries_instead_of_killing_shard(_Config) ->
     %% The next cleanup tick retries the reporter, completes the delivery, and
     %% drops the now-finished part accounting.
     ok = gen_server:call(Name, {cleanup_local}, 30000),
+    ?assert(
+        wait_until(
+            fun() ->
+                State = sys:get_state(Name),
+                not maps:is_key(PoisonDid, maps:get(part_pending, State)) andalso
+                    not maps:is_key(PoisonDid, maps:get(part_applied, State))
+            end,
+            100
+        )
+    ),
     State2 = sys:get_state(Name),
     ?assertNot(maps:is_key(PoisonDid, maps:get(part_pending, State2))),
     ?assertNot(maps:is_key(PoisonDid, maps:get(part_applied, State2))),
@@ -6369,16 +6834,84 @@ t_completed_part_does_not_recount_flushed_partial_ack(_Config) ->
     flush_partial_acks(PK, A1),
     ?assertMatch([#bcast_msg_acked{}], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
-    ?assertEqual(2, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 2),
     counted = emqx_bcast_storage:process_ack(PK, C, DeliveryId),
     %% Parts A and C are complete, but B was never acknowledged. Its part has
     %% not reported, so the delivery must remain at one pending device.
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
+
+-doc "A rebuild must restore the exact durable partial-ACK marker state for\n"
+"an unfinished part. Otherwise each post-rebuild flush appends a new bag row\n"
+"and the completed part leaves stale markers behind while another device keeps\n"
+"the delivery alive.".
+t_rebuild_preserves_partial_ack_marker_state(_Config) ->
+    PK = <<"PPARTREBUILD">>,
+    [A, B, C] = same_shard_dns(PK, 0, 3),
+    [D] = same_shard_dns(PK, 1, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"partial marker rebuild">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B, C, D], 4
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    flush_partial_acks(PK, A),
+    ?assertEqual([A], acked_devices(DeliveryId)),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    flush_partial_acks(PK, B),
+    [MarkerRow] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    ?assertMatch(#bcast_msg_acked{delivery_id = DeliveryId}, MarkerRow),
+    ?assertEqual(
+        lists:sort([A, B]),
+        lists:sort(MarkerRow#bcast_msg_acked.device_names)
+    ),
+    ok = emqx_bcast_index_owner:rebuild_index(),
+    counted = emqx_bcast_storage:process_ack(PK, C, DeliveryId),
+    ?assert(
+        wait_until(
+            fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =:= [] end,
+            100
+        )
+    ),
+    ?assertMatch(
+        [#bcast_msg_part_accounted{acked = 3}],
+        [
+            Account
+         || #bcast_msg_part_accounted{shard = Shard} = Account <-
+                mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
+            Shard =:= emqx_bcast_index_owner:shard_of({PK, A})
+        ]
+    ),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, D})).
+
+-doc "A promoter retry can re-append a device after its ACK removed the index\n"
+"entry. The redelivery may require another PUBLISH, but its ACK must not count\n"
+"the same logical device twice in the delivery part.".
+t_promoter_reappend_does_not_double_count_part_ack(_Config) ->
+    PK = <<"PPARTREAPPEND">>,
+    [A1, A2] = same_shard_dns(PK, 0, 2),
+    [B] = same_shard_dns(PK, 1, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"part reappend">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A1, A2, B], 3
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    %% Simulate the promoter retrying a batch after another shard failed.
+    ok = emqx_bcast_index_owner:append_batch([{PK, A1, DeliveryId}]),
+    counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
+    timer:sleep(200),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, B})),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
 
 -doc "Index-shard ownership and claim targets must follow the cores whose\n"
 "plugin is actually running. A core that joined the cluster before the plugin\n"
@@ -6618,7 +7151,7 @@ part_entry(Shard, Key, Did) ->
 
 reporter_has_pending(Name, Did) ->
     try sys:get_state(Name) of
-        {state, Pending, _Retry, _Timer} -> maps:is_key(Did, Pending);
+        State when is_tuple(State) -> maps:is_key(Did, element(2, State));
         _ -> false
     catch
         _:_ -> false
@@ -6634,7 +7167,15 @@ part_held(Shard, Did) ->
     ),
     HasAccounting = lists:any(
         fun(Key) -> maps:is_key(Did, maps:get(Key, State, #{})) end,
-        [part_pending, part_applied, part_totals, partial_ack_buf, partial_ack_persisted]
+        [
+            part_pending,
+            part_applied,
+            part_totals,
+            part_devices,
+            part_acked_devices,
+            partial_ack_buf,
+            partial_ack_persisted
+        ]
     ),
     HasEntry orelse HasAccounting.
 
@@ -6656,7 +7197,7 @@ t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     %% Model a marker-only delivery from an older build: the full A marker is
     %% durable, its decrement was lost, and no accounting watermark exists.
     ok = mnesia:dirty_delete(bcast_msg_part_accounted, DeliveryId),
@@ -6667,7 +7208,9 @@ t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
     _ = sys:replace_state(Name, fun(St) ->
         St#{
             part_pending => (maps:get(part_pending, St))#{DeliveryId => 0},
-            part_applied => (maps:get(part_applied, St))#{DeliveryId => 1}
+            part_applied => (maps:get(part_applied, St))#{DeliveryId => 1},
+            part_totals => (maps:get(part_totals, St))#{DeliveryId => 1},
+            part_report_pending => #{}
         }
     end),
     ?assertEqual(2, ack_counter(DeliveryId)),
@@ -6701,7 +7244,7 @@ t_part_report_does_not_recount_reconciled_partial_ack(_Config) ->
     %% Finish part A (two devices).
     counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
     counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
-    ?assertEqual(4, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 4),
     %% Start part B. Simulate an older recovery pass that counted this partial
     %% marker when it reconciled the delivery globally.
     counted = emqx_bcast_storage:process_ack(PK, B1, DeliveryId),
@@ -6714,7 +7257,7 @@ t_part_report_does_not_recount_reconciled_partial_ack(_Config) ->
     %% delete C's still-unacknowledged delivery.
     counted = emqx_bcast_storage:process_ack(PK, B2, DeliveryId),
     counted = emqx_bcast_storage:process_ack(PK, B3, DeliveryId),
-    ?assertEqual(1, ack_counter(DeliveryId)),
+    ok = wait_ack_counter(DeliveryId, 1),
     ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, C})),
     counted = emqx_bcast_storage:process_ack(PK, C, DeliveryId),

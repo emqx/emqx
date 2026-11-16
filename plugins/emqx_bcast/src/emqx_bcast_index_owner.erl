@@ -48,6 +48,7 @@
     shard_of/1,
     shard_of_delivery/1,
     shard_owner/1,
+    part_report_received/3,
     part_report_applied/2
 ]).
 -export([
@@ -246,6 +247,10 @@ part_report_applied(Shard, Did) ->
     cast_shard(Shard, {part_report_applied, Did}),
     ok.
 
+part_report_received(Shard, Did, ReporterPid) ->
+    cast_shard(Shard, {part_report_received, Did, ReporterPid}),
+    ok.
+
 %% The global quota counter owner: the lexicographically smallest
 %% running core node. All shards (wherever they run) update this one ETS
 %% row through quota_update/1 (local update_counter or one emqx_rpc hop).
@@ -317,6 +322,8 @@ init([Shard]) ->
         part_pending => #{},
         part_applied => #{},
         part_totals => #{},
+        part_devices => #{},
+        part_acked_devices => #{},
         part_report_pending => #{},
         part_reporter_monitors => #{},
         %% Counted ACKs waiting for the next durable marker flush, and the
@@ -1644,6 +1651,8 @@ handle_call({device_delivery_entries, _Key}, _From, State) ->
 handle_call(_Req, _From, State) ->
     {reply, {error, not_active}, State}.
 
+handle_cast({part_report_received, Did, ReporterPid}, State = #{active := true}) ->
+    {noreply, mark_part_report_accepted(Did, ReporterPid, State)};
 handle_cast({part_report_applied, Did}, State = #{active := true}) ->
     {noreply, drop_part_accounting(Did, State)};
 handle_cast({release_batch, Releases}, State = #{active := true}) ->
@@ -1710,26 +1719,27 @@ handle_info(maybe_activate, State = #{active := false, shard := 0}) ->
     %% multiply the poll rate instead of sustaining it.
     {noreply, drive_and_apply(ensure, remember_owner_set(State))};
 handle_info(
-    {'DOWN', Ref, process, Reporter, _Reason},
+    {'DOWN', Ref, process, _ReporterPid, _Reason},
     State = #{part_reporter_monitors := Monitors}
-) when is_map_key(Reporter, Monitors) ->
-    case maps:get(Reporter, Monitors) of
-        Ref ->
-            Pending = maps:map(
-                fun
-                    (_Did, {accepted, Reporter0}) when Reporter0 =:= Reporter -> pending;
-                    (_Did, Status) -> Status
-                end,
-                maps:get(part_report_pending, State)
-            ),
-            State1 = State#{
-                part_report_pending => Pending,
-                part_reporter_monitors => maps:remove(Reporter, Monitors)
-            },
-            {noreply, arm_part_report_retry(State1)};
-        _StaleRef ->
-            {noreply, State}
-    end;
+) when is_map_key(Ref, Monitors) ->
+    Reporter = maps:get(Ref, Monitors),
+    Pending = maps:map(
+        fun
+            (_Did, {Status, Reporter0}) when
+                Reporter0 =:= Reporter andalso
+                    (Status =:= accepted orelse Status =:= awaiting)
+            ->
+                pending;
+            (_Did, Status) ->
+                Status
+        end,
+        maps:get(part_report_pending, State)
+    ),
+    State1 = State#{
+        part_report_pending => Pending,
+        part_reporter_monitors => maps:remove(Ref, Monitors)
+    },
+    {noreply, arm_part_report_retry(State1)};
 handle_info({drive_result, Pid, Result}, State = #{shard := 0}) ->
     %% The coordinator reports once and exits. Only the drive this shard is
     %% waiting for is applied, and only while this shard still owns partition 0:
@@ -2812,22 +2822,60 @@ activate_partition(Proj, State, Completed) ->
                                 Accounts = mnesia:dirty_read(
                                     ?TAB_MSG_PART_ACCOUNTED, DeliveryId
                                 ),
+                                MarkerRows = mnesia:dirty_read(
+                                    ?TAB_MSG_ACKED, DeliveryId
+                                ),
+                                AckedDevices = marker_device_set(MarkerRows),
                                 AccountedShards = part_accounted_shards(Accounts),
                                 case maps:is_key(Shard, AccountedShards) of
                                     true ->
                                         %% The whole local part has a durable
                                         %% accounting watermark. Its counter
-                                        %% decrement committed with that row, so
-                                        %% none of its devices need a marker row.
-                                        {St, Done};
+                                        %% is restored here so a lost reporter
+                                        %% notification or replicated row remains
+                                        %% recoverable after an index restart.
+                                        Accounted = accounted_part_acks(Shard, Accounts),
+                                        St0 = consolidate_rebuilt_partial_markers(
+                                            DeliveryId, MyDNs, MarkerRows, true, St
+                                        ),
+                                        St1 = St0#{
+                                            part_pending => maps:put(
+                                                DeliveryId, 0, maps:get(part_pending, St0)
+                                            ),
+                                            part_applied => maps:put(
+                                                DeliveryId,
+                                                Accounted,
+                                                maps:get(part_applied, St0)
+                                            ),
+                                            part_totals => maps:put(
+                                                DeliveryId,
+                                                Accounted,
+                                                maps:get(part_totals, St0)
+                                            ),
+                                            part_devices => maps:put(
+                                                DeliveryId,
+                                                maps:from_keys(MyDNs, true),
+                                                maps:get(part_devices, St0)
+                                            ),
+                                            part_acked_devices => maps:put(
+                                                DeliveryId,
+                                                maps:from_keys(MyDNs, true),
+                                                maps:get(part_acked_devices, St0)
+                                            )
+                                        },
+                                        {maybe_report_part(DeliveryId, Accounted, St1), Done};
                                     false ->
+                                        St0 = consolidate_rebuilt_partial_markers(
+                                            DeliveryId, MyDNs, MarkerRows, false, St
+                                        ),
                                         rebuild_unaccounted_part(
                                             ProductKey,
                                             DeliveryId,
                                             MyDNs,
                                             DeviceNames,
                                             AccountedShards,
-                                            St,
+                                            AckedDevices,
+                                            St0,
                                             Done
                                         )
                                 end
@@ -2858,16 +2906,124 @@ part_accounted_shards(Accounts) ->
         true
     ).
 
+accounted_part_acks(Shard, Accounts) ->
+    lists:sum([
+        Acked
+     || #bcast_msg_part_accounted{shard = AccountedShard, acked = Acked} <- Accounts,
+        AccountedShard =:= Shard
+    ]).
+
+marker_device_set(MarkerRows) ->
+    maps:from_keys(
+        lists:usort([
+            DN
+         || #bcast_msg_acked{device_names = DNs} <- MarkerRows,
+            DN <- DNs
+        ]),
+        true
+    ).
+
+%% A partial ACK marker belongs to one index shard's delivery part, and the
+%% flush replaces the previous row for that part. A rebuild loses the in-memory
+%% record of which row the next flush replaces, so consolidate the durable rows
+%% back into one exact marker and restore that record. If the part already has
+%% an accounting watermark, its partial markers are obsolete and are removed.
+consolidate_rebuilt_partial_markers(Did, MyDNs, MarkerRows, Accounted, State) ->
+    LocalSet = maps:from_keys(MyDNs, true),
+    {LocalDNs, OldRows, KeepRows0} = lists:foldl(
+        fun(Marker = #bcast_msg_acked{device_names = DNs}, {LocalAcc, OldAcc, KeepAcc}) ->
+            {Local, Remote} = lists:partition(
+                fun(DN) -> maps:is_key(DN, LocalSet) end,
+                DNs
+            ),
+            case Local of
+                [] ->
+                    {LocalAcc, OldAcc, KeepAcc};
+                _ ->
+                    KeepAcc1 =
+                        case Remote of
+                            [] -> KeepAcc;
+                            _ -> add_marker_record(Did, lists:usort(Remote), KeepAcc)
+                        end,
+                    {Local ++ LocalAcc, [Marker | OldAcc], KeepAcc1}
+            end
+        end,
+        {[], [], []},
+        MarkerRows
+    ),
+    LocalDNs = lists:usort(LocalDNs),
+    KeepRows1 =
+        case Accounted orelse LocalDNs =:= [] of
+            true -> KeepRows0;
+            false -> add_marker_record(Did, LocalDNs, KeepRows0)
+        end,
+    KeepRows = lists:usort(KeepRows1),
+    ok = replace_marker_rows(OldRows, KeepRows),
+    case Accounted orelse LocalDNs =:= [] of
+        true ->
+            State;
+        false ->
+            Applied = max(
+                length(LocalDNs),
+                maps:get(Did, maps:get(part_applied, State), 0)
+            ),
+            State#{
+                part_applied => maps:put(
+                    Did, Applied, maps:get(part_applied, State)
+                ),
+                part_acked_devices => maps:put(
+                    Did,
+                    maps:from_keys(LocalDNs, true),
+                    maps:get(part_acked_devices, State)
+                ),
+                partial_ack_persisted => maps:put(
+                    Did, LocalDNs, maps:get(partial_ack_persisted, State)
+                )
+            }
+    end.
+
+add_marker_record(Did, DeviceNames, MarkerRows) ->
+    Marker = #bcast_msg_acked{
+        delivery_id = Did,
+        device_names = DeviceNames
+    },
+    case lists:member(Marker, MarkerRows) of
+        true -> MarkerRows;
+        false -> [Marker | MarkerRows]
+    end.
+
+%% Write the canonical rows before deleting any old row so a crash in this
+%% repair can duplicate an ACK marker but cannot lose one.
+replace_marker_rows(OldRows, KeepRows) ->
+    lists:foreach(
+        fun(Marker) ->
+            case lists:member(Marker, OldRows) of
+                true -> ok;
+                false -> ok = mnesia:dirty_write(Marker)
+            end
+        end,
+        KeepRows
+    ),
+    lists:foreach(
+        fun(Marker) ->
+            case lists:member(Marker, KeepRows) of
+                true -> ok;
+                false -> ok = mnesia:dirty_delete_object(Marker)
+            end
+        end,
+        OldRows
+    ).
+
 rebuild_unaccounted_part(
     ProductKey,
     DeliveryId,
     MyDNs,
     DeviceNames,
     AccountedShards,
+    Acked,
     State,
     Completed
 ) ->
-    Acked = acked_device_set(DeliveryId),
     AllAcked = lists:all(
         fun(DN) ->
             maps:is_key(DN, Acked) orelse
@@ -2879,7 +3035,26 @@ rebuild_unaccounted_part(
         false ->
             ToAdd = [DN || DN <- MyDNs, not maps:is_key(DN, Acked)],
             State1 = append_delivery_entries(State, ProductKey, DeliveryId, ToAdd),
-            {set_part_total(DeliveryId, length(MyDNs), State1), Completed};
+            State2 = set_part_devices(DeliveryId, MyDNs, State1),
+            State3 =
+                case ToAdd of
+                    [] ->
+                        %% The local part finished before the rebuild, but its
+                        %% report was not durable yet. Keep a zero-pending entry
+                        %% so both the immediate report and its retry path run.
+                        Pending = maps:get(part_pending, State2),
+                        State2#{
+                            part_pending => maps:put(
+                                DeliveryId,
+                                0,
+                                Pending
+                            )
+                        };
+                    _ ->
+                        State2
+                end,
+            Applied = maps:get(DeliveryId, maps:get(part_applied, State3), 0),
+            {maybe_report_part(DeliveryId, Applied, State3), Completed};
         true when map_size(Completed) >= ?MAX_HEAL_PER_DRIVE ->
             {State, Completed};
         true ->
@@ -2936,8 +3111,8 @@ request_partition_activation(Shard) ->
 %% Deliveries committed by older builds (or rows written before the meta
 %% table existed) have no bcast_msg_meta row: the ack/claim hot paths only
 %% read the small meta row, so backfill it on owner activation. The legacy
-%% bcast_msg.counter counts acks received; the meta counter stores the
-%% remaining acks to completion.
+%% bcast_msg.counter counts acks received. bcast_msg_meta.counter stores the
+%% full target; bcast_msg_meta_counter stores the remaining count.
 %% Backfill missing bcast_msg_meta rows in batched transactions
 %% (100 rows/tx) instead of one dirty read + dirty write per delivery.
 %% Only runs on takeover/activation and only writes rows that are missing,
@@ -2965,7 +3140,16 @@ backfill_meta_from_projection(Proj) ->
                 true ->
                     false;
                 false ->
-                    {true, {DeliveryId, MsgId, TopicTemplate, max(0, TargetAckCount - Counter)}}
+                    {
+                        true,
+                        {
+                            DeliveryId,
+                            MsgId,
+                            TopicTemplate,
+                            TargetAckCount,
+                            max(0, TargetAckCount - Counter)
+                        }
+                    }
             end
         end,
         Proj
@@ -2976,12 +3160,12 @@ backfill_meta_from_projection(Proj) ->
                 mnesia:transaction(
                     fun() ->
                         lists:foreach(
-                            fun({DeliveryId, MsgId, TopicTemplate, Remaining}) ->
+                            fun({DeliveryId, MsgId, TopicTemplate, Target, Remaining}) ->
                                 mnesia:write(#bcast_msg_meta{
                                     delivery_id = DeliveryId,
                                     msg_id = MsgId,
                                     topic_template = TopicTemplate,
-                                    counter = Remaining
+                                    counter = Target
                                 }),
                                 mnesia:write(#bcast_msg_meta_counter{
                                     delivery_id = DeliveryId,
@@ -3030,6 +3214,13 @@ backfill_meta_from_projection(Proj) ->
         {DeliveryId, TargetAckCount}
      || {DeliveryId, _MsgId, _PK, _Tpl, TargetAckCount, _Counter, _DNs, _CreatedAt} <- Proj
     ]),
+    NormalizeMeta = [
+        {DeliveryId, Target}
+     || {DeliveryId, Counter} <- ExistingMeta,
+        Target <- [maps:get(DeliveryId, TargetByDid, Counter)],
+        Target =/= Counter
+    ],
+    normalize_meta_targets(NormalizeMeta),
     AccountedDids = accounted_did_set(),
     %% Deliveries whose acks are not attributable to devices: neither a partial
     %% marker nor a part watermark means the delivery was committed by a build
@@ -3064,9 +3255,9 @@ backfill_meta_from_projection(Proj) ->
     ok = write_meta_counters(MissingCnt),
     write_meta_counters(Legacy).
 
-%% bcast_msg_meta.counter is the remaining-ack count, but since 0.4.0 it is
-%% only ever written with the full target and never decremented (the atomic
-%% bcast_msg_meta_counter is authoritative). A part watermark, or a legacy
+%% bcast_msg_meta.counter is the full target and is never decremented; the
+%% atomic bcast_msg_meta_counter is authoritative for the remaining count. A
+%% part watermark, or a legacy
 %% full-part marker, proves that a counter decrement is owed. Partial ACK
 %% markers are deliberately ignored here because their part has not necessarily
 %% been reflected in the counter. Keep the conservative minimum so a delivery
@@ -3108,6 +3299,42 @@ accounted_did_set() ->
     ),
     maps:from_keys(MarkerDids ++ PartDids, true).
 
+%% Normalize legacy meta counters to their delivery's full target in batched
+%% transactions. Prior builds could backfill the remaining count here.
+normalize_meta_targets(Rows) ->
+    lists:foreach(
+        fun(Chunk) ->
+            case
+                mnesia:transaction(
+                    fun() ->
+                        lists:foreach(
+                            fun({DeliveryId, Target}) ->
+                                case mnesia:read(?TAB_MSG_META, DeliveryId, write) of
+                                    [Meta] ->
+                                        mnesia:write(Meta#bcast_msg_meta{counter = Target});
+                                    [] ->
+                                        ok
+                                end
+                            end,
+                            Chunk
+                        )
+                    end,
+                    20
+                )
+            of
+                {atomic, _} ->
+                    ok;
+                {aborted, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "bcast_meta_target_normalize_tx_aborted",
+                        reason => Reason,
+                        chunk_size => length(Chunk)
+                    })
+            end
+        end,
+        chunks(Rows, 100)
+    ).
+
 %% Write remaining-ack counter rows in batched transactions (100 rows/tx). An
 %% aborted chunk is logged and skipped rather than failing the activation: the
 %% next takeover retries the repair.
@@ -3143,25 +3370,12 @@ write_meta_counters(Rows) ->
         chunks(Rows, 100)
     ).
 
-%% Device-name set of the persisted ack markers of a delivery (one dirty
-%% read per delivery, only for deliveries that own at least one device of
-%% the shard being rebuilt). The table holds one row per flush tick, each
-%% carrying that tick's device names.
-acked_device_set(Did) ->
-    maps:from_keys(
-        lists:append([
-            DNs
-         || #bcast_msg_acked{device_names = DNs} <- mnesia:dirty_read(?TAB_MSG_ACKED, Did)
-        ]),
-        true
-    ).
-
 reset_state(State) ->
     ok = emqx_bcast_utils:cancel_timer(maps:get(partial_ack_flush_ref, State, undefined)),
     ok = emqx_bcast_utils:cancel_timer(maps:get(part_report_retry_ref, State, undefined)),
     lists:foreach(
         fun(Ref) -> erlang:demonitor(Ref, [flush]) end,
-        maps:values(maps:get(part_reporter_monitors, State, #{}))
+        maps:keys(maps:get(part_reporter_monitors, State, #{}))
     ),
     State#{
         queues => #{},
@@ -3176,6 +3390,8 @@ reset_state(State) ->
         part_pending => #{},
         part_applied => #{},
         part_totals => #{},
+        part_devices => #{},
+        part_acked_devices => #{},
         part_report_pending => #{},
         part_reporter_monitors => #{},
         partial_ack_buf => #{},
@@ -3316,7 +3532,7 @@ append_entry(State, Key = {PK, DN}, Did) ->
             State2 = put_in(dids, Key3, Ts, State1),
             State3 = incr_in(counts, Key, State2),
             State3b = bump_part_pending(Did, 1, State3),
-            State3c = bump_part_total(Did, 1, State3b),
+            State3c = record_part_device(Did, DN, State3b),
             {State4, Decr} = reserve_dec(State3c, Key),
             {State4, 1 - Decr}
     end.
@@ -3900,7 +4116,7 @@ ack_one_index({PK, DN, Did}, State) ->
             %% wait for. The counter changes only when the part reaches zero.
             %% A non-final ACK joins a per-delivery buffer so an owner
             %% handover does not resurrect it.
-            {Applied, State2} = note_part_ack(Did, State1),
+            {Applied, State2} = note_part_ack(Did, DN, State1),
             State3 = buffer_partial_ack(Did, DN, State2),
             State4 = maybe_report_part(Did, Applied, State3),
             %% The qos1_acked metric is counted by pull_shard on the
@@ -4043,24 +4259,51 @@ bump_part_pending(Did, Delta, State) ->
     Pending = maps:get(Did, maps:get(part_pending, State), 0),
     State#{part_pending => (maps:get(part_pending, State))#{Did => Pending + Delta}}.
 
-bump_part_total(Did, Delta, State) ->
-    Total = maps:get(Did, maps:get(part_totals, State), 0),
-    State#{part_totals => (maps:get(part_totals, State))#{Did => Total + Delta}}.
+record_part_device(Did, DN, State) ->
+    Devices0 = maps:get(Did, maps:get(part_devices, State), #{}),
+    case maps:is_key(DN, Devices0) of
+        true ->
+            State;
+        false ->
+            Devices = maps:put(DN, true, Devices0),
+            State#{
+                part_devices => maps:put(Did, Devices, maps:get(part_devices, State)),
+                part_totals => maps:put(Did, map_size(Devices), maps:get(part_totals, State))
+            }
+    end.
 
-set_part_total(Did, Total, State) ->
-    State#{part_totals => (maps:get(part_totals, State))#{Did => Total}}.
+set_part_devices(Did, DNs, State) ->
+    Devices = maps:from_keys(lists:usort(DNs), true),
+    State#{
+        part_devices => maps:put(Did, Devices, maps:get(part_devices, State)),
+        part_totals => maps:put(Did, map_size(Devices), maps:get(part_totals, State))
+    }.
 
 %% One counted ack: one more applied, one fewer to wait for.
-note_part_ack(Did, State) ->
-    Applied = maps:get(Did, maps:get(part_applied, State), 0) + 1,
-    State1 = State#{
-        part_applied => (maps:get(part_applied, State))#{Did => Applied}
-    },
-    case maps:get(Did, maps:get(part_pending, State1), 0) of
+note_part_ack(Did, DN, State) ->
+    AckedDevices0 = maps:get(Did, maps:get(part_acked_devices, State), #{}),
+    Applied0 = maps:get(Did, maps:get(part_applied, State), 0),
+    {Applied, State0} =
+        case maps:is_key(DN, AckedDevices0) of
+            true ->
+                {Applied0, State};
+            false ->
+                AckedDevices = maps:put(DN, true, AckedDevices0),
+                {
+                    Applied0 + 1,
+                    State#{
+                        part_applied => (maps:get(part_applied, State))#{Did => Applied0 + 1},
+                        part_acked_devices => (maps:get(part_acked_devices, State))#{
+                            Did => AckedDevices
+                        }
+                    }
+                }
+        end,
+    case maps:get(Did, maps:get(part_pending, State0), 0) of
         0 ->
-            {Applied, State1};
+            {Applied, State0};
         _ ->
-            {Applied, bump_part_pending(Did, -1, State1)}
+            {Applied, bump_part_pending(Did, -1, State0)}
     end.
 
 maybe_report_part(Did, Applied, State) when Applied > 0 ->
@@ -4082,7 +4325,7 @@ maybe_report_part(Did, Applied, State) when Applied > 0 ->
                 {accepted, State1} -> State1;
                 {queued, State1} -> arm_part_report_retry(State1);
                 reported -> drop_part_accounting(Did, State);
-                {error, _} -> State
+                {error, _} -> arm_part_report_retry(State)
             end;
         _ ->
             State
@@ -4090,16 +4333,31 @@ maybe_report_part(Did, Applied, State) when Applied > 0 ->
 maybe_report_part(_Did, _Applied, State) ->
     State.
 
+mark_part_report_accepted(Did, ReporterPid, State) ->
+    Pending0 = maps:get(part_report_pending, State),
+    case maps:get(Did, Pending0, pending) of
+        {_Status, Reporter} when is_tuple(Reporter) ->
+            State1 = State#{
+                part_report_pending => maps:put(Did, {accepted, Reporter}, Pending0)
+            },
+            State2 = monitor_part_reporter(Reporter, ReporterPid, State1),
+            maybe_cancel_part_report_retry(State2);
+        _ ->
+            State
+    end.
+
 drop_part_accounting(Did, State) ->
     Reporter =
         case maps:get(Did, maps:get(part_report_pending, State), pending) of
-            {accepted, Pid} -> Pid;
+            {_Status, Target} -> Target;
             _ -> undefined
         end,
     State1 = State#{
         part_pending => maps:remove(Did, maps:get(part_pending, State)),
         part_applied => maps:remove(Did, maps:get(part_applied, State)),
         part_totals => maps:remove(Did, maps:get(part_totals, State)),
+        part_devices => maps:remove(Did, maps:get(part_devices, State)),
+        part_acked_devices => maps:remove(Did, maps:get(part_acked_devices, State)),
         part_report_pending => maps:remove(Did, maps:get(part_report_pending, State)),
         partial_ack_buf => maps:remove(Did, maps:get(partial_ack_buf, State)),
         partial_ack_persisted => maps:remove(Did, maps:get(partial_ack_persisted, State))
@@ -4112,15 +4370,27 @@ maybe_demonitor_reporter(undefined, State) ->
 maybe_demonitor_reporter(Reporter, State = #{part_reporter_monitors := Monitors}) ->
     StillUsed = lists:any(
         fun
-            ({accepted, Pid}) -> Pid =:= Reporter;
-            (_) -> false
+            ({Status, Target}) when Status =:= accepted; Status =:= awaiting ->
+                Target =:= Reporter;
+            (_) ->
+                false
         end,
         maps:values(maps:get(part_report_pending, State))
     ),
-    case {StillUsed, maps:take(Reporter, Monitors)} of
-        {false, {Ref, Remaining}} ->
+    Ref = maps:fold(
+        fun(MonitorRef, Target, Acc) ->
+            case Target =:= Reporter of
+                true -> MonitorRef;
+                false -> Acc
+            end
+        end,
+        undefined,
+        Monitors
+    ),
+    case {StillUsed, Ref} of
+        {false, MonitorRef} when is_reference(MonitorRef) ->
             erlang:demonitor(Ref, [flush]),
-            State#{part_reporter_monitors => Remaining};
+            State#{part_reporter_monitors => maps:remove(MonitorRef, Monitors)};
         _ ->
             State
     end.
@@ -4141,6 +4411,8 @@ prune_ended_parts(State) ->
         maps:keys(maps:get(part_pending, State)) ++
             maps:keys(maps:get(part_applied, State)) ++
             maps:keys(maps:get(part_totals, State)) ++
+            maps:keys(maps:get(part_devices, State)) ++
+            maps:keys(maps:get(part_acked_devices, State)) ++
             maps:keys(maps:get(part_report_pending, State)) ++
             maps:keys(maps:get(partial_ack_buf, State)) ++
             maps:keys(maps:get(partial_ack_persisted, State))
@@ -4208,8 +4480,10 @@ report_part_accounted(Shard, Did, Accounted, PartialDNs, State) ->
 
 write_part_account_once(Shard, Did, Accounted, PartialDNs, State) ->
     case maps:find(Did, maps:get(part_report_pending, State)) of
-        {ok, accepted} ->
+        {ok, {accepted, _Target}} ->
             {accepted, State};
+        {ok, {awaiting, _Target}} ->
+            notify_part_reporter(Shard, Did, PartialDNs, State);
         {ok, pending} ->
             notify_part_reporter(Shard, Did, PartialDNs, State);
         error ->
@@ -4219,9 +4493,10 @@ write_part_account_once(Shard, Did, Accounted, PartialDNs, State) ->
                     shard = Shard,
                     acked = Accounted
                 }),
-                State1 = State#{
+                State0 = clear_partial_ack_buffer(Did, State),
+                State1 = State0#{
                     part_report_pending => maps:put(
-                        Did, pending, maps:get(part_report_pending, State)
+                        Did, pending, maps:get(part_report_pending, State0)
                     )
                 },
                 notify_part_reporter(Shard, Did, PartialDNs, State1)
@@ -4243,7 +4518,7 @@ notify_part_reporter(Shard, Did, PartialDNs, State) ->
     try
         ok = delete_partial_ack_marker(Did, PartialDNs),
         {ok, Reporter} = emqx_bcast_part_reporter:part_accounted(node(), Shard, Did),
-        {accepted, track_part_reporter(Did, Reporter, State)}
+        {queued, track_part_reporter(Did, Reporter, clear_partial_ack_state(Did, State))}
     catch
         Class:Reason:Stacktrace ->
             ?SLOG(warning, #{
@@ -4257,18 +4532,30 @@ notify_part_reporter(Shard, Did, PartialDNs, State) ->
             {queued, State}
     end.
 
+clear_partial_ack_buffer(Did, State) ->
+    State#{
+        partial_ack_buf => maps:remove(Did, maps:get(partial_ack_buf, State))
+    }.
+
+clear_partial_ack_state(Did, State) ->
+    State#{
+        partial_ack_buf => maps:remove(Did, maps:get(partial_ack_buf, State)),
+        partial_ack_persisted => maps:remove(Did, maps:get(partial_ack_persisted, State))
+    }.
+
 track_part_reporter(Did, Reporter, State = #{part_report_pending := Pending}) ->
-    Monitors = maps:get(part_reporter_monitors, State),
-    State1 = State#{
-        part_report_pending => maps:put(Did, {accepted, Reporter}, Pending)
-    },
-    case maps:is_key(Reporter, Monitors) of
+    State#{
+        part_report_pending => maps:put(Did, {awaiting, Reporter}, Pending)
+    }.
+
+monitor_part_reporter(Reporter, ReporterPid, State = #{part_reporter_monitors := Monitors}) ->
+    case lists:member(Reporter, maps:values(Monitors)) of
         true ->
-            State1;
+            State;
         false ->
-            Ref = erlang:monitor(process, Reporter),
-            State1#{
-                part_reporter_monitors => maps:put(Reporter, Ref, Monitors)
+            Ref = erlang:monitor(process, ReporterPid),
+            State#{
+                part_reporter_monitors => maps:put(Ref, Reporter, Monitors)
             }
     end.
 
@@ -4292,9 +4579,12 @@ arm_part_report_retry(State) ->
 maybe_cancel_part_report_retry(State) ->
     HasUnreported = maps:fold(
         fun(Did, Pending, Acc) ->
-            Acc orelse
-                (Pending =:= 0 andalso
-                    maps:get(Did, maps:get(part_applied, State), 0) > 0)
+            Status = maps:get(Did, maps:get(part_report_pending, State), pending),
+            NeedsReport =
+                Pending =:= 0 andalso
+                    maps:get(Did, maps:get(part_applied, State), 0) > 0 andalso
+                    not is_accepted_status(Status),
+            Acc orelse NeedsReport
         end,
         false,
         maps:get(part_pending, State, #{})
@@ -4308,6 +4598,9 @@ maybe_cancel_part_report_retry(State) ->
             ),
             State#{part_report_retry_ref => undefined}
     end.
+
+is_accepted_status({accepted, _Reporter}) -> true;
+is_accepted_status(_) -> false.
 
 %% Legacy recovery transaction for a finished part. A delivery created before
 %% the watermark existed has no sentinel, so its report rebuilds the accounting
@@ -4335,10 +4628,10 @@ do_report_part_done(Shard, Did, _Applied, PartialDNs) ->
         not_found ->
             %% The delivery is gone (completed or deleted): the acks are moot.
             ok;
-        {ok, Devices} ->
+        {ok, Devices, Target} ->
             case
                 mnesia:transaction(
-                    fun() -> report_part_done_tx(Shard, Did, Devices, PartialDNs) end,
+                    fun() -> report_part_done_tx(Shard, Did, Devices, Target, PartialDNs) end,
                     20
                 )
             of
@@ -4351,7 +4644,7 @@ do_report_part_done(Shard, Did, _Applied, PartialDNs) ->
             end
     end.
 
-report_part_done_tx(Shard, Did, Devices, PartialDNs) ->
+report_part_done_tx(Shard, Did, Devices, Target, PartialDNs) ->
     %% Lock order is acked -> accounted -> meta -> counter -> rec, matching
     %% the delete/expiry paths and avoiding a reverse wait with them.
     _ = mnesia:lock({record, ?TAB_MSG_ACKED, Did}, write),
@@ -4360,9 +4653,9 @@ report_part_done_tx(Shard, Did, Devices, PartialDNs) ->
     MetaRows = mnesia:read(?TAB_MSG_META, Did, read),
     CounterRows = mnesia:read(?TAB_MSG_META_CNT, Did, write),
     case {MetaRows, CounterRows} of
-        {[#bcast_msg_meta{counter = Target}], [#bcast_msg_meta_counter{} = CounterRow]} ->
+        {[#bcast_msg_meta{}], [#bcast_msg_meta_counter{} = CounterRow]} ->
             report_accounted_part_tx(Shard, Did, Devices, Target, CounterRow, Accounts);
-        {[#bcast_msg_meta{counter = Target}], []} ->
+        {[#bcast_msg_meta{}], []} ->
             %% Activation backfill is best-effort and its transaction can abort.
             %% Recover here from durable target/account rows so a finished part
             %% is not retried forever without ever writing its marker.
@@ -4544,8 +4837,8 @@ maybe_complete_reported_part(Did, _NewCounter) ->
 %% marker row.
 part_devices(Shard, Did) ->
     case mnesia:dirty_read(?TAB_MSG_REC, Did) of
-        [#bcast_msg{product_key = PK, device_names = DNs}] ->
-            {ok, [DN || DN <- DNs, shard_of({PK, DN}) =:= Shard]};
+        [#bcast_msg{product_key = PK, target_ack_count = Target, device_names = DNs}] ->
+            {ok, [DN || DN <- DNs, shard_of({PK, DN}) =:= Shard], Target};
         [] ->
             not_found
     end.
@@ -4584,6 +4877,7 @@ complete_delivery(Did) ->
     of
         {atomic, _} ->
             _ = mnesia:dirty_delete({?TAB_MSG_META_CNT, Did}),
+            forget_part_reporter(Did),
             ok;
         {aborted, Reason} ->
             ?SLOG(warning, #{
@@ -4593,6 +4887,9 @@ complete_delivery(Did) ->
             }),
             {error, Reason}
     end.
+
+forget_part_reporter(Did) ->
+    emqx_bcast_part_reporter:forget_delivery(Did).
 
 %% Remember a delivery whose marker-based completion aborted, so the periodic
 %% cleanup tick retries it. Needed because the leftover positive
@@ -4892,7 +5189,7 @@ pending_count_for_local(Key, State) ->
 %% delete_expired_deliveries_batched (the previous rec-first order widened
 %% the mnesia deadlock window with the ack hot path; retries masked it).
 delete_delivery_rows_local(Did, _MsgId) ->
-    case
+    Result =
         mnesia:transaction(
             fun() ->
                 %% The acked-device markers share the delivery's lifetime.
@@ -4922,18 +5219,22 @@ delete_delivery_rows_local(Did, _MsgId) ->
                 end
             end,
             20
-        )
-    of
-        {atomic, ok} -> ok;
-        {atomic, {error, not_found}} -> {error, not_found};
-        {aborted, Reason} -> {error, Reason}
+        ),
+    case Result of
+        {atomic, ok} ->
+            forget_part_reporter(Did),
+            ok;
+        {atomic, {error, not_found}} ->
+            {error, not_found};
+        {aborted, Reason} ->
+            {error, Reason}
     end.
 
 %% One chunk of per-delivery rows, deleted in a bounded transaction. Lock
 %% order acked -> meta -> counter -> rec, matching complete_delivery/1 and
 %% every other delete path.
 delete_delivery_rows_local(DeliveryIds) ->
-    case
+    Result =
         mnesia:transaction(
             fun() ->
                 lists:foreach(
@@ -4948,10 +5249,13 @@ delete_delivery_rows_local(DeliveryIds) ->
                 )
             end,
             20
-        )
-    of
-        {atomic, _} -> ok;
-        {aborted, Reason} -> {error, Reason}
+        ),
+    case Result of
+        {atomic, _} ->
+            lists:foreach(fun forget_part_reporter/1, DeliveryIds),
+            ok;
+        {aborted, Reason} ->
+            {error, Reason}
     end.
 
 %% The message rows, deleted last and in one short transaction: until this
@@ -5050,6 +5354,10 @@ delete_expired_deliveries_batched(Expired) ->
                 )
             of
                 {atomic, _} ->
+                    lists:foreach(
+                        fun({DeliveryId, _, _, _}) -> forget_part_reporter(DeliveryId) end,
+                        Chunk
+                    ),
                     ok;
                 {aborted, Reason} ->
                     %% Log the abort (previously swallowed silently);
@@ -5188,6 +5496,7 @@ delete_completed_deliveries_batched(Dids) ->
             )
         of
             {atomic, _} ->
+                lists:foreach(fun forget_part_reporter/1, Chunk),
                 Chunk;
             {aborted, Reason} ->
                 %% The counter row was NOT deleted for this chunk, so the next

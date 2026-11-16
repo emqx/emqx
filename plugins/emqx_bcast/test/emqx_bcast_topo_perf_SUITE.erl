@@ -33,7 +33,9 @@
 -define(MNESIA_BURST_CALLS_MAX, 6225).
 -define(MNESIA_BURST_IN_BYTES_MAX, 379300).
 -define(MNESIA_BURST_OUT_BYTES_MAX, 1350000).
--define(MNESIA_BURST_REDUCTIONS_PER_PART_MAX, 550).
+%% Async notification, source monitoring, and replica-visibility checks add
+%% source CPU work, but must not reintroduce per-part Mnesia transactions.
+-define(MNESIA_BURST_REDUCTIONS_PER_PART_MAX, 800).
 -define(MNESIA_BURST_ELAPSED_US_MAX, 10000000).
 -define(MNESIA_BURST_RESTARTS_MAX, 25).
 -define(MNESIA_OP_CALLS_MAX, #{
@@ -42,6 +44,7 @@
     dirty_delete_object => 1024,
     dirty_match_object => 384,
     dirty_update_counter => 384,
+    dirty_select => 512,
     transaction => 100,
     lock => 100,
     delete => 40,
@@ -766,6 +769,7 @@ assert_mnesia_baseline(_Phase, Stats) ->
         mnesia_table_metric(dirty_read, bcast_msg, out_bytes, Stats) =<
             ?MNESIA_BATCH_MSG_READ_BYTES_MAX
     ),
+    ?assertEqual(0, mnesia_table_metric(dirty_select, bcast_msg, calls, Stats)),
     ?assert(maps:get(calls, Stats) > 0),
     ?assert(maps:get(calls, Stats) =< ?MNESIA_TOTAL_CALLS_MAX),
     ?assert(maps:get(in_bytes, Stats) =< ?MNESIA_IN_BYTES_MAX),
@@ -801,6 +805,7 @@ assert_p1_scaled_baseline(
     ?assert(ReductionsPerPart =< ?MNESIA_BURST_REDUCTIONS_PER_PART_MAX),
     ?assert(ElapsedUs =< ?MNESIA_BURST_ELAPSED_US_MAX),
     ?assert(Restarts =< ?MNESIA_BURST_RESTARTS_MAX),
+    ?assertEqual(0, mnesia_table_metric(dirty_select, bcast_msg, calls, Stats)),
     %% 0.4.3 uses one completion transaction per delivery. A per-part
     %% transaction adds one transaction per part and must fail this budget.
     ?assert(mnesia_op_calls(transaction, maps:get(ops, Stats)) =< 2 * Deliveries).

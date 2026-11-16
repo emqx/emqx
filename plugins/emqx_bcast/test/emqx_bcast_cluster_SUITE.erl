@@ -119,6 +119,25 @@ wait_channel_gone(Node, ClientId) ->
         100
     ).
 
+reporter_delivery_on(OwnerNode, ReporterNode) ->
+    reporter_delivery_on(OwnerNode, ReporterNode, 0).
+
+reporter_delivery_on(OwnerNode, ReporterNode, Attempts) when Attempts < 1000 ->
+    DeliveryId = erpc:call(OwnerNode, emqx_bcast_utils, gen_guid, []),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    case erpc:call(OwnerNode, emqx_bcast_index_owner, shard_owner, [ReporterShard]) of
+        ReporterNode -> DeliveryId;
+        _ -> reporter_delivery_on(OwnerNode, ReporterNode, Attempts + 1)
+    end.
+
+device_on_node(OwnerNode, TargetNode, PK, I) ->
+    DN = <<"cl_reporter_async_", (integer_to_binary(I))/binary>>,
+    Shard = erlang:phash2({PK, DN}, erpc:call(OwnerNode, emqx_bcast_index_owner, shard_count, [])),
+    case erpc:call(OwnerNode, emqx_bcast_index_owner, shard_owner, [Shard]) of
+        TargetNode -> DN;
+        _ -> device_on_node(OwnerNode, TargetNode, PK, I + 1)
+    end.
+
 settle_cluster(Nodes) ->
     emqx_bcast_test_cluster:wait_ready(Nodes, Nodes).
 
@@ -883,6 +902,60 @@ t_partial_batch_ack_ledger_after_owner_handover(Config) ->
     ?assertEqual(2, node_metric(N1, <<"batch_pub_qos1_acked">>) - A0),
     emqtt:stop(C1b),
     emqtt:stop(C2).
+
+-doc "A QoS1 ACK must not wait for a reporter on another core. Replication and\n"
+"completion resume asynchronously, and the cross-core delivery completes.".
+t_part_reporter_does_not_block_cross_core_ack(Config) ->
+    [N1, N2] = emqx_cth_cluster:start(?config(cluster, Config)),
+    settle_cluster([N1, N2]),
+    PK = <<"cl_reporter_async">>,
+    {ApiMsgId, MsgGuid} = erpc:call(N1, emqx_bcast_id, generate_message_id, []),
+    Payload = <<"cluster reporter async">>,
+    Hash = crypto:hash(sha256, Payload),
+    ok = erpc:call(N1, emqx_bcast_storage, create_message, [
+        ApiMsgId, MsgGuid, Hash, Payload
+    ]),
+    DeliveryId = reporter_delivery_on(N1, N2),
+    DN = device_on_node(N1, N1, PK, 1),
+    {ok, _} = erpc:call(N1, emqx_bcast_storage, create_delivery, [
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [DN], 1
+    ]),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    ReporterName = emqx_bcast_part_reporter:shard_name(ReporterShard),
+    Reporter = erpc:call(N2, erlang, whereis, [ReporterName]),
+    ?assert(is_pid(Reporter)),
+    ok = erpc:call(N2, sys, suspend, [Reporter]),
+    Parent = self(),
+    Ack = spawn(fun() ->
+        Result = erpc:call(N1, emqx_bcast_storage, process_ack, [PK, DN, DeliveryId]),
+        Parent ! {cross_core_ack, self(), Result}
+    end),
+    AckResult =
+        receive
+            {cross_core_ack, Ack, Result} -> Result
+        after 500 ->
+            timeout
+        end,
+    ok = erpc:call(N2, sys, resume, [Reporter]),
+    case AckResult of
+        counted ->
+            ok;
+        timeout ->
+            receive
+                {cross_core_ack, Ack, counted} -> ok
+            after 5000 ->
+                ?assert(false)
+            end
+    end,
+    ?assertEqual(counted, AckResult),
+    ?assert(
+        wait_until(
+            fun() ->
+                erpc:call(N1, mnesia, dirty_read, [bcast_msg, DeliveryId]) =:= []
+            end,
+            100
+        )
+    ).
 
 -doc "A plugin roll under QoS1 publish load must account every committed\n"
 "logical delivery in wanted even when rebuild delivers it before promoter\n"

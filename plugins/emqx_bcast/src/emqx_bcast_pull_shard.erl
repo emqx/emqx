@@ -770,20 +770,30 @@ handle_cast({resume, ClientId, Pid, ProductKey}, State) ->
     %% restores subscriptions without re-firing session.subscribed), then
     %% re-arm a want_next so a resumed backlog keeps draining.
     emqx_bcast:register_device(ProductKey, ClientId, Pid),
+    PrevTopics =
+        case ets:lookup(?TAB_STATE(State#state.shard), {ProductKey, ClientId}) of
+            [#bcast_client_state{topics = Topics}] -> Topics;
+            [] -> []
+        end,
     State1 = adopt_client_generation(ProductKey, ClientId, Pid, State),
     Shard = State#state.shard,
-    case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
-        [#bcast_client_state{} = Row] ->
-            row_put(
-                Shard,
-                Row#bcast_client_state{
-                    pid = Pid,
-                    topics = resynced_topics(Pid, Row#bcast_client_state.topics)
-                }
-            );
-        [] ->
-            ensure_row(ProductKey, ClientId, Pid, Shard)
-    end,
+    Row =
+        case ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}) of
+            [#bcast_client_state{} = Restaged] ->
+                Restaged;
+            [] ->
+                ensure_row(ProductKey, ClientId, Pid, Shard),
+                [#bcast_client_state{} = Created] =
+                    ets:lookup(?TAB_STATE(Shard), {ProductKey, ClientId}),
+                Created
+        end,
+    row_put(
+        Shard,
+        Row#bcast_client_state{
+            pid = Pid,
+            topics = resynced_topics(Pid, PrevTopics)
+        }
+    ),
     {noreply, maybe_claim(ProductKey, ClientId, Pid, State1)};
 handle_cast({ping, ClientId, Pid, ProductKey}, State) ->
     %% Keepalive pings normally refresh only the device registry. A missing
