@@ -286,7 +286,7 @@ client_opts_test_() ->
         )
     ].
 
-producer_client_options_schema_test_() ->
+connector_client_options_schema_test_() ->
     [
         ?_assertMatch(
             #{<<"kafka_client_id">> := <<"test-client">>},
@@ -294,8 +294,8 @@ producer_client_options_schema_test_() ->
                 <<"kafka_client_id">> => <<"test-client">>
             })
         ),
-        ?_assertThrow(
-            _,
+        ?_assertMatch(
+            #{<<"kafka_client_id">> := <<"test-client">>},
             emqx_bridge_kafka_testlib:source_connector_config(#{
                 <<"kafka_client_id">> => <<"test-client">>
             })
@@ -314,9 +314,25 @@ producer_client_options_schema_test_() ->
         ?_test(begin
             lists:foreach(
                 fun(Name) ->
-                    ?assertNot(lists:keymember(kafka_client_id, 1, emqx_bridge_kafka:fields(Name)))
+                    ?assert(
+                        lists:keymember(
+                            kafka_client_id,
+                            1,
+                            emqx_bridge_kafka_consumer_schema:fields(Name)
+                        )
+                    )
                 end,
-                ["config_producer", "config_bridge_v2"]
+                ["config_connector", "post_connector", "put_connector", "get_connector"]
+            )
+        end),
+        ?_test(begin
+            lists:foreach(
+                fun(Name) ->
+                    ?assertNot(
+                        lists:keymember(kafka_client_id, 1, emqx_bridge_kafka:fields(Name))
+                    )
+                end,
+                ["config_producer", "config_consumer", "config_bridge_v2"]
             )
         end),
         ?_test(begin
@@ -341,32 +357,50 @@ producer_client_options_schema_test_() ->
         )
     ].
 
-producer_client_id_length_schema_test_() ->
-    WithClientId = fun(Id) ->
-        emqx_bridge_kafka_testlib:action_connector_config(#{
-            <<"kafka_client_id">> => Id
-        })
-    end,
+client_id_length_schema_test_() ->
+    client_id_length_cases(
+        "producer",
+        32767,
+        fun emqx_bridge_kafka_testlib:action_connector_config/1
+    ) ++
+        client_id_length_cases(
+            "consumer",
+            32730,
+            fun emqx_bridge_kafka_testlib:source_connector_config/1
+        ).
+
+client_id_length_cases(Prefix, MaxLen, Parse) ->
+    WithClientId = fun(Id) -> Parse(#{<<"kafka_client_id">> => Id}) end,
     ThreeByteChar = <<16#20AC/utf8>>,
-    %% 10922 three-byte UTF-8 characters plus a one- or two-byte ASCII suffix.
-    Utf8Id = fun(AsciiBytes) ->
-        iolist_to_binary([
-            binary:copy(ThreeByteChar, 10922),
-            binary:copy(<<"a">>, AsciiBytes)
-        ])
-    end,
+    %% Fill MaxLen bytes with three-byte characters and an ASCII remainder.
+    Utf8Max = iolist_to_binary([
+        binary:copy(ThreeByteChar, MaxLen div 3),
+        binary:copy(<<"a">>, MaxLen rem 3)
+    ]),
     [
-        {"32767 bytes is accepted",
+        {
+            Prefix ++ ": " ++ integer_to_list(MaxLen) ++ " bytes is accepted",
             ?_assertMatch(
                 #{<<"kafka_client_id">> := _},
-                WithClientId(binary:copy(<<"a">>, 32767))
-            )},
-        {"32768 bytes is rejected", ?_assertThrow(_, WithClientId(binary:copy(<<"a">>, 32768)))},
-        {"empty string is accepted",
-            ?_assertMatch(#{<<"kafka_client_id">> := <<>>}, WithClientId(<<>>))},
-        {"32767 bytes of UTF-8 text is accepted",
-            ?_assertMatch(#{<<"kafka_client_id">> := _}, WithClientId(Utf8Id(1)))},
-        {"32768 bytes of UTF-8 text is rejected", ?_assertThrow(_, WithClientId(Utf8Id(2)))}
+                WithClientId(binary:copy(<<"a">>, MaxLen))
+            )
+        },
+        {
+            Prefix ++ ": " ++ integer_to_list(MaxLen + 1) ++ " bytes is rejected",
+            ?_assertThrow(_, WithClientId(binary:copy(<<"a">>, MaxLen + 1)))
+        },
+        {
+            Prefix ++ ": empty string is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := <<>>}, WithClientId(<<>>))
+        },
+        {
+            Prefix ++ ": " ++ integer_to_list(MaxLen) ++ " bytes of UTF-8 text is accepted",
+            ?_assertMatch(#{<<"kafka_client_id">> := _}, WithClientId(Utf8Max))
+        },
+        {
+            Prefix ++ ": " ++ integer_to_list(MaxLen + 1) ++ " bytes of UTF-8 text is rejected",
+            ?_assertThrow(_, WithClientId(<<Utf8Max/binary, "a">>))
+        }
     ].
 
 %%===========================================================================
