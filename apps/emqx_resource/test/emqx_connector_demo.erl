@@ -381,7 +381,9 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
 
 batch_ask_reply(sync, InstId, Batch, State) ->
     emqx_utils:pmap(
-        fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+        fun({ChanId, #{q := ask, fn := _, ctx := Ctx0} = Args0}) ->
+            Ctx = Ctx0#{batch_cb_called => true},
+            Req = {ChanId, Args0#{ctx := Ctx}},
             on_query(InstId, Req, State)
         end,
         Batch,
@@ -390,7 +392,9 @@ batch_ask_reply(sync, InstId, Batch, State) ->
 batch_ask_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
     Pid = spawn(fun() ->
         Results = lists:map(
-            fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+            fun({ChanId, #{q := ask, fn := _, ctx := Ctx0} = Args0}) ->
+                Ctx = Ctx0#{batch_cb_called => true},
+                Req = {ChanId, Args0#{ctx := Ctx}},
                 on_query(InstId, Req, State)
             end,
             Batch
