@@ -5,6 +5,8 @@
 
 -behaviour(emqx_resource).
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% `emqx_resource' API
 -export([
     resource_type/0,
