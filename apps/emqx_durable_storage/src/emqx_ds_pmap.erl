@@ -149,12 +149,17 @@ WARNING: set is experimental.
         live :: boolean()
     }.
 
+%% Dirty entries created by the versions of this module that predate
+%% the #pmap_dirty{} record. They may survive a hot code upgrade in
+%% the state of the processes that own the pmaps:
+-type legacy_dirty() :: tx_counter() | {del, tx_counter(), emqx_ds:topic()}.
+
 -opaque pmap(K, V) ::
     #pmap{
         name :: binary(),
         module :: module(),
         cache :: #{K => V},
-        dirty :: #{K => pmap_dirty()},
+        dirty :: #{K => pmap_dirty() | legacy_dirty()},
         tx_counter :: tx_counter()
     }
     | #pset{
@@ -377,8 +382,8 @@ tx_collection_commit([_ | _] = Fields, #{id := CollectionId} = Collection) ->
 Release dirty records committed by a transaction.
 """.
 -spec tx_success(tx_counter(), pmap(K, V)) -> pmap(K, V).
-tx_success(Committed, Pmap = #pmap{dirty = Dirty}) ->
-    Pmap#pmap{dirty = pmap_release_dirty(Committed, Dirty)};
+tx_success(Committed, Pmap = #pmap{dirty = Dirty, cache = Cache}) ->
+    Pmap#pmap{dirty = pmap_release_dirty(Committed, Cache, Dirty)};
 tx_success(_, Pmap = #pset{data = Data0}) ->
     Data = maps:filtermap(
         fun(_, Val0) ->
@@ -735,7 +740,8 @@ tx_write_pmap_kv(CBM, Name, CollectionId, Key, Val) ->
 pmap_upd_dirty(Key, Live, #pmap{tx_counter = TxCntr, dirty = Dirty, cache = Cache}) ->
     case Dirty of
         #{Key := Entry0} ->
-            case Entry0 of
+            Entry = normalize_dirty_entry(Entry0, Key, Cache),
+            case Entry of
                 #pmap_dirty{comm_ctr = TxCntr, was = Was} ->
                     %% Previous update of the key happened after a
                     %% successful commit, so we can mutate the
@@ -745,8 +751,7 @@ pmap_upd_dirty(Key, Live, #pmap{tx_counter = TxCntr, dirty = Dirty, cache = Cach
                             %% Optimization: [empty] <- put <- del = [empty]
                             maps:remove(Key, Dirty);
                         _ ->
-                            Entry = Entry0#pmap_dirty{live = Live},
-                            Dirty#{Key := Entry}
+                            Dirty#{Key := Entry#pmap_dirty{live = Live}}
                     end;
                 _ ->
                     %% If the key was updated before beginning of the
@@ -754,8 +759,7 @@ pmap_upd_dirty(Key, Live, #pmap{tx_counter = TxCntr, dirty = Dirty, cache = Cach
                     %% state of the DB is unknown (checkpoint could be
                     %% aborted). As such, unconditionally add dirty
                     %% entry:
-                    Entry = Entry0#pmap_dirty{live = Live, up_ctr = TxCntr},
-                    Dirty#{Key := Entry}
+                    Dirty#{Key := Entry#pmap_dirty{live = Live, up_ctr = TxCntr}}
             end;
         #{} ->
             case maps:is_key(Key, Cache) orelse Live of
@@ -776,7 +780,8 @@ pmap_upd_dirty(Key, Live, #pmap{tx_counter = TxCntr, dirty = Dirty, cache = Cach
 -spec pmap_dump_dirty(collection_id(), pmap(_K, _V)) -> ok.
 pmap_dump_dirty(CollectionId, #pmap{module = CBM, name = Name, dirty = Dirty, cache = Cache}) ->
     maps:foreach(
-        fun(Key, #pmap_dirty{live = Live}) ->
+        fun(Key, Entry0) ->
+            #pmap_dirty{live = Live} = normalize_dirty_entry(Entry0, Key, Cache),
             case Live of
                 true ->
                     #{Key := Val} = Cache,
@@ -789,14 +794,30 @@ pmap_dump_dirty(CollectionId, #pmap{module = CBM, name = Name, dirty = Dirty, ca
         Dirty
     ).
 
--spec pmap_release_dirty(tx_counter(), map()) -> map().
-pmap_release_dirty(Committed, Dirty) ->
+-spec pmap_release_dirty(tx_counter(), #{_K => _V}, map()) -> map().
+pmap_release_dirty(Committed, Cache, Dirty) ->
     maps:filter(
-        fun(_, #pmap_dirty{up_ctr = Ctr}) ->
-            Ctr > Committed
+        fun(Key, Entry0) ->
+            Entry = normalize_dirty_entry(Entry0, Key, Cache),
+            Entry#pmap_dirty.up_ctr > Committed
         end,
         Dirty
     ).
+
+%% Convert a dirty entry created by an older version of this module.
+%% The actual state of the DB for such entries is unknown, so they are
+%% normalized to the most conservative form: `was' is set to `true',
+%% so pending deletions are never skipped for them.
+-spec normalize_dirty_entry(pmap_dirty() | legacy_dirty(), _Key, #{_K => _V}) ->
+    pmap_dirty().
+normalize_dirty_entry(#pmap_dirty{} = Entry, _Key, _Cache) ->
+    Entry;
+normalize_dirty_entry(TxCntr, _Key, _Cache) when is_integer(TxCntr) ->
+    %% Legacy put marker: the key was live in the cache at the time:
+    #pmap_dirty{up_ctr = TxCntr, comm_ctr = TxCntr, was = true, live = true};
+normalize_dirty_entry({del, TxCntr, _Topic}, _Key, _Cache) ->
+    %% Legacy deletion marker:
+    #pmap_dirty{up_ctr = TxCntr, comm_ctr = TxCntr, was = true, live = false}.
 
 %% == PSet accessors ==
 
