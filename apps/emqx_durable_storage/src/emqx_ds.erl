@@ -390,7 +390,10 @@ Options for the `subscribe` API.
     %%   List of objects that should be present in the database.
     ?ds_tx_expected => [{topic(), time(), binary() | '_'}],
     %%   List of objects that should NOT be present in the database.
-    ?ds_tx_unexpected => [{topic(), time()}]
+    ?ds_tx_unexpected => [{topic(), time()}],
+    %% Explicit locks (see `tx_lock/4`):
+    ?ds_tx_wlock => [topic_range()],
+    ?ds_tx_dlock => [topic_range()]
 }.
 
 -doc "Options for `trans/2` function.".
@@ -1582,7 +1585,7 @@ tx_write({Topic, Time, Value}) ->
 
 Put delete (`d`) or write (`w`) lock on a topic-filter.
 
-NOTE: semantics of this function may be somewhat suprising,
+NOTE: semantics of this function may be somewhat surprising,
 as transaction trying to "take" the lock may be itself aborted on conflict,
 which happens at commit time.
 
@@ -1590,6 +1593,12 @@ In builtin backends this function can be used to optimize memory usage:
 if transaction updates multiple keys matching a common topic filter,
 it may be wise to take a lock on that entire topic filter
 to avoid tracking conflicts for the individual keys.
+
+Like everything in the optimistic transaction manager,
+the lock is advisory:
+it aborts transactions that READ, LOCK, or verify preconditions on the overlapping range.
+A transaction that only WRITES into the range is not aborted by the lock;
+concurrent writers are ordered by their commit serials instead.
 
 """.
 -spec tx_lock(topic_filter(), time(), time() | ?ds_tx_ts_monotonic | infinity, w | d) -> ok.
