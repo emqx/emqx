@@ -110,6 +110,16 @@ I - Inflight flag. This bit is set when transaction starts, and reset when it fi
 -export([do_seqno/0]).
 -endif.
 
+-ifdef(TEST).
+%% This module plays the role of the callback module in its own tests:
+-export([
+    pmap_encode_key/2,
+    pmap_decode_key/2,
+    pmap_encode_val/3,
+    pmap_decode_val/3
+]).
+-endif.
+
 -export_type([
     tx_counter/0,
     pmap/2,
@@ -863,3 +873,181 @@ pset_copy_comm(V) ->
         1 -> V bor ?pset_stor;
         0 -> V band (bnot ?pset_stor)
     end.
+
+%%================================================================================
+%% Tests
+%%================================================================================
+
+-ifdef(TEST).
+
+-include_lib("eunit/include/eunit.hrl").
+
+-define(test_name, <<"t">>).
+-define(test_collection, <<"c">>).
+
+%% Process dictionary keys that `emqx_ds:trans_inner' sets up for the
+%% transaction operations:
+-define(tx_ops_write, emqx_ds_tx_ctx_write).
+-define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
+-define(tx_ops_wlock, emqx_ds_tx_ctx_wlock).
+-define(tx_ops_dlock, emqx_ds_tx_ctx_dlock).
+
+pmap_encode_key(?test_name, K) ->
+    term_to_binary(K).
+
+pmap_decode_key(?test_name, KeyBin) ->
+    binary_to_term(KeyBin).
+
+pmap_encode_val(?test_name, _K, V) ->
+    term_to_binary(V).
+
+pmap_decode_val(?test_name, _K, ValBin) ->
+    binary_to_term(ValBin).
+
+%% Run a fun with the transaction operation keys of the process
+%% dictionary initialized the same way `emqx_ds:trans_inner' does:
+with_tx_ops(Fun) ->
+    Keys = [?tx_ops_write, ?tx_ops_del_topic, ?tx_ops_wlock, ?tx_ops_dlock],
+    [put(K, []) || K <- Keys],
+    try
+        Fun()
+    after
+        [erase(K) || K <- Keys]
+    end.
+
+lock_tf() ->
+    [?top_data, ?test_collection, ?test_name, '+'].
+
+key_topic(K) ->
+    [?top_data, ?test_collection, ?test_name, pmap_encode_key(?test_name, K)].
+
+clean_commit_test() ->
+    P0 = new_pmap(?MODULE, ?test_name, dirty),
+    ?assertNot(is_dirty(P0)),
+    with_tx_ops(fun() ->
+        {0, P1} = tx_commit(?test_collection, P0),
+        ?assertEqual([], get(?tx_ops_write)),
+        ?assertEqual([], get(?tx_ops_del_topic)),
+        ?assertEqual([], get(?tx_ops_wlock)),
+        ?assertEqual([], get(?tx_ops_dlock)),
+        %% The counter is still stepped, to keep the counters of the
+        %% pmaps in the collection in accord:
+        {1, _} = tx_commit(?test_collection, P1)
+    end).
+
+dirty_commit_locks_the_topic_test() ->
+    P0 = put(k, v, new_pmap(?MODULE, ?test_name, dirty)),
+    with_tx_ops(fun() ->
+        {0, _} = tx_commit(?test_collection, P0),
+        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
+        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_dlock)),
+        ?assertEqual([{key_topic(k), 0, term_to_binary(v)}], get(?tx_ops_write))
+    end).
+
+put_del_of_a_new_key_is_a_noop_test() ->
+    P0 = del(?test_collection, k, put(k, v, new_pmap(?MODULE, ?test_name, dirty))),
+    ?assertNot(is_dirty(P0)),
+    with_tx_ops(fun() ->
+        {0, _} = tx_commit(?test_collection, P0),
+        ?assertEqual([], get(?tx_ops_write)),
+        ?assertEqual([], get(?tx_ops_del_topic)),
+        ?assertEqual([], get(?tx_ops_wlock)),
+        ?assertEqual([], get(?tx_ops_dlock))
+    end).
+
+del_of_a_missing_key_is_a_noop_test() ->
+    P0 = del(?test_collection, k, new_pmap(?MODULE, ?test_name, dirty)),
+    ?assertNot(is_dirty(P0)).
+
+del_survives_an_aborted_commit_test() ->
+    P0 = put(k, v, new_pmap(?MODULE, ?test_name, dirty)),
+    with_tx_ops(fun() ->
+        {0, P1} = tx_commit(?test_collection, P0),
+        %% The commit above "failed": tx_success is not called and the
+        %% entry stays dirty:
+        ?assert(is_dirty(P1)),
+        P2 = del(?test_collection, k, P1),
+        {1, _} = tx_commit(?test_collection, P2),
+        %% The state of the DB is unknown after the aborted commit, so
+        %% the deletion must be dumped even though the key was never
+        %% committed:
+        ?assertEqual([{key_topic(k), 0, infinity}], get(?tx_ops_del_topic))
+    end).
+
+tx_success_releases_committed_entries_test() ->
+    P0 = put(k, v, new_pmap(?MODULE, ?test_name, dirty)),
+    {0, P1} = tx_commit(?test_collection, P0),
+    P2 = tx_success(0, P1),
+    ?assertNot(is_dirty(P2)),
+    ?assertEqual(#{k => v}, to_map(P2)).
+
+legacy_put_marker_test() ->
+    P0 = #pmap{
+        name = ?test_name,
+        module = ?MODULE,
+        cache = #{k => v},
+        dirty = #{k => 0},
+        tx_counter = 1
+    },
+    with_tx_ops(fun() ->
+        {1, P1} = tx_commit(?test_collection, P0),
+        ?assertEqual([{key_topic(k), 0, term_to_binary(v)}], get(?tx_ops_write)),
+        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
+        P2 = tx_success(1, P1),
+        ?assertNot(is_dirty(P2))
+    end).
+
+legacy_del_marker_test() ->
+    P0 = #pmap{
+        name = ?test_name,
+        module = ?MODULE,
+        cache = #{},
+        dirty = #{k => {del, 0, key_topic(k)}},
+        tx_counter = 1
+    },
+    with_tx_ops(fun() ->
+        {1, P1} = tx_commit(?test_collection, P0),
+        ?assertEqual([{key_topic(k), 0, infinity}], get(?tx_ops_del_topic)),
+        P2 = tx_success(1, P1),
+        ?assertNot(is_dirty(P2))
+    end).
+
+legacy_marker_del_is_conservative_test() ->
+    P0 = #pmap{
+        name = ?test_name,
+        module = ?MODULE,
+        cache = #{k => v},
+        dirty = #{k => 0},
+        tx_counter = 1
+    },
+    P1 = del(?test_collection, k, P0),
+    with_tx_ops(fun() ->
+        {1, _} = tx_commit(?test_collection, P1),
+        %% The DB state behind a legacy marker is unknown, so the
+        %% deletion must be dumped:
+        ?assertEqual([{key_topic(k), 0, infinity}], get(?tx_ops_del_topic))
+    end).
+
+pset_clean_commit_test() ->
+    P0 = new_pmap(?MODULE, ?test_name, set),
+    with_tx_ops(fun() ->
+        {undefined, _} = tx_commit(?test_collection, P0),
+        ?assertEqual([], get(?tx_ops_write)),
+        ?assertEqual([], get(?tx_ops_del_topic)),
+        ?assertEqual([], get(?tx_ops_wlock)),
+        ?assertEqual([], get(?tx_ops_dlock))
+    end).
+
+pset_del_topic_uses_encoded_key_test() ->
+    P0 = put(k, true, new_pmap(?MODULE, ?test_name, set)),
+    with_tx_ops(fun() ->
+        {undefined, P1} = tx_commit(?test_collection, P0),
+        ?assertEqual([{key_topic(k), 0, term_to_binary(true)}], get(?tx_ops_write)),
+        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
+        P2 = tx_success(undefined, P1),
+        P3 = del(?test_collection, k, P2),
+        {undefined, _} = tx_commit(?test_collection, P3),
+        ?assertEqual([{key_topic(k), 0, infinity}], get(?tx_ops_del_topic))
+    end).
+
+-endif.
