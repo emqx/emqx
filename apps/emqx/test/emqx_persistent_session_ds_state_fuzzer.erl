@@ -430,13 +430,13 @@ postcondition(#gs{ds_broken = false}, {call, ?MODULE, commit, [SessionId | _]}, 
     %% Verify that dirty state of all pmaps is cleaned by a successful commit:
     lists:foreach(
         fun(I) ->
-            #{I := #pmap{dirty = Dirty}} = Memory,
-            ?assertEqual(
-                #{},
-                Dirty,
+            #{I := Pmap} = Memory,
+            ?assertNot(
+                emqx_ds_pmap:is_dirty(Pmap),
                 #{
                     field => I,
-                    session => SessionId
+                    session => SessionId,
+                    pmap => Pmap
                 }
             )
         end,

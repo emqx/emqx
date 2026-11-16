@@ -215,8 +215,8 @@ print_channel(SessionId) ->
 format(Rec) ->
     lists:foldl(
         fun(K, Acc) ->
-            #{K := #pmap{cache = Val}} = Rec,
-            Acc#{K := Val}
+            #{K := Pmap} = Rec,
+            Acc#{K := emqx_ds_pmap:to_map(Pmap)}
         end,
         Rec,
         ?sessds_pmaps

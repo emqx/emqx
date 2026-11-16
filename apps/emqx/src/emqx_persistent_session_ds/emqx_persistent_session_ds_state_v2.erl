@@ -461,6 +461,9 @@ total_subscription_count(Generation) ->
 %%================================================================================
 
 open_tx(ClientId) ->
+    RestorePmap = fun(PMap) ->
+        emqx_ds_pmap:tx_restore(?MODULE, pmap_name(PMap), ClientId, pmap_kind(PMap))
+    end,
     case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;
@@ -472,22 +475,20 @@ open_tx(ClientId) ->
                 ?checkpoint_n => 0,
                 ?checkpoint_ref => undefined,
                 ?invalid => false,
-                ?metadata => emqx_ds_pmap:tx_restore(?MODULE, ?top_metadata, ClientId),
-                ?subscriptions => emqx_ds_pmap:tx_restore(?MODULE, ?top_subscriptions, ClientId),
-                ?subscription_states => emqx_ds_pmap:tx_restore(
-                    ?MODULE, ?top_subscription_states, ClientId
-                ),
-                ?seqnos => emqx_ds_pmap:tx_restore(?MODULE, ?top_seqnos, ClientId),
-                ?streams => emqx_ds_pmap:tx_restore(?MODULE, ?top_streams, ClientId),
-                ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
-                ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId)
+                ?metadata => RestorePmap(?metadata),
+                ?subscriptions => RestorePmap(?subscriptions),
+                ?subscription_states => RestorePmap(?subscription_states),
+                ?seqnos => RestorePmap(?seqnos),
+                ?streams => RestorePmap(?streams),
+                ?ranks => RestorePmap(?ranks),
+                ?awaiting_rel => RestorePmap(?awaiting_rel)
             },
             {ok, Ret}
     end.
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).
 new_pmap(Pmap) ->
-    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap)).
+    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap), pmap_kind(Pmap)).
 
 pmap_encode_key(?top_metadata, MetaKey) ->
     atom_to_binary(MetaKey, latin1);
@@ -739,3 +740,6 @@ pmap_name(Pmap) ->
         ?ranks -> ?top_ranks;
         ?awaiting_rel -> ?top_awaiting_rel
     end.
+
+pmap_kind(_Pmap) ->
+    dirty.
