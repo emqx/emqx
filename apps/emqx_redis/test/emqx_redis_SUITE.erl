@@ -288,7 +288,7 @@ perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
         emqx_resource:query(ResourceId, {cmds, [RedisCommand, RedisCommand]})
     ),
     ?assertMatch(
-        {error, {unrecoverable_error, [{ok, <<"PONG">>}, {error, _}]}},
+        {error, [{ok, <<"PONG">>}, {error, {unrecoverable_error, _}}]},
         emqx_resource:query(
             ResourceId,
             {cmds, [RedisCommand, [<<"INVALID_COMMAND">>]]},
@@ -301,7 +301,9 @@ perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "public"]})
     ),
     ?assertEqual(
-        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        {error,
+            {unrecoverable_error,
+                <<"WRONGPASS invalid username-password pair or user is disabled.">>}},
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_passwd"]})
     ),
     ?assertEqual(
@@ -309,15 +311,21 @@ perform_lifecycle_check(ResourceId, InitialConfig, RedisCommand) ->
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_user", "test_passwd"]})
     ),
     ?assertEqual(
-        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        {error,
+            {unrecoverable_error,
+                <<"WRONGPASS invalid username-password pair or user is disabled.">>}},
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "test_user", "public"]})
     ),
     ?assertEqual(
-        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        {error,
+            {unrecoverable_error,
+                <<"WRONGPASS invalid username-password pair or user is disabled.">>}},
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "wrong_user", "test_passwd"]})
     ),
     ?assertEqual(
-        {error, <<"WRONGPASS invalid username-password pair or user is disabled.">>},
+        {error,
+            {unrecoverable_error,
+                <<"WRONGPASS invalid username-password pair or user is disabled.">>}},
         emqx_resource:query(ResourceId, {cmd, ["AUTH", "wrong_user", "public"]})
     ),
     ?assertEqual(ok, emqx_resource:stop(ResourceId)),
