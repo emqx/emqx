@@ -14,6 +14,9 @@ CLI for the emqx_maptabs plugin. All command output is JSON.
     cmd/1
 ]).
 
+%% shared with emqx_maptabs_api
+-export([json_term/1]).
+
 load() ->
     emqx_ctl:register_command(maptabs, {?MODULE, cmd}, []).
 
