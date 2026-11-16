@@ -1026,6 +1026,7 @@ transform_result(Result) ->
             {error, drop_ehttpc_worker_down_call_args(Reason)};
         {error, Reason} when
             Reason =:= econnrefused;
+            Reason =:= einval;
             Reason =:= timeout;
             Reason =:= normal;
             Reason =:= closed;
