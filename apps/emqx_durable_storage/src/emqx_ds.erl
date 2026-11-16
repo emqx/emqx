@@ -1601,6 +1601,7 @@ A transaction that only WRITES into the range is not aborted by the lock;
 concurrent writers are ordered by their commit serials instead.
 
 """.
+-doc #{title => <<"Transactions">>, since => <<"6.0.5">>}.
 -spec tx_lock(topic_filter(), time(), time() | ?ds_tx_ts_monotonic | infinity, w | d) -> ok.
 tx_lock(TopicFilter, From, To, Kind) ->
     case is_topic_filter(TopicFilter) of

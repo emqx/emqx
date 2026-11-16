@@ -466,7 +466,7 @@ Dump conflict statistics for all generations.
 
 WARNING: This function may be extremely expensive if the conflict tree is large.
 """.
--spec dump_conflicts(emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), w | l) ->
+-spec dump_conflicts(emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), w | d) ->
     list() | undefined.
 dump_conflicts(DB, Shard, Generation, Kind) when
     is_integer(Generation), Kind =:= d orelse Kind =:= w
