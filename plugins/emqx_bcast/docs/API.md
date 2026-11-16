@@ -88,6 +88,13 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 | 0 | Deliver | Skip | None | None |
 | 1 | Deliver + wait PUBACK | Store, replay on reconnect | TTL = `msg_ttl` (default 15 days) | Deleted when the remaining-ack counter reaches 0 |
 
+For QoS=1 `MessageId` reuse, the admission lookup reads the stored payload from
+the message table and does not change its TTL. A successful promotion extends
+the message expiry to
+`max(current_expiry, request_admission_time + msg_ttl)`. There is no message
+content or TTL cache: configuration is read live, while message state is read
+from the replicated Mnesia tables.
+
 ```json
 // Request (inline MessageContent)
 {
@@ -105,6 +112,19 @@ Publishes messages to a specified list of devices, up to 10,000 per call (config
 
 // Response
 { "Success": true, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "MessageId": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+Plugin-generated 429 responses use the same error shape:
+
+```json
+// Global pending-delivery quota
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "QuotaExceeded", "ErrorMessage": "Pending delivery quota exceeded" }
+
+// Per-device pending-delivery quota
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "QuotaExceeded", "ErrorMessage": "Device pending delivery quota exceeded", "Devices": ["D1"] }
+
+// Intake queue full
+{ "Success": false, "RequestId": "550e8400-e29b-41d4-a716-446655440000", "Code": "Busy", "ErrorMessage": "Intake queue full, retry later" }
 ```
 
 ```bash
@@ -271,7 +291,9 @@ GET /api/v5/plugin_api/emqx_bcast/deliveries/:deliveryId
 ```
 
 `PendingCount` is the number of target devices that have not yet
-acknowledged. `MessageId` is `null` when the message record the delivery
+acknowledged. It is projected from durable per-device ACK markers, so one
+device's ACK lowers the count while another device in the same index-shard part
+is still pending. `MessageId` is `null` when the message record the delivery
 belongs to has already been removed (deleted through the management API, or
 reclaimed when it expired): the delivery row outlives it until its own cleanup.
 404 `DeliveryNotFound` if unknown.
@@ -319,8 +341,8 @@ unknown.
 | `InvalidMessageId` | 400 | `MessageId` is not a UUID string; it cannot name a stored message, so it is rejected as input rather than reported as not found |
 | `InvalidParams` | 400 | Invalid query parameters on management endpoints: missing `product_key`/`device_name`, `limit` outside 1..1000, or a malformed `cursor` |
 | `DeliveryNotFound` | 404 | DeliveryId does not exist (management endpoints) |
-| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap |
-| `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later |
+| `QuotaExceeded` | 429 | Pending delivery quota exceeded. For per-device over-limit the body includes a `Devices` array listing the devices over their cap. A node-throttled warning records the request ID, ProductKey, device count, quota scope, and number suppressed since the previous warning |
+| `Busy` | 429 | BatchPub QoS=1 intake queue is full; retry later. A node-throttled warning records the request ID, ProductKey, device count, admission depth, and number suppressed since the previous warning |
 | `PendingDeliveries` | 409 | Metrics reset refused because at least one node still has queued or in-flight deliveries; the body lists the `BlockedNodes` |
 | `PartialReset` | 500 | Metrics reset failed on at least one node during the reset phase; the body lists the already zeroed `ResetNodes` and the `FailedNodes` with reasons |
 | `InternalError` | 500 | Internal server error |

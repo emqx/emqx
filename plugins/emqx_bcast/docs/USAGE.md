@@ -164,6 +164,12 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); a request targeting a device over the cap is rejected with 429 QuotaExceeded and the over-limit device list. The cap is **best-effort**: check and reservation are atomic on an active shard, but while a shard is unavailable (startup/takeover) the request is accepted without per-device accounting |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
 
+Configuration updates through the plugin config API reject negative values for
+the schema-bounded limits above and reject a per-device cap outside `10..200`;
+the previous configuration remains active. On plugin startup, legacy stored
+values are still accepted and normalized with the documented fallback/clamp so
+an upgrade does not fail because of an old configuration.
+
 `msg_ttl` and `cleanup_interval` take the duration forms the rest of EMQX
 accepts — `15d`, `60s`, `1h30m`, `500ms`, `0.5s` — and a bare number means
 seconds. Both are stored as whole seconds, so a value under a second rounds up
