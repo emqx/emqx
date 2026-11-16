@@ -289,7 +289,11 @@ get_active_transactions(TCConfig) ->
     Conn = connect_direct_pgsql(TCConfig),
     try
         {ok, _, Results} = epgsql:squery(Conn, SQL),
-        maps:groups_from_list(fun({State, _}) -> State end, fun({_, Query}) -> Query end, Results)
+        maps:groups_from_list(
+            fun({State, _}) -> bin(State) end,
+            fun({_, Query}) -> Query end,
+            Results
+        )
     after
         ok = epgsql:close(Conn)
     end.
@@ -1137,7 +1141,7 @@ t_no_active_hc_transactions(TCConfig) ->
         #{<<"resource_opts">> => #{<<"health_check_interval">> => <<"5s">>}}
     ),
     ?assertNotMatch(
-        #{active := [_ | _]},
+        #{~"active" := [_ | _]},
         get_active_transactions(TCConfig)
     ),
     ok.
