@@ -294,22 +294,34 @@ This function should be called in a transaction context.
 It does NOT clean the dirty flags for the keys:
 that is done by `tx_success` function,
 which should be called when the transaction succeeds.
+
+A pmap without pending changes adds no operations to the transaction.
+Its transaction counter is still stepped, to keep the counters of all
+pmaps in the collection in accord.
 """.
 -spec tx_commit(collection_id(), pmap(K, V)) -> {tx_counter() | undefined, pmap(K, V)}.
 tx_commit(
     CollectionId,
     #pmap{
         name = Name,
-        tx_counter = TxCntr
+        tx_counter = TxCntr,
+        dirty = Dirty
     } = Pmap
 ) when is_binary(CollectionId) ->
-    %% Claim the entire pmap data topic filter to avoid locking individual keys:
-    LockedTF = pmap_topic(Name, CollectionId, '+'),
-    emqx_ds:tx_lock(LockedTF, 0, infinity, w),
-    emqx_ds:tx_lock(LockedTF, 0, infinity, d),
-    %% Dump data:
-    pmap_dump_dirty(CollectionId, Pmap),
-    {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}};
+    case maps:size(Dirty) of
+        0 ->
+            %% Nothing to commit. Step the counter to keep it in accord
+            %% with the rest of the collection:
+            {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}};
+        _ ->
+            %% Claim the entire pmap data topic filter to avoid locking individual keys:
+            LockedTF = pmap_topic(Name, CollectionId, '+'),
+            emqx_ds:tx_lock(LockedTF, 0, infinity, w),
+            emqx_ds:tx_lock(LockedTF, 0, infinity, d),
+            %% Dump data:
+            pmap_dump_dirty(CollectionId, Pmap),
+            {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}}
+    end;
 tx_commit(
     CollectionId,
     #pset{
@@ -356,7 +368,7 @@ that is done by `collection_release_dirty` function,
 which should be called when the transaction succeeds.
 """.
 -spec tx_collection_commit([field(), ...], collection()) ->
-    {tx_counter(), collection()}.
+    {tx_counter() | undefined, collection()}.
 tx_collection_commit([_ | _] = Fields, #{id := CollectionId} = Collection) ->
     lists:foldl(
         fun(Field, {CntrAcc, Acc}) ->
