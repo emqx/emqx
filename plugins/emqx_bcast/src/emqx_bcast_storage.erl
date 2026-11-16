@@ -327,7 +327,13 @@ dropped_results(Entries) ->
 %% entry. The message rows are keyed by the content hash, so a single
 %% create/refresh covers the whole group.
 promote_entries([First | _] = Entries) ->
-    {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(First),
+    %% A deferred entry can rejoin the ready queue behind a newer request for
+    %% the same content. The shared payload must therefore live until the last
+    %% delivery in this batch, not just until the entry chosen as the group
+    %% representative expires.
+    ExpiresAt = lists:max([maps:get(expires_at, Entry) || Entry <- Entries]),
+    {_Status, ResolvedApiMsgId, ResolvedMsgId} =
+        write_message_group_tx(First, ExpiresAt),
     [
         {delivery_id(Entry), promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)}
      || Entry <- Entries
@@ -349,16 +355,15 @@ delivery_id(Entry) ->
 %%
 %% Only entries allowed to create reach this with a missing row, so creating
 %% it here is the intended new publish, not a resurrection.
-write_message_group_tx(Entry) ->
+write_message_group_tx(Entry, ExpiresAt) ->
     Payload = maps:get(payload, Entry),
     Hash = maps:get(hash, Entry),
     ApiMsgId = maps:get(api_msg_id, Entry),
     MsgId = maps:get(msg_id, Entry),
     Now = maps:get(created_at, Entry),
-    TTL = maps:get(expires_at, Entry) - Now,
     case mnesia:wread({?TAB_MSG_HASH, Hash}) of
         [] ->
-            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt),
             {created, ApiMsgId, MsgId};
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
@@ -367,24 +372,24 @@ write_message_group_tx(Entry) ->
                     %% write_message_tx/7) so a TTL reap that already removed
                     %% them cannot leave the live message unfindable.
                     mnesia:write(Existing#bcast_message{
-                        expires_at = max(Existing#bcast_message.expires_at, Now + TTL)
+                        expires_at = max(Existing#bcast_message.expires_at, ExpiresAt)
                     }),
                     write_message_index_rows(Existing),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
-                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt),
                     {created, ApiMsgId, MsgId}
             end
     end.
 
-write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
+write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt) ->
     write_message_rows_tx(#bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
         created_at = Now,
-        expires_at = Now + TTL
+        expires_at = ExpiresAt
     }).
 
 %% Delivery + meta rows for one entry, using the group-resolved message.

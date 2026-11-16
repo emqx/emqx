@@ -1311,25 +1311,45 @@ adopt_client_generation(ProductKey, ClientId, NewPid, State) ->
 
 %% Subscription events are not lifecycle authority: an old channel can deliver
 %% one after the new generation has adopted the row. Adopt from such an event
-%% only when the device registry still names that exact PID. Otherwise leave
-%% the current row untouched; client_connected/resume will advance generations.
+%% only when the present local channel can be verified. When the plugin missed
+%% the original connect, the registry and row are both empty, so fall back to
+%% the node's authoritative channel state before rejecting the event.
 accept_client_event(ProductKey, ClientId, Pid, State) ->
     Tab = ?TAB_STATE(State#state.shard),
     case ets:lookup(Tab, {ProductKey, ClientId}) of
         [#bcast_client_state{pid = Pid}] ->
             {ok, State};
         [] ->
-            case current_device_pid(ProductKey, ClientId) of
-                {ok, Pid} ->
+            case authorize_client_event(ProductKey, ClientId, Pid) of
+                ok ->
                     ensure_row(ProductKey, ClientId, Pid, State#state.shard),
                     {ok, State};
-                _ ->
+                stale ->
                     stale
             end;
         [#bcast_client_state{}] ->
-            case current_device_pid(ProductKey, ClientId) of
-                {ok, Pid} ->
+            case authorize_client_event(ProductKey, ClientId, Pid) of
+                ok ->
                     {ok, adopt_client_generation(ProductKey, ClientId, Pid, State)};
+                stale ->
+                    stale
+            end
+    end.
+
+authorize_client_event(ProductKey, ClientId, Pid) ->
+    case current_device_pid(ProductKey, ClientId) of
+        {ok, Pid} ->
+            ok;
+        _ ->
+            case local_channel(ClientId) of
+                {ok, Pid} ->
+                    case channel_product_key(ClientId, Pid) of
+                        ProductKey ->
+                            emqx_bcast:register_device(ProductKey, ClientId, Pid),
+                            ok;
+                        _ ->
+                            stale
+                    end;
                 _ ->
                     stale
             end
@@ -2566,26 +2586,39 @@ safe_drain_deferred_claims(Shard, RearmRev, State) ->
 expire_ack_in_flight(_Shard, [], State) ->
     State;
 expire_ack_in_flight(Shard, Expired, State) ->
-    lists:foldl(
-        fun({PK, DN, Did, Mark}, St) ->
+    {State1, Count, SampleRev} = lists:foldl(
+        fun({PK, DN, Did, Mark}, {St, N, Sample}) ->
             case take_expired_ack_in_flight(PK, DN, Did, Mark) of
                 true ->
-                    ?SLOG(warning, #{
-                        msg => "bcast_ack_in_flight_expired",
+                    St1 = reclaim_online(
+                        PK, DN, Shard, release_claims_later(St, [{PK, DN, Did}])
+                    ),
+                    Entry = #{
                         product_key => PK,
                         clientid => DN,
                         delivery_id => Did
-                    }),
-                    reclaim_online(
-                        PK, DN, Shard, release_claims_later(St, [{PK, DN, Did}])
-                    );
+                    },
+                    {St1, N + 1, [Entry | Sample]};
                 false ->
-                    St
+                    {St, N, Sample}
             end
         end,
-        State,
+        {State, 0, []},
         Expired
-    ).
+    ),
+    log_expired_ack_marks(Shard, Count, lists:reverse(SampleRev)),
+    State1.
+
+log_expired_ack_marks(_Shard, 0, _Sample) ->
+    ok;
+log_expired_ack_marks(Shard, Count, Sample) ->
+    ?SLOG(warning, #{
+        msg => "bcast_ack_in_flight_expired",
+        node => node(),
+        shard => Shard,
+        count => Count,
+        sample => lists:sublist(Sample, 5)
+    }).
 
 %% Atomically drop the expired mark from the row's window (returns true
 %% when the row still carried exactly this mark). The match spec guards

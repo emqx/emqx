@@ -1006,6 +1006,7 @@ t_mgmt_pending_count_tracks_partial_ack_in_same_shard(_Config) ->
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    flush_partial_acks(PK, A),
     Id = emqx_bcast_utils:guid_to_uuid(DeliveryId),
     {ok, 200, _, Resp} = emqx_bcast_api:handle(get, [<<"deliveries">>, Id], #{}),
     ?assertEqual(1, maps:get(<<"PendingCount">>, Resp)),
@@ -1073,9 +1074,9 @@ t_process_ack_duplicate(_Config) ->
     {ok, Ids} = emqx_bcast_storage:get_device_deliveries({PK, <<"DE">>}),
     ?assertEqual([DeliveryId], Ids).
 
--doc "A completed part durably records its ACK marker and accounting\n"
-"watermark, and decrements the counter exactly once. Partial ACKs only write\n"
-"their device marker; they do not move the part counter.".
+-doc "A completed part durably records its accounting watermark and decrements\n"
+"the counter exactly once. Partial ACKs only write their replaceable device\n"
+"marker; they do not move the part counter.".
 t_counted_ack_counter_and_marker_atomic(_Config) ->
     PK = <<"PATOM">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"atomic ack">>),
@@ -1085,9 +1086,7 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     {ok, _} = emqx_bcast_storage:create_delivery(DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
     ?assertEqual(1, ack_counter(DeliveryId)),
-    [#bcast_msg_acked{device_names = [A]}] = mnesia:dirty_read(
-        bcast_msg_acked, DeliveryId
-    ),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     Accounts = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
     ?assert(
         lists:any(
@@ -1115,6 +1114,82 @@ t_counted_ack_counter_and_marker_atomic(_Config) ->
     [] = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
     [] = mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId).
+
+-doc "Partial ACKs applied across ACK batches must be coalesced into\n"
+"one durable marker row. Writing one replicated row per ACK turns a normal\n"
+"1000-device batch into hundreds of Mnesia writes and pushes ACK completion\n"
+"past the pull-side 30s recovery window.".
+t_ack_batch_coalesces_partial_markers(_Config) ->
+    PK = <<"PACKCOALESCE">>,
+    DNs = same_shard_dns(PK, 7, 200),
+    AckedDNs = lists:sublist(DNs, 100),
+    {Acked1, Acked2} = lists:split(50, AckedDNs),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"coalesce partial acks">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, DNs, length(DNs)
+    ),
+    ?assertEqual(
+        [counted || _ <- Acked1],
+        emqx_bcast_storage:process_ack_batch([
+            {PK, DN, DeliveryId}
+         || DN <- Acked1
+        ])
+    ),
+    ?assertEqual(
+        [counted || _ <- Acked2],
+        emqx_bcast_storage:process_ack_batch([
+            {PK, DN, DeliveryId}
+         || DN <- Acked2
+        ])
+    ),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    flush_partial_acks(PK, hd(AckedDNs)),
+    [#bcast_msg_acked{device_names = MarkerDNs}] =
+        mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    ?assertEqual(lists:sort(AckedDNs), lists:sort(MarkerDNs)).
+
+-doc "Repeated partial-ACK flushes for one delivery part must replace the\n"
+"previous marker. Appending one bag row per flush makes table size follow the\n"
+"number of unfinished delivery parts times the drain duration.".
+t_partial_ack_marker_is_replaced_per_part(_Config) ->
+    PK = <<"PACKREPLACE">>,
+    [A, B, C] = same_shard_dns(PK, 7, 3),
+    [D] = same_shard_dns(PK, 8, 1),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"replace partial acks">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B, C, D], 4
+    ),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    flush_partial_acks(PK, A),
+    [#bcast_msg_acked{device_names = [A]}] =
+        mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    flush_partial_acks(PK, B),
+    [#bcast_msg_acked{device_names = MarkerDNs}] =
+        mnesia:dirty_read(bcast_msg_acked, DeliveryId),
+    ?assertEqual(lists:sort([A, B]), lists:sort(MarkerDNs)),
+    counted = emqx_bcast_storage:process_ack(PK, C, DeliveryId),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertMatch(
+        [#bcast_msg_part_accounted{acked = 3}],
+        [
+            Account
+         || #bcast_msg_part_accounted{shard = Shard} = Account <-
+                mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
+            Shard =:= emqx_bcast_index_owner:shard_of({PK, A})
+        ]
+    ),
+    {ok, #bcast_msg{counter = 1}, _} = emqx_bcast_storage:get_delivery(DeliveryId),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)).
+
+-doc "The bounded ACK-worker backlog must use a constant-time queue. A list\n"
+"append copies the complete backlog for every incoming ACK batch and makes\n"
+"the coordinator itself quadratic under sustained lag.".
+t_pending_ack_backlog_uses_queue(_Config) ->
+    State = sys:get_state(emqx_bcast_pull_server_pool),
+    ?assert(queue:is_queue(maps:get(pending_acks, State))).
 
 -doc "After a completed part report commits, a shard restart must preserve the\n"
 "acked device and leave exactly the unfinished device claimable. The report is\n"
@@ -1146,10 +1221,9 @@ t_committed_part_report_survives_rebuild(_Config) ->
         wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)
     ).
 
--doc "The full ACK marker, per-part accounting watermark, and counter update\n"
-"are one transaction. Injecting a report abort leaves no marker-only state;\n"
-"the retained in-memory accounting retries the whole report and counts the\n"
-"part exactly once.".
+-doc "The per-part accounting watermark and counter update are one transaction.\n"
+"Injecting a report abort leaves no accounting-only partial commit; the retained\n"
+"in-memory accounting retries the whole report and counts the part exactly once.".
 t_ack_part_report_transaction_is_atomic(_Config) ->
     PK = <<"PWIN2">>,
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"crash between marker and counter">>),
@@ -1188,7 +1262,7 @@ t_ack_part_report_transaction_is_atomic(_Config) ->
     %% entire transaction and accounts A once.
     ok = gen_server:call(Name, {cleanup_local}, 30000),
     ?assertEqual(1, ack_counter(DeliveryId)),
-    ?assertEqual(1, length(mnesia:dirty_read(bcast_msg_acked, DeliveryId))),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     ?assertEqual(2, length(mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId))),
     ?assertEqual({ok, []}, emqx_bcast_storage:get_device_deliveries({PK, A})),
     not_found = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
@@ -1196,6 +1270,67 @@ t_ack_part_report_transaction_is_atomic(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
     ?assertEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)).
+
+-doc "The normal completed-part report uses compact delivery metadata. It must\n"
+"not copy the full delivery row or the complete ACK marker bag while holding\n"
+"the delivery-wide write locks. Only a legacy delivery without the accounting\n"
+"sentinel may take that reconciliation path.".
+t_normal_part_report_does_not_scan_legacy_rows(_Config) ->
+    PK = <<"PNORMALFAST">>,
+    [A, B] = same_shard_dns(PK, 7, 2),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"normal fast report">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    Shard = emqx_bcast_index_owner:shard_of({PK, A}),
+    ?assert(wait_until(fun() -> shard_active(Shard) end, 200)),
+    FullReads = atomics:new(1, []),
+    BagReads = atomics:new(1, []),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, read, fun(Tab, Key, Lock) ->
+            case in_index_shard() andalso Key =:= DeliveryId of
+                true when Tab =:= ?TAB_MSG_REC ->
+                    _ = atomics:add_get(FullReads, 1, 1),
+                    ok;
+                true when Tab =:= ?TAB_MSG_ACKED ->
+                    _ = atomics:add_get(BagReads, 1, 1),
+                    ok;
+                _ ->
+                    ok
+            end,
+            meck:passthrough([Tab, Key, Lock])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId)
+    after
+        meck:unload(mnesia)
+    end,
+    ?assertEqual(0, atomics:get(FullReads, 1)),
+    ?assertEqual(0, atomics:get(BagReads, 1)),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
+
+-doc "A missing atomic counter row must be rebuilt by the completed-part\n"
+"transaction. Backfill is best-effort and may abort, so leaving the counter\n"
+"absent would make every cleanup retry abort without committing the part.".
+t_missing_counter_rebuilt_by_part_report(_Config) ->
+    PK = <<"PMISSINGCNT">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"missing counter">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ok = mnesia:dirty_delete(bcast_msg_meta_counter, DeliveryId),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)),
+    counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+    ?assertEqual(1, ack_counter(DeliveryId)),
+    ?assertMatch([#bcast_msg{}], mnesia:dirty_read(bcast_msg, DeliveryId)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)),
+    counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
+    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
 
 -doc "A delivery committed by a build without ack markers leaves none behind, so\n"
 "a rebuild re-indexes every target device and its legacy remaining-ack counter\n"
@@ -1388,6 +1523,7 @@ t_ack_flush_uses_no_transaction(_Config) ->
     after
         meck:unload(mnesia)
     end,
+    flush_partial_acks(PK, A),
     receive
         ack_flush_used_transaction -> ?assert(false)
     after 0 -> ok
@@ -1464,8 +1600,18 @@ t_rebuild_skips_counted_acked_devices(_Config) ->
     ),
     ?assertEqual(2, emqx_bcast_storage:pending_delivery_count()),
     counted = emqx_bcast_storage:process_ack(PK, DN1, DeliveryId),
-    %% The acked marker lands with the shard's ack flush tick.
-    ?assert(wait_until(fun() -> acked_devices(DeliveryId) =:= [DN1] end, 100)),
+    %% DN1's one-device part completed, so its durable evidence is the
+    %% accounting watermark rather than a full ACK marker row.
+    ?assertEqual([], acked_devices(DeliveryId)),
+    ?assertMatch(
+        [#bcast_msg_part_accounted{acked = 1}],
+        [
+            Account
+         || #bcast_msg_part_accounted{shard = Shard} = Account <-
+                mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId),
+            Shard =:= emqx_bcast_index_owner:shard_of({PK, DN1})
+        ]
+    ),
     %% Rebuild the index (forced, as on an activation drive).
     ok = emqx_bcast_index_owner:rebuild_index(),
     %% DN1's entry is not resurrected; DN2's is still pending.
@@ -1512,8 +1658,7 @@ t_rebuild_preserves_same_second_fifo_order(_Config) ->
 "table key space.".
 t_delete_delivery_clears_acked_markers(_Config) ->
     PK = <<"PDELACK">>,
-    [DN1] = same_shard_dns(PK, 7, 1),
-    [DN2] = same_shard_dns(PK, 8, 1),
+    [DN1, DN2] = same_shard_dns(PK, 7, 2),
     {_ApiMsgId, MsgGuid} = create_test_msg(<<"acked delete">>),
     DeliveryId = emqx_bcast_utils:gen_guid(),
     {ok, _} = emqx_bcast_storage:create_delivery(
@@ -2945,7 +3090,8 @@ t_ack_micro_storm_throughput(_Config) ->
         wait_until(
             fun() ->
                 S = sys:get_state(emqx_bcast_pull_server_pool),
-                maps:get(in_flight, S) =:= 0 andalso maps:get(pending_acks, S) =:= []
+                maps:get(in_flight, S) =:= 0 andalso
+                    queue:is_empty(maps:get(pending_acks, S))
             end,
             400
         )
@@ -2966,7 +3112,7 @@ storm_sample(Stats, N) ->
     case S of
         #{} ->
             In = maps:get(in_flight, S),
-            Pending = length(maps:get(pending_acks, S)),
+            Pending = queue:len(maps:get(pending_acks, S)),
             [{_, MaxI}] = ets:lookup(Stats, max_i),
             [{_, MaxP}] = ets:lookup(Stats, max_p),
             ets:insert(Stats, {max_i, max(MaxI, In)}),
@@ -3206,6 +3352,54 @@ t_pull_ack_in_flight_ttl_reclaims_window(_Config) ->
     ?assertEqual([Fresh], (row_lookup(PK, DN))#bcast_client_state.inflight),
     cleanup_row(PK, DN).
 
+-doc "Many expired ACK-in-flight marks handled by one sweep must produce one\n"
+"aggregated warning with the count and a bounded sample. Per-mark warnings made\n"
+"the log volume follow the ACK backlog when the same delivery path was delayed.".
+t_pull_ack_in_flight_expiry_logs_are_aggregated(_Config) ->
+    PK = <<"PACKTTLLOG">>,
+    Shard = 0,
+    DNs = lists:sublist(
+        [
+            DN
+         || I <- lists:seq(1, 2000),
+            DN <- [<<"DACKTTLLOG_", (integer_to_binary(I))/binary>>],
+            emqx_bcast_pull_shard:shard_of(PK, DN) =:= Shard
+        ],
+        5
+    ),
+    ?assertEqual(5, length(DNs)),
+    Name = emqx_bcast_pull_shard:shard_name(Shard),
+    Tab = emqx_bcast_pull_shard:tab(Shard, bcast_client_state),
+    Old = erlang:system_time(millisecond) - 60_000,
+    lists:foreach(
+        fun(DN) ->
+            ets:insert(Tab, #bcast_client_state{
+                key = {PK, DN},
+                product_key = PK,
+                clientid = DN,
+                pid = self(),
+                inflight = [{emqx_bcast_utils:gen_guid(), {true, Old}}]
+            })
+        end,
+        DNs
+    ),
+    Reports = emqx_cth_log_capture:capture(fun() ->
+        Name ! sweep_stale_claims,
+        _ = sys:get_state(Name)
+    end),
+    ExpiredReports = [
+        R
+     || R <- Reports,
+        maps:get(msg, R, undefined) =:= "bcast_ack_in_flight_expired"
+    ],
+    ?assertEqual(1, length(ExpiredReports)),
+    [Report] = ExpiredReports,
+    ?assertEqual(5, maps:get(count, Report)),
+    ?assertEqual(Shard, maps:get(shard, Report)),
+    ?assertEqual(node(), maps:get(node, Report)),
+    ?assertEqual(5, length(maps:get(sample, Report))),
+    lists:foreach(fun(DN) -> cleanup_row(PK, DN) end, DNs).
+
 -doc "While an ack is in flight, a ping keepalive trigger must also be\n"
 "suppressed (no want_next claimed).".
 t_pull_ack_in_flight_gates_ping_trigger(_Config) ->
@@ -3345,6 +3539,84 @@ t_pull_stale_topic_added_does_not_roll_back_generation(_Config) ->
         emqx_bcast:unregister_device(PK, DN, Self),
         exit(OldPid, kill)
     end.
+
+-doc "A client that connected before the plugin started has no registry entry.\n"
+"A later session.subscribed event must be validated against the local channel\n"
+"and must create the row and claim immediately instead of waiting for ping.".
+t_pull_topic_added_arms_client_missing_from_registry(_Config) ->
+    PK = <<"PTOPICNOREG">>,
+    DN = <<"DTOPICNOREG">>,
+    Self = self(),
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    ok = emqx_bcast:unregister_device(PK, DN, Self),
+    meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        mock_local_channel(PK, DN, Self),
+        ?assertEqual({error, not_found}, emqx_bcast:lookup_device({PK, DN})),
+        ?assertEqual([], ets:lookup(state_tab(PK, DN), {PK, DN})),
+        emqx_bcast_pull_shard:cast_client(
+            PK, DN, {topic_added, DN, Self, PK, <<"topic/no-registry">>, 1}
+        ),
+        _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+        ?assertEqual({ok, Self}, emqx_bcast:lookup_device({PK, DN})),
+        #bcast_client_state{pid = Self, topics = Topics, claim = Claim} = row_lookup(PK, DN),
+        ?assert(lists:keymember(<<"topic/no-registry">>, 1, Topics)),
+        ?assertNotEqual(undefined, Claim)
+    after
+        meck:unload(emqx_cm),
+        cleanup_row(PK, DN),
+        emqx_bcast:unregister_device(PK, DN, Self)
+    end.
+
+-doc "When a row still names an old PID but the registry is empty, a current\n"
+"subscription event may safely advance the generation after local-channel and\n"
+"product validation.".
+t_pull_topic_added_adopts_verified_generation_without_registry(_Config) ->
+    PK = <<"PTOPICOLDNOREG">>,
+    DN = <<"DTOPICOLDNOREG">>,
+    Self = self(),
+    Shard = emqx_bcast_pull_shard:shard_of(PK, DN),
+    OldPid = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    ok = emqx_bcast:unregister_device(PK, DN, Self),
+    ets:insert(state_tab(PK, DN), #bcast_client_state{
+        key = {PK, DN},
+        product_key = PK,
+        clientid = DN,
+        pid = OldPid,
+        topics = [{<<"old">>, 1}]
+    }),
+    meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        mock_local_channel(PK, DN, Self),
+        emqx_bcast_pull_shard:cast_client(
+            PK, DN, {topic_added, DN, Self, PK, <<"topic/new">>, 1}
+        ),
+        _ = sys:get_state(emqx_bcast_pull_shard:shard_name(Shard)),
+        ?assertEqual({ok, Self}, emqx_bcast:lookup_device({PK, DN})),
+        #bcast_client_state{pid = Self, topics = Topics} = row_lookup(PK, DN),
+        ?assert(lists:keymember(<<"topic/new">>, 1, Topics))
+    after
+        meck:unload(emqx_cm),
+        cleanup_row(PK, DN),
+        emqx_bcast:unregister_device(PK, DN, Self),
+        exit(OldPid, kill)
+    end.
+
+mock_local_channel(PK, DN, Pid) ->
+    meck:expect(emqx_cm, lookup_channels, fun
+        (local, ChannelClientId) when ChannelClientId =:= DN -> [Pid];
+        (Scope, ClientId) -> meck:passthrough([Scope, ClientId])
+    end),
+    meck:expect(emqx_cm, get_chan_info, fun
+        (ChannelClientId, ChannelPid) when ChannelClientId =:= DN, ChannelPid =:= Pid ->
+            #{clientinfo => #{client_attrs => #{<<"tns">> => PK}}};
+        (ClientId, ChannelPid) ->
+            meck:passthrough([ClientId, ChannelPid])
+    end).
 
 -doc "A claim round answered no_more must re-arm the client when the core\n"
 "reports that entries are still waiting: no_more is not only the drained\n"
@@ -4704,6 +4976,13 @@ t_shard_op_capacity_probe(_Config) ->
 same_shard_dns(PK, Target, N) ->
     same_shard_dns(PK, Target, N, 1, []).
 
+flush_partial_acks(PK, DN) ->
+    Shard = emqx_bcast_index_owner:shard_of({PK, DN}),
+    Name = index_shard_name(Shard),
+    Name ! flush_partial_acks,
+    _ = sys:get_state(Name),
+    ok.
+
 %% Two device names whose index shards differ, so each device forms a delivery
 %% part of its own (the ack path books per shard, per delivery).
 two_different_shards(PK) ->
@@ -4748,9 +5027,9 @@ t_index_shard_deactivates_when_ownership_moves(_Config) ->
     %% Ownership comes back: the dormant shard rebuilds itself.
     ?assert(wait_until(fun() -> shard_active(Shard) end, 200)).
 
--doc "A full-part ACK marker written by an older core may not have a matching\n"
-"account row even though the new delivery has its sentinel. A later part must\n"
-"notice the unaccounted complete marker and take recovery, not the fast path.".
+-doc "A delivery persisted before the part-accounting watermark existed can\n"
+"already have a full-part ACK marker. Its first report must reconcile those\n"
+"rows once, then the new sentinel makes later reports take the O(1) path.".
 t_ack_marker_survives_lost_counter_decrement(_Config) ->
     PK = <<"PMARKERWIN">>,
     {A, B} = two_different_shards(PK),
@@ -4759,9 +5038,12 @@ t_ack_marker_survives_lost_counter_decrement(_Config) ->
     {ok, _} = emqx_bcast_storage:create_delivery(
         DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
     ),
+    %% Model a delivery row written by the previous plugin version, before
+    %% bcast_msg_part_accounted existed. Plugin versions do not run together.
+    ok = mnesia:dirty_delete(bcast_msg_part_accounted, DeliveryId),
     ?assertEqual({ok, [DeliveryId]}, emqx_bcast_storage:get_device_deliveries({PK, A})),
-    %% The crash window: the ack flush persisted A's marker and died before
-    %% decrementing the remaining-ack count, which therefore still says 2.
+    %% The old version persisted A's marker and stopped before decrementing
+    %% the remaining-ack count, which therefore still says 2.
     ok = mnesia:dirty_write(#bcast_msg_acked{delivery_id = DeliveryId, device_names = [A]}),
     ?assertMatch(
         [#bcast_msg_meta_counter{counter = 2}],
@@ -4780,10 +5062,10 @@ t_ack_marker_survives_lost_counter_decrement(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, B, DeliveryId),
     ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg, DeliveryId) =:= [] end, 100)).
 
--doc "A completed part commits its full ACK marker, accounting watermark, and\n"
-"counter decrement together. The durable state therefore never contains a\n"
-"marker without the corresponding accounting decision.".
-t_ack_part_report_commits_marker_watermark_and_counter(_Config) ->
+-doc "A completed part commits its accounting watermark and counter decrement\n"
+"together, and removes its replaceable partial marker. The watermark is enough\n"
+"for a rebuild to skip the whole completed part.".
+t_ack_part_report_commits_watermark_and_counter(_Config) ->
     PK = <<"PORDER">>,
     [A1, A2] = same_shard_dns(PK, 0, 2),
     [C] = same_shard_dns(PK, 1, 1),
@@ -4796,12 +5078,7 @@ t_ack_part_report_commits_marker_watermark_and_counter(_Config) ->
     counted = emqx_bcast_storage:process_ack(PK, A1, DeliveryId),
     counted = emqx_bcast_storage:process_ack(PK, A2, DeliveryId),
     ?assertEqual(1, ack_counter(DeliveryId)),
-    Markers = mnesia:dirty_read(bcast_msg_acked, DeliveryId),
-    AckedDevices = lists:append([
-        DeviceNames
-     || #bcast_msg_acked{device_names = DeviceNames} <- Markers
-    ]),
-    ?assertEqual(lists:sort([A1, A2]), lists:usort(AckedDevices)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
     [Account] = [
         A
      || #bcast_msg_part_accounted{shard = Shard} = A <-
@@ -5259,6 +5536,10 @@ rebuild_round_ms() ->
 t_drive_does_not_rebase_quota_when_a_peer_recovers(_Config) ->
     Unreachable = index_shard_name(7),
     ok = sys:suspend(Unreachable),
+    %% The periodic recount is allowed to replace the sentinel with the real
+    %% pending total. This case is specifically about a *drive* doing that
+    %% rebase, so pause the independent periodic path for the assertion window.
+    ok = pause_quota_recount(),
     try
         %% Automatic drive (as after a restart) with a peer that cannot answer.
         _ = sys:replace_state(index_shard_name(0), fun(St) -> St#{active => false} end),
@@ -5276,8 +5557,35 @@ t_drive_does_not_rebase_quota_when_a_peer_recovers(_Config) ->
         timer:sleep(2000),
         ?assertEqual(4242, emqx_bcast_storage:pending_delivery_count())
     after
-        ok = sys:resume(Unreachable)
+        ok = sys:resume(Unreachable),
+        ok = resume_quota_recount()
     end.
+
+pause_quota_recount() ->
+    Name = index_shard_name(0),
+    ok = sys:suspend(Name),
+    State = sys:get_state(Name),
+    case maps:get(quota_recount_running, State) of
+        false ->
+            _ = sys:replace_state(Name, fun(St) -> St#{quota_recount_running => true} end),
+            ok = sys:resume(Name),
+            ok;
+        true ->
+            ok = sys:resume(Name),
+            true = wait_until(
+                fun() ->
+                    not maps:get(quota_recount_running, sys:get_state(Name))
+                end,
+                400
+            ),
+            pause_quota_recount()
+    end.
+
+resume_quota_recount() ->
+    _ = sys:replace_state(
+        index_shard_name(0), fun(St) -> St#{quota_recount_running => false} end
+    ),
+    ok.
 
 rebuild_once() ->
     _ = emqx_bcast_index_owner:rebuild_index(),
@@ -5675,6 +5983,56 @@ t_reuse_ttl_refresh_is_monotonic(_Config) ->
     ?assertEqual({ok, [ok]}, emqx_bcast_storage:promote_batch([OlderEntry])),
     {ok, AfterOlder} = emqx_bcast_storage:lookup_message(MsgId),
     ?assertEqual(Now + 10 + TTL, AfterOlder#bcast_message.expires_at).
+
+-doc "A same-hash promotion batch uses the maximum expiry across every entry.\n"
+"A deferred older request can be grouped with a newer request, and whichever\n"
+"entry represents the group must not shorten the shared payload.".
+t_reuse_ttl_refresh_uses_latest_expiry_in_same_batch(_Config) ->
+    Now = emqx_bcast_utils:now_sec(),
+    TTL = 3600,
+    %% Existing message refresh path.
+    Payload = <<"same-batch refresh ttl">>,
+    Hash = crypto:hash(sha256, Payload),
+    {ApiMsgId, MsgId} = create_test_msg(Payload),
+    PK = <<"PTTLBATCHREFRESH">>,
+    {atomic, ok} = mnesia:transaction(fun() ->
+        [Msg] = mnesia:wread({bcast_message, MsgId}),
+        mnesia:write(Msg#bcast_message{expires_at = Now - 100})
+    end),
+    Newer = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 1, 1),
+        #{created_at => Now + 10, expires_at => Now + 10 + TTL}
+    ),
+    Older = maps:merge(
+        reuse_promotion_entry(ApiMsgId, MsgId, Hash, Payload, PK, 2, 1),
+        #{created_at => Now, expires_at => Now + TTL}
+    ),
+    %% Grouping reverses this list, making the older entry the representative.
+    ?assertEqual({ok, [ok, ok]}, emqx_bcast_storage:promote_batch([Newer, Older])),
+    {ok, Refreshed} = emqx_bcast_storage:lookup_message(MsgId),
+    ?assertEqual(Now + 10 + TTL, Refreshed#bcast_message.expires_at),
+    %% First-create path for the same grouping.
+    NewPayload = <<"same-batch create ttl">>,
+    NewHash = crypto:hash(sha256, NewPayload),
+    NewEntry = fun(Worker, CreatedAt) ->
+        maps:merge(
+            reuse_promotion_entry(
+                emqx_bcast_utils:gen_api_uuid(),
+                emqx_bcast_utils:gen_guid(),
+                NewHash,
+                NewPayload,
+                <<"PTTLBATCHCREATE">>,
+                Worker,
+                1
+            ),
+            #{created_at => CreatedAt, expires_at => CreatedAt + TTL, can_create => true}
+        )
+    end,
+    NewNewer = NewEntry(3, Now + 10),
+    NewOlder = NewEntry(4, Now),
+    ?assertEqual({ok, [ok, ok]}, emqx_bcast_storage:promote_batch([NewNewer, NewOlder])),
+    {ok, Created} = emqx_bcast_storage:lookup_message_by_hash(NewHash),
+    ?assertEqual(Now + 10 + TTL, Created#bcast_message.expires_at).
 
 -doc "The synchronous legacy promotion path applies the same monotonic TTL\n"
 "refresh as the async promoter.".
@@ -6152,7 +6510,7 @@ part_held(Shard, Did) ->
     ),
     HasAccounting = lists:any(
         fun(Key) -> maps:is_key(Did, maps:get(Key, State, #{})) end,
-        [part_pending, part_applied]
+        [part_pending, part_applied, partial_ack_buf, partial_ack_persisted]
     ),
     HasEntry orelse HasAccounting.
 
@@ -6172,13 +6530,13 @@ t_ack_counter_repaired_when_decrement_is_lost(_Config) ->
     Name = index_shard_name(ShardA),
     ?assert(wait_until(fun() -> shard_active(ShardA) end, 200)),
     counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
-    ?assert(wait_until(fun() -> mnesia:dirty_read(bcast_msg_acked, DeliveryId) =/= [] end, 100)),
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_acked, DeliveryId)),
+    ?assertNotEqual([], mnesia:dirty_read(bcast_msg_part_accounted, DeliveryId)),
     ?assertEqual(1, ack_counter(DeliveryId)),
-    %% Now land the window this test is about, without mocking Mnesia (its
-    %% reload races every other Mnesia user in the suite): the durable marker
-    %% says A's part reported, but its decrement was lost - the counter still
-    %% counts A's ack, and the part is still in the accounting (as it is when
-    %% the report itself fails).
+    %% Model a marker-only delivery from an older build: the full A marker is
+    %% durable, its decrement was lost, and no accounting watermark exists.
+    ok = mnesia:dirty_delete(bcast_msg_part_accounted, DeliveryId),
+    ok = mnesia:dirty_write(#bcast_msg_acked{delivery_id = DeliveryId, device_names = [A]}),
     ok = mnesia:dirty_write(#bcast_msg_meta_counter{
         delivery_id = DeliveryId, counter = 2
     }),

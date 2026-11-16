@@ -2,6 +2,19 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## Unreleased
+
+### Fixed
+
+- Replace a delivery part's previous partial-ACK marker instead of appending one
+  bag row for every flush. A completed part now keeps only its accounting
+  watermark and counter decrement; it no longer leaves a full device-list marker
+  until the entire delivery completes. This bounds `bcast_msg_acked` by the
+  unfinished parts that have received an ACK, rather than by drain duration or
+  the number of completed parts.
+- Rebuild completed parts from `bcast_msg_part_accounted`, so removing full ACK
+  markers does not re-index devices that already acknowledged.
+
 ## 0.4.4
 
 ### Fixed
