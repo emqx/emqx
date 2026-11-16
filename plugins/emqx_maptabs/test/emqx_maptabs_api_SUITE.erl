@@ -289,12 +289,14 @@ create_api_key(Name, Scopes) ->
         scopes => Scopes
     },
     {ok, Res} = emqx_mgmt_api_test_util:request_api(
-        post, Path, "", emqx_dashboard_SUITE:auth_header_(), Body
+        post, Path, "", emqx_common_test_http:default_user_auth_header(), Body
     ),
     #{<<"api_key">> := Key, <<"api_secret">> := Secret} = emqx_utils_json:decode(Res),
     {ok, emqx_common_test_http:auth_header(binary_to_list(Key), binary_to_list(Secret))}.
 
 delete_api_key(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["api_key", Name]),
-    _ = emqx_mgmt_api_test_util:request_api(delete, Path, emqx_dashboard_SUITE:auth_header_()),
+    _ = emqx_mgmt_api_test_util:request_api(
+        delete, Path, emqx_common_test_http:default_user_auth_header()
+    ),
     ok.
