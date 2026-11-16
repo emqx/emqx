@@ -15,10 +15,9 @@ the pmap are of the same type and binary encoding.
 Each key-value pair of a pmap is kept in DS individually, reducing
 write amplification from the updates.
 
-Pmaps come in two flavors: regular and diff-based. Diff based pmaps
-try to minimize changes to the durable storage at the cost of higher
-RAM usage. Their representation at rest is the same, so they are
-interchangeable.
+Pmaps come in two flavors: regular (`dirty`) and `set`. `set` pmaps
+can only store one type of value: atom `true`. But they are more
+efficient.
 
 ## Collections
 

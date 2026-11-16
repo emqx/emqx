@@ -36,7 +36,7 @@
     tx_counter = 0
 }).
 
-%% A pmap that serves as a set. It can only store atom `true'. It's
+%% A pmap that serves as a set. It can only store atom `true'. Its
 %% at-rest representation is the same as pmap, so the implementations
 %% are interchangable.
 -record(pset, {
