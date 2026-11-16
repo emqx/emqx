@@ -54,7 +54,8 @@
 -export([
     subscribers/2,
     strategy/1,
-    initial_sticky_pick/1
+    initial_sticky_pick/1,
+    members_cache_ttl_ms/0
 ]).
 -endif.
 
@@ -100,6 +101,21 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 -define(SUBSCRIBER_DOWN, noproc).
+
+%% Node-local cache of the members of each shared subscription.
+%% Row: {{Group, Topic}, Stamp, AllPids, LocalPids}
+%%   Stamp = {BuiltAt, Unique}; BuiltAt is erlang:monotonic_time(millisecond),
+%%   taken before the members are read from ?SHARED_SUBSCRIPTION.
+%%   AllPids: tuple of all members in the cluster, in ?SHARED_SUBSCRIPTION order.
+%%   LocalPids: tuple of the members on this node, in the same order.
+%% A row is used for at most ?MEMBERS_CACHE_TTL_MS after BuiltAt.
+-define(MEMBERS_CACHE, emqx_shared_sub_members_cache).
+-define(MEMBERS_CACHE_TTL_MS, 100).
+-define(MEMBERS_CACHE_SWEEP_INTERVAL_MS, 10_000).
+-define(MEMBERS_CACHE_SWEEP, members_cache_sweep).
+-define(IS_FRESH_STAMP(STAMP, NOW),
+    (is_tuple(STAMP) andalso NOW - element(1, STAMP) < ?MEMBERS_CACHE_TTL_MS)
+).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
@@ -350,30 +366,63 @@ maybe_ack(Msg) ->
     end.
 
 pick(sticky, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
-    Sub0 = erlang:get({shared_sub_sticky, Group, Topic}),
-    All = subscribers(Group, Topic, FailedSubs),
-    case is_active_sub(Sub0, FailedSubs, All) of
+    {Sub0, Stamp0} = get_sticky(Group, Topic),
+    case is_pid(Sub0) andalso is_sticky_still_valid(Sub0, Stamp0, Group, Topic, FailedSubs) of
+        true ->
+            {fresh, Sub0};
+        false ->
+            Members = members(Group, Topic),
+            pick_sticky(Sub0, Members, ClientId, SourceTopic, Group, Topic, FailedSubs)
+    end;
+pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    Members = members(Group, Topic),
+    pick_member(Members, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
+
+pick_sticky(Sub0, Members, ClientId, SourceTopic, Group, Topic, FailedSubs) when is_pid(Sub0) ->
+    case is_active_member(Sub0, FailedSubs, Members) of
         true ->
             %% the old subscriber is still alive
             %% keep using it for sticky strategy
+            ok = put_sticky(Group, Topic, Sub0, Members),
             {fresh, Sub0};
         false ->
-            %% pick the initial subscriber by the configured strategy
-            InitialStrategy = initial_sticky_pick(Group),
+            %% pick the initial subscriber by the configured strategy,
+            %% fall back to Sub0 when no other member is left
+            All = live_members(Members, FailedSubs),
             FailedSubs1 = FailedSubs#{Sub0 => ?SUBSCRIBER_DOWN},
+            InitialStrategy = initial_sticky_pick(Group),
             Res = do_pick(All, InitialStrategy, ClientId, SourceTopic, Group, Topic, FailedSubs1),
-            case Res of
-                {_, Sub} ->
-                    %% stick to whatever pick result
-                    erlang:put({shared_sub_sticky, Group, Topic}, Sub);
-                _ ->
-                    ok
-            end,
-            Res
+            stick_to(Res, Group, Topic, Members)
     end;
-pick(Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
-    All = subscribers(Group, Topic, FailedSubs),
+pick_sticky(_NoSub, Members, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    InitialStrategy = initial_sticky_pick(Group),
+    Res = pick_member(Members, InitialStrategy, ClientId, SourceTopic, Group, Topic, FailedSubs),
+    stick_to(Res, Group, Topic, Members).
+
+%% stick to whatever pick result
+stick_to({_Type, Sub} = Res, Group, Topic, Members) ->
+    ok = put_sticky(Group, Topic, Sub, Members),
+    Res;
+stick_to(false, _Group, _Topic, _Members) ->
+    false.
+
+pick_member({_Stamp, {}, _Local}, _Strategy, _ClientId, _SourceTopic, _Group, _Topic, _FailedSubs) ->
+    false;
+pick_member({_Stamp, All, Local}, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) when
+    map_size(FailedSubs) =:= 0
+->
+    {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, All, Local)};
+pick_member(Members, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
+    %% Retry path: some members failed already.
+    All = live_members(Members, FailedSubs),
     do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs).
+
+%% The members as a list, without the ones that failed because they are down.
+live_members({_Stamp, All, _Local}, FailedSubs) ->
+    lists:filter(
+        fun(P) -> ?SUBSCRIBER_DOWN =/= maps:get(P, FailedSubs, false) end,
+        tuple_to_list(All)
+    ).
 
 do_pick([], _Strategy, _ClientId, _SourceTopic, _Group, _Topic, _FailedSubs) ->
     false;
@@ -381,24 +430,31 @@ do_pick(All, Strategy, ClientId, SourceTopic, Group, Topic, FailedSubs) ->
     case lists:filter(fun(Sub) -> not maps:is_key(Sub, FailedSubs) end, All) of
         [] ->
             %% All offline? pick one anyway
-            {retry, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, All)};
+            {retry, pick_subscriber_from_list(Group, Topic, Strategy, ClientId, SourceTopic, All)};
         Subs ->
             %% More than one available
-            {fresh, pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs)}
+            {fresh, pick_subscriber_from_list(Group, Topic, Strategy, ClientId, SourceTopic, Subs)}
     end.
 
-pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, [Sub]) ->
+pick_subscriber_from_list(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
+    Local =
+        case Strategy of
+            local -> list_to_tuple(local_pids(Subs));
+            _ -> {}
+        end,
+    pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, list_to_tuple(Subs), Local).
+
+%% Subs and LocalSubs are tuples. LocalSubs is the members of Subs on this node,
+%% it is only used by the `local' strategy.
+pick_subscriber(_Group, _Topic, _Strategy, _ClientId, _SourceTopic, {Sub}, _LocalSubs) ->
     Sub;
-pick_subscriber(Group, Topic, local, ClientId, SourceTopic, Subs) ->
-    case lists:filter(fun(Pid) -> erlang:node(Pid) =:= node() end, Subs) of
-        [_ | _] = LocalSubs ->
-            pick_subscriber(Group, Topic, random, ClientId, SourceTopic, LocalSubs);
-        [] ->
-            pick_subscriber(Group, Topic, random, ClientId, SourceTopic, Subs)
-    end;
-pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs) ->
-    Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, length(Subs)),
-    lists:nth(Nth, Subs).
+pick_subscriber(Group, Topic, local, ClientId, SourceTopic, Subs, {}) ->
+    pick_subscriber(Group, Topic, random, ClientId, SourceTopic, Subs, {});
+pick_subscriber(Group, Topic, local, ClientId, SourceTopic, _Subs, LocalSubs) ->
+    pick_subscriber(Group, Topic, random, ClientId, SourceTopic, LocalSubs, LocalSubs);
+pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, Subs, _LocalSubs) ->
+    Nth = do_pick_subscriber(Group, Topic, Strategy, ClientId, SourceTopic, tuple_size(Subs)),
+    element(Nth, Subs).
 
 do_pick_subscriber(_Group, _Topic, random, _ClientId, _SourceTopic, Count) ->
     rand:uniform(Count);
@@ -422,14 +478,119 @@ do_pick_subscriber(Group, Topic, round_robin_per_group, _ClientId, _SourceTopic,
         {Group, Topic}, 0
     }).
 
-%% Select ETS table to get all subscriber pids which are not down.
-subscribers(Group, Topic, FailedSubs) ->
-    lists:filter(
-        fun(P) ->
-            ?SUBSCRIBER_DOWN =/= maps:get(P, FailedSubs, false)
-        end,
-        subscribers(Group, Topic)
-    ).
+%% The sticky subscriber is kept in the publisher's process dictionary, together with
+%% the stamp of the cache row that it was last found in.
+get_sticky(Group, Topic) ->
+    case erlang:get({shared_sub_sticky, Group, Topic}) of
+        {Sub, Stamp} -> {Sub, Stamp};
+        %% Stored by an older version of this module.
+        Sub -> {Sub, undefined}
+    end.
+
+put_sticky(Group, Topic, Sub, {Stamp, _All, _Local}) ->
+    _ = erlang:put({shared_sub_sticky, Group, Topic}, {Sub, Stamp}),
+    ok.
+
+%% Check the sticky subscriber without a copy of the member tuples:
+%% when the cache row is still the one that the subscriber was found in, it is still a member.
+is_sticky_still_valid(Sub, Stamp, Group, Topic, FailedSubs) ->
+    Stamp =/= undefined andalso
+        Stamp =:= cached_stamp({Group, Topic}) andalso
+        is_fresh_stamp(Stamp, now_ms()) andalso
+        (not maps:is_key(Sub, FailedSubs)) andalso
+        is_alive_sub(Sub).
+
+%% Return 'true' if the subscriber is a member AND not in the failed list AND alive.
+is_active_member(Pid, FailedSubs, {_Stamp, All, _Local}) ->
+    is_tuple_member(Pid, All, tuple_size(All)) andalso
+        (not maps:is_key(Pid, FailedSubs)) andalso
+        is_alive_sub(Pid).
+
+is_tuple_member(_X, _Tuple, 0) ->
+    false;
+is_tuple_member(X, Tuple, I) ->
+    element(I, Tuple) =:= X orelse is_tuple_member(X, Tuple, I - 1).
+
+%%--------------------------------------------------------------------
+%% Member cache
+%%--------------------------------------------------------------------
+
+%% Return the members of a shared subscription: {Stamp, AllPids, LocalPids}.
+members(Group, Topic) ->
+    Key = {Group, Topic},
+    Now = now_ms(),
+    case cache_lookup(Key) of
+        [{_, Stamp, All, Local}] when ?IS_FRESH_STAMP(Stamp, Now) ->
+            {Stamp, All, Local};
+        _ ->
+            build_members(Key, Now)
+    end.
+
+build_members({Group, Topic} = Key, Now) ->
+    Stamp = {Now, erlang:unique_integer()},
+    All = subscribers(Group, Topic),
+    Local = local_pids(All),
+    Members = {Stamp, list_to_tuple(All), list_to_tuple(Local)},
+    _ =
+        All =/= [] andalso
+            is_local_view_settled(Key, Local) andalso
+            cache_insert(erlang:insert_element(1, Members, Key)),
+    Members.
+
+%% The cache table is owned by the server, it is missing while the server restarts.
+cache_lookup(Key) ->
+    try
+        ets:lookup(?MEMBERS_CACHE, Key)
+    catch
+        error:badarg -> []
+    end.
+
+cache_insert(Row) ->
+    try
+        ets:insert(?MEMBERS_CACHE, Row)
+    catch
+        error:badarg -> false
+    end.
+
+%% The local members in the replica of ?SHARED_SUBSCRIPTION must agree with
+%% ?SHARED_SUBSCRIBER, which this node's server updates at once. They disagree on a
+%% replicant until the replication of a local subscribe or unsubscribe arrives,
+%% and the row is not cached until then, so that a local change is not hidden for the TTL.
+is_local_view_settled(Key, Local) ->
+    lists:sort(Local) =:= lists:sort([Pid || {_, Pid} <- ets:lookup(?SHARED_SUBSCRIBER, Key)]).
+
+cached_stamp(Key) ->
+    try
+        ets:lookup_element(?MEMBERS_CACHE, Key, 2, undefined)
+    catch
+        error:badarg -> undefined
+    end.
+
+is_fresh_stamp(Stamp, Now) when ?IS_FRESH_STAMP(Stamp, Now) -> true;
+is_fresh_stamp(_Stamp, _Now) -> false.
+
+local_pids(Pids) ->
+    Node = node(),
+    [Pid || Pid <- Pids, node(Pid) =:= Node].
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).
+
+invalidate_members(Key) ->
+    ets:delete(?MEMBERS_CACHE, Key).
+
+sweep_members_cache() ->
+    Cutoff = now_ms() - ?MEMBERS_CACHE_TTL_MS,
+    ets:select_delete(?MEMBERS_CACHE, [
+        {{'_', {'$1', '_'}, '_', '_'}, [{'<', '$1', Cutoff}], [true]}
+    ]).
+
+schedule_sweep() ->
+    _ = erlang:send_after(?MEMBERS_CACHE_SWEEP_INTERVAL_MS, self(), ?MEMBERS_CACHE_SWEEP),
+    ok.
+
+members_cache_ttl_ms() ->
+    ?MEMBERS_CACHE_TTL_MS.
 
 %% Select ETS table to get all subscriber pids.
 subscribers(Group, Topic) ->
@@ -446,6 +607,9 @@ init([]) ->
     ok = emqx_utils_ets:new(?SHARED_SUBS_ROUND_ROBIN_COUNTER, [
         public, set, {write_concurrency, true}
     ]),
+    %% Written by publishers on a cache miss, and by this server to invalidate.
+    ok = emqx_utils_ets:new(?MEMBERS_CACHE, [public, set, {read_concurrency, true}]),
+    ok = schedule_sweep(),
     %% Let `emqx_stats` periodically update stats instead of relying on mnesia events:
     ok = emqx_stats:update_interval(?MODULE, fun ?MODULE:update_stats/0),
     {ok, #state{}}.
@@ -479,6 +643,10 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
 
+handle_info(?MEMBERS_CACHE_SWEEP, State) ->
+    _ = sweep_members_cache(),
+    ok = schedule_sweep(),
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -507,7 +675,8 @@ handle_subscribe(Group, Topic, SubPid) ->
             emqx_external_broker:add_shared_route(Topic, Group)
     end,
     maybe_insert_round_robin_count({Group, Topic}),
-    ets:insert(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}).
+    true = ets:insert(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}),
+    true = invalidate_members({Group, Topic}).
 
 maybe_insert_round_robin_count({Group, _Topic} = GroupTopic) ->
     strategy(Group) =:= round_robin_per_group andalso
@@ -521,6 +690,7 @@ handle_unsubscribe(Group, Topic, SubPid) ->
     GroupTopic = {Group, Topic},
     mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
     true = ets:delete_object(?SHARED_SUBSCRIBER, {GroupTopic, SubPid}),
+    true = invalidate_members(GroupTopic),
     if_no_more_subscribers(GroupTopic, fun() ->
         maybe_delete_round_robin_count(GroupTopic),
         delete_route(Group, Topic)
@@ -545,7 +715,8 @@ handle_purge_node(Node) ->
     lists:foreach(
         fun(Record) -> mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record) end,
         Records
-    ).
+    ),
+    true = ets:delete_all_objects(?MEMBERS_CACHE).
 
 update_stats() ->
     emqx_stats:setstat(
@@ -553,12 +724,6 @@ update_stats() ->
         'subscriptions.shared.max',
         ets:info(?SHARED_SUBSCRIPTION, size)
     ).
-
-%% Return 'true' if the subscriber process is alive AND not in the failed list
-is_active_sub(Pid, FailedSubs, All) ->
-    lists:member(Pid, All) andalso
-        (not maps:is_key(Pid, FailedSubs)) andalso
-        is_alive_sub(Pid).
 
 %% erlang:is_process_alive/1 does not work with remote pid.
 is_alive_sub(Pid) when node(Pid) == node() ->

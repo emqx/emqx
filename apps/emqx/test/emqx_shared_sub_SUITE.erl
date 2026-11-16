@@ -33,6 +33,7 @@
 
 -define(ack, shared_sub_ack).
 -define(no_ack, no_ack).
+-define(SUBSCRIBER_DOWN, noproc).
 
 -define(CLIENTID(I), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_list(I)])).
 
@@ -1277,6 +1278,191 @@ t_queue_subscription(Config) when is_list(Config) ->
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------
+
+%% A local subscribe is visible to the next pick, without a wait for the cache TTL.
+t_members_cache_local_subscribe(Config) when is_list(Config) ->
+    lists:foreach(
+        fun(Strategy) ->
+            ok = ensure_config(Strategy, false),
+            {Group, Topic} = group_topic(Strategy),
+            A = start_member(Group, Topic),
+            %% Build the cache row with A as the only member.
+            ?assertEqual([A, A], dispatch_n(Group, Topic, 2)),
+            B = start_member(Group, Topic),
+            %% Both strategies alternate between two members.
+            ?assertEqual(lists:sort([A, B]), lists:sort(dispatch_n(Group, Topic, 2))),
+            ok = stop_members([A, B])
+        end,
+        [round_robin, round_robin_per_group]
+    ).
+
+%% A local unsubscribe is visible to the next pick, without a wait for the cache TTL.
+%% For `sticky', the member that left is dropped.
+t_members_cache_local_unsubscribe(Config) when is_list(Config) ->
+    lists:foreach(
+        fun(Strategy) ->
+            ok = ensure_config(Strategy, false),
+            {Group, Topic} = group_topic(Strategy),
+            A = start_member(Group, Topic),
+            B = start_member(Group, Topic),
+            [Picked] = dispatch_n(Group, Topic, 1),
+            [Other] = [A, B] -- [Picked],
+            ok = unsubscribe_member(Picked),
+            ?assertEqual(
+                lists:duplicate(5, Other),
+                dispatch_n(Group, Topic, 5),
+                #{strategy => Strategy}
+            ),
+            ok = unsubscribe_member(Other),
+            ?assertEqual(
+                {error, no_subscribers},
+                emqx_shared_sub:dispatch(Group, Topic, delivery(Topic, <<"none">>))
+            ),
+            ok = stop_members([A, B])
+        end,
+        [random, round_robin, round_robin_per_group, sticky, local, hash_clientid, hash_topic]
+    ).
+
+%% The `round_robin_per_group' counter stays in range when the group shrinks.
+t_members_cache_round_robin_per_group_shrink(Config) when is_list(Config) ->
+    ok = ensure_config(round_robin_per_group, false),
+    {Group, Topic} = group_topic(?FUNCTION_NAME),
+    [A, B, C] = Members = [start_member(Group, Topic) || _ <- lists:seq(1, 3)],
+    ?assertEqual(lists:sort(Members), lists:sort(dispatch_n(Group, Topic, 3))),
+    ok = unsubscribe_member(C),
+    Picks = dispatch_n(Group, Topic, 4),
+    ?assertEqual([], Picks -- [A, B, A, B], Picks),
+    ?assertEqual([], [A, B, A, B] -- Picks, Picks),
+    ok = stop_members(Members).
+
+%% The retry path with failed members still works on the cached members.
+t_members_cache_failed_subs(Config) when is_list(Config) ->
+    ok = ensure_config(random, false),
+    {Group, Topic} = group_topic(?FUNCTION_NAME),
+    A = start_member(Group, Topic),
+    B = start_member(Group, Topic),
+    _ = dispatch_n(Group, Topic, 2),
+    Dispatch = fun(FailedSubs) ->
+        emqx_shared_sub:dispatch(Group, Topic, delivery(Topic, <<"x">>), FailedSubs)
+    end,
+    %% A failed: B is picked.
+    ?assertEqual({ok, 1}, Dispatch(#{A => timeout})),
+    ?assertEqual(B, recv_delivered()),
+    ?assertEqual({ok, 1}, Dispatch(#{A => ?SUBSCRIBER_DOWN})),
+    ?assertEqual(B, recv_delivered()),
+    %% Both failed, but not down: pick one anyway.
+    ?assertEqual({ok, 1}, Dispatch(#{A => timeout, B => timeout})),
+    ?assert(lists:member(recv_delivered(), [A, B])),
+    %% Both down: nobody to pick.
+    ?assertEqual(
+        {error, no_subscribers},
+        Dispatch(#{A => ?SUBSCRIBER_DOWN, B => ?SUBSCRIBER_DOWN})
+    ),
+    ok = stop_members([A, B]).
+
+%% A member that subscribes on another node is picked once the cache TTL has passed.
+t_members_cache_remote_subscribe(Config) when is_list(Config) ->
+    ok = ensure_config(round_robin, false),
+    Node = start_peer('members_cache_remote_subscribe_1', 24999),
+    {Group, Topic} = group_topic(?FUNCTION_NAME),
+    ShareTopic = <<"$share/", Group/binary, "/", Topic/binary>>,
+    {ok, ConnRemote} = emqtt:start_link([
+        {clientid, ?CLIENTID(1)}, {port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}
+    ]),
+    try
+        Local = start_member(Group, Topic),
+        %% Build the cache row with the local member only.
+        ?assertEqual([Local, Local], dispatch_n(Group, Topic, 2)),
+        {ok, _} = emqtt:connect(ConnRemote),
+        {ok, _, [0]} = emqtt:subscribe(ConnRemote, {ShareTopic, 0}),
+        TTL = emqx_shared_sub:members_cache_ttl_ms(),
+        ?retry(
+            TTL,
+            50,
+            begin
+                ok = ensure_mailbox_empty(),
+                ok = dispatch_qos0(Group, Topic, <<"r1">>),
+                ok = dispatch_qos0(Group, Topic, <<"r2">>),
+                ?assertMatch(
+                    [{publish, #{client_pid := ConnRemote}}],
+                    collect_msgs(100) -- [{delivered, Local}]
+                )
+            end
+        ),
+        ok = stop_members([Local])
+    after
+        emqtt:stop(ConnRemote),
+        stop_peer(Node)
+    end.
+
+group_topic(Name) ->
+    Bin = atom_to_binary(Name),
+    {<<"g_", Bin/binary>>, <<"members_cache/", Bin/binary>>}.
+
+%% Start a local process that subscribes to the shared subscription, and reports each
+%% delivery to the test process as `{delivered, Pid}'.
+start_member(Group, Topic) ->
+    Parent = self(),
+    Share = emqx_topic:make_shared_record(Group, Topic),
+    Pid = spawn_link(fun() ->
+        ok = emqx_broker:subscribe(Share, #{qos => 0}),
+        Parent ! {subscribed, self()},
+        member_loop(Parent, Share)
+    end),
+    receive
+        {subscribed, Pid} -> Pid
+    after 5_000 -> ct:fail({member_subscribe_timeout, Pid})
+    end.
+
+member_loop(Parent, Share) ->
+    receive
+        {deliver, _Topic, #message{}} ->
+            Parent ! {delivered, self()},
+            member_loop(Parent, Share);
+        unsubscribe ->
+            ok = emqx_broker:unsubscribe(Share),
+            Parent ! {unsubscribed, self()},
+            member_loop(Parent, Share);
+        stop ->
+            ok
+    end.
+
+unsubscribe_member(Pid) ->
+    Pid ! unsubscribe,
+    receive
+        {unsubscribed, Pid} -> ok
+    after 5_000 -> ct:fail({member_unsubscribe_timeout, Pid})
+    end.
+
+stop_members(Pids) ->
+    lists:foreach(fun(Pid) -> kill_process(Pid, fun(P) -> P ! stop end) end, Pids).
+
+delivery(Topic, Payload) ->
+    #delivery{sender = self(), message = emqx_message:make(<<"publisher">>, 0, Topic, Payload)}.
+
+dispatch_qos0(Group, Topic, Payload) ->
+    {ok, 1} = emqx_shared_sub:dispatch(Group, Topic, delivery(Topic, Payload)),
+    ok.
+
+%% Dispatch N messages, one at a time, and return the members that got them, in order.
+dispatch_n(Group, Topic, N) ->
+    [
+        begin
+            ok = dispatch_qos0(Group, Topic, integer_to_binary(I)),
+            recv_delivered()
+        end
+     || I <- lists:seq(1, N)
+    ].
+
+recv_delivered() ->
+    receive
+        {delivered, Pid} -> Pid
+    after 1_000 -> ct:fail(no_delivery)
+    end.
+
+ensure_mailbox_empty() ->
+    _ = collect_msgs(0),
+    ok.
 
 format_share(Group, Topic) ->
     emqx_topic:maybe_format_share(emqx_topic:make_shared_record(Group, Topic)).
