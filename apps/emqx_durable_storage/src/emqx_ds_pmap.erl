@@ -328,33 +328,39 @@ tx_commit(
         name = Name,
         module = CBM,
         data = Data0
-    } = Pmap
+    } = Pset
 ) ->
-    %% Claim the entire pmap data topic filter to avoid locking individual keys:
-    LockedTF = pmap_topic(Name, CollectionId, '+'),
-    emqx_ds:tx_lock(LockedTF, 0, infinity, w),
-    emqx_ds:tx_lock(LockedTF, 0, infinity, d),
     %% Dump dirty data while setting P & I flags:
-    Data = maps:map(
-        fun(Key, Val) ->
+    {Data, IsDirty} = maps:fold(
+        fun(Key, Val, {AccData, AccDirty}) ->
             case pset_dirty(Val) of
                 false ->
-                    Val;
+                    {AccData#{Key => Val}, AccDirty};
                 true ->
-                    Topic = pmap_topic(Name, CollectionId, Key),
+                    Topic = pmap_topic(Name, CollectionId, encode_key(CBM, Name, Key)),
                     case ?pset_live(Val) of
                         true ->
                             tx_write_pmap_kv(CBM, Name, CollectionId, Key, true),
-                            Val bor ?pset_infl bor ?pset_comm;
+                            {AccData#{Key => Val bor ?pset_infl bor ?pset_comm}, true};
                         false ->
                             emqx_ds:tx_del_topic(Topic),
-                            Val band (bnot ?pset_comm) bor ?pset_infl
+                            {AccData#{Key => Val band (bnot ?pset_comm) bor ?pset_infl}, true}
                     end
             end
         end,
+        {Data0, false},
         Data0
     ),
-    {undefined, Pmap#pset{
+    case IsDirty of
+        true ->
+            %% Claim the entire pmap data topic filter to avoid locking individual keys:
+            LockedTF = pmap_topic(Name, CollectionId, '+'),
+            emqx_ds:tx_lock(LockedTF, 0, infinity, w),
+            emqx_ds:tx_lock(LockedTF, 0, infinity, d);
+        false ->
+            ok
+    end,
+    {undefined, Pset#pset{
         data = Data
     }}.
 
