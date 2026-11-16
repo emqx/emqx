@@ -158,20 +158,20 @@ t_empty_export_import(_Config) ->
 
 -doc """
 The backup metadata keeps the real release version, also when
-`dashboard.show_preview_version = false` hides the `-preview.N` suffix in the
+`dashboard.show_preview_version = false` hides the `-cloud.N` suffix in the
 REST API. The import compares this version with the running release.
 """.
-t_export_meta_keeps_preview_version(_Config) ->
+t_export_meta_keeps_cloud_version(_Config) ->
     meck:new(emqx_release, [passthrough, no_history, no_link]),
-    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    meck:expect(emqx_release, version, 0, "6.3.3-cloud.1"),
     try
         emqx_config:put([dashboard, show_preview_version], false),
-        ?assertEqual("6.1.5", emqx_dashboard:reported_version()),
+        ?assertEqual("6.3.3", emqx_dashboard:reported_version()),
         {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
         {ok, Files} = erl_tar:extract(FileName, [memory, compressed]),
         [MetaBin] = [Bin || {Name, Bin} <- Files, filename:basename(Name) =:= "META.hocon"],
         {ok, Meta} = hocon:binary(MetaBin),
-        ?assertEqual(<<"6.1.5-preview.1">>, maps:get(<<"version">>, Meta))
+        ?assertEqual(<<"6.3.3-cloud.1">>, maps:get(<<"version">>, Meta))
     after
         emqx_config:put([dashboard, show_preview_version], true),
         meck:unload(emqx_release)
