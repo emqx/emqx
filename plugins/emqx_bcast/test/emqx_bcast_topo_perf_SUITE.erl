@@ -18,15 +18,18 @@
 -define(MNESIA_CLIENTS, 12000).
 -define(MNESIA_CONNECT_BATCH, 1000).
 -define(MNESIA_REQUEST_SIZES, [500, 800, 1000, 1200, 1500, 1800, 2200, 3000]).
-%% 0.4.3 baselines from repeated runs:
+%% 0.4.3 baselines from repeated runs. Partial-marker flushes depend on how
+%% long the drain takes, so their calls and bytes are checked per flush rather
+%% than against absolute totals.
 -define(MNESIA_BURST_DELIVERIES, 25).
 %% calls=38096, in_bytes=2542914, out_bytes=19569727..19569778.
 %% 0.4.5 adds a fixed 400 calls for the per-part accounting watermark.
 %% Partial marker replacement may add a write and delete, but must not add a
 %% full bcast_msg read proportional to the number of flushes.
 -define(MNESIA_FIXED_CALLS_MAX, 38496).
--define(MNESIA_TOTAL_CALLS_MAX, 41000).
--define(MNESIA_IN_BYTES_MAX, 2700000).
+-define(MNESIA_FIXED_IN_BYTES_MAX, 2050000).
+-define(MNESIA_FIXED_DIRTY_WRITE_CALLS_MAX, 1024).
+-define(MNESIA_PARTIAL_MARKER_IN_BYTES_PER_FLUSH_MAX, 1200).
 -define(MNESIA_OUT_BYTES_MAX, 20250000).
 -define(MNESIA_BATCH_MSG_READ_CALLS_MAX, 384).
 -define(MNESIA_BATCH_MSG_READ_BYTES_MAX, 13920288).
@@ -40,8 +43,6 @@
 -define(MNESIA_BURST_RESTARTS_MAX, 25).
 -define(MNESIA_OP_CALLS_MAX, #{
     dirty_read => 40000,
-    dirty_write => 1024,
-    dirty_delete_object => 1024,
     dirty_match_object => 384,
     dirty_update_counter => 384,
     dirty_select => 512,
@@ -770,9 +771,36 @@ assert_mnesia_baseline(_Phase, Stats) ->
             ?MNESIA_BATCH_MSG_READ_BYTES_MAX
     ),
     ?assertEqual(0, mnesia_table_metric(dirty_select, bcast_msg, calls, Stats)),
+    PartialWriteCalls = mnesia_table_metric(
+        dirty_write, bcast_msg_acked, calls, Stats
+    ),
+    PartialDeleteCalls = mnesia_table_metric(
+        dirty_delete_object, bcast_msg_acked, calls, Stats
+    ),
+    ?assertEqual(PartialFlushes, PartialWriteCalls),
+    ?assertEqual(PartialFlushes, PartialDeleteCalls),
+    ?assert(
+        mnesia_op_calls(dirty_write, maps:get(ops, Stats)) - PartialFlushes =<
+            ?MNESIA_FIXED_DIRTY_WRITE_CALLS_MAX
+    ),
     ?assert(maps:get(calls, Stats) > 0),
-    ?assert(maps:get(calls, Stats) =< ?MNESIA_TOTAL_CALLS_MAX),
-    ?assert(maps:get(in_bytes, Stats) =< ?MNESIA_IN_BYTES_MAX),
+    PartialWriteBytes = mnesia_table_metric(
+        dirty_write, bcast_msg_acked, in_bytes, Stats
+    ),
+    PartialDeleteBytes = mnesia_table_metric(
+        dirty_delete_object, bcast_msg_acked, in_bytes, Stats
+    ),
+    FixedInBytes =
+        maps:get(in_bytes, Stats) - PartialWriteBytes - PartialDeleteBytes,
+    ?assert(FixedInBytes =< ?MNESIA_FIXED_IN_BYTES_MAX),
+    ?assert(
+        PartialWriteBytes =<
+            PartialFlushes * ?MNESIA_PARTIAL_MARKER_IN_BYTES_PER_FLUSH_MAX
+    ),
+    ?assert(
+        PartialDeleteBytes =<
+            PartialFlushes * ?MNESIA_PARTIAL_MARKER_IN_BYTES_PER_FLUSH_MAX
+    ),
     ?assert(maps:get(out_bytes, Stats) =< ?MNESIA_OUT_BYTES_MAX),
     Ops = maps:get(ops, Stats),
     maps:foreach(
