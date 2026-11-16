@@ -2394,6 +2394,115 @@ t_30_quotas(Config) ->
         []
     ).
 
+%% This testcase verifies the conflict semantics of the explicit
+%% transaction locks (`emqx_ds:tx_lock/4`). A transaction that takes a
+%% lock is aborted when a write, a topic deletion, a read or another
+%% lock was committed for the overlapping range after the transaction
+%% started. The lock does not abort a transaction that only writes
+%% into the locked range: such a writer is ordered by its commit
+%% serial instead.
+t_31_tx_lock_conflicts(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = opts(Config),
+    TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
+    %% Record that should not be present in the DB:
+    Canary = [{[<<"canary">>], 0, <<>>}],
+    CheckCanary = fun() ->
+        ?assertMatch([], emqx_ds:dirty_read(DB, [<<"canary">>]))
+    end,
+    %% Helper function that create a pair of transactions
+    %% (simultaneously), commits the first one, and then tries to
+    %% commit the second one.
+    Par = fun(Ops1, Ops2) ->
+        %% 1. Create context for two transactions:
+        {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+        {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
+        %% 2. Commit the first one:
+        ?assertMatch(
+            {ok, _},
+            do_commit_tx(DB, Tx1, Ops1)
+        ),
+        %% 3. Try to commit the second one and return the result:
+        do_commit_tx(DB, Tx2, Ops2)
+    end,
+    %% Wrappers:
+    Ok = fun(Ops1, Ops2) ->
+        ?assertMatch({ok, _}, Par(Ops1, Ops2))
+    end,
+    Conflict = fun(Ops1, Ops2) ->
+        ?assertMatch(
+            ?err_rec({read_conflict, _}),
+            Par(
+                Ops1,
+                Ops2#{?ds_tx_write => Canary}
+            )
+        ),
+        CheckCanary()
+    end,
+    %% Locks of both kinds over an entire pmap-like topic filter:
+    LockTF = [<<"l">>, <<"t">>, '+'],
+    WLock = fun() -> #{?ds_tx_wlock => [{LockTF, 0, infinity}]} end,
+    DLock = fun() -> #{?ds_tx_dlock => [{LockTF, 0, infinity}]} end,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% Locks conflict with the concurrent writes into the locked range:
+            Conflict(
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
+                WLock()
+            ),
+            Conflict(
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
+                DLock()
+            ),
+            %% Locks conflict with the concurrent topic deletions:
+            Conflict(
+                #{?ds_tx_delete_topic => [{LockTF, 0, infinity}]},
+                WLock()
+            ),
+            Conflict(
+                #{?ds_tx_delete_topic => [{LockTF, 0, infinity}]},
+                DLock()
+            ),
+            %% Locks conflict with the concurrent reads of the locked range.
+            %% This is what protects the read-modify-write cycles of
+            %% the pmap collections:
+            Conflict(WLock(), #{?ds_tx_read => [{LockTF, 0, infinity}]}),
+            Conflict(DLock(), #{?ds_tx_read => [{LockTF, 0, infinity}]}),
+            %% Locks conflict with the concurrent locks of either kind:
+            Conflict(WLock(), WLock()),
+            Conflict(WLock(), DLock()),
+            Conflict(DLock(), WLock()),
+            Conflict(DLock(), DLock()),
+            %% No conflict when the ranges don't overlap:
+            Ok(
+                #{?ds_tx_write => [{[<<"l">>, <<"x">>, <<1>>], 0, <<>>}]},
+                WLock()
+            ),
+            Ok(
+                #{?ds_tx_delete_topic => [{[<<"l">>, <<"x">>, '+'], 0, infinity}]},
+                DLock()
+            ),
+            %% No conflict when the time ranges don't overlap:
+            Ok(
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 100, <<>>}]},
+                #{?ds_tx_wlock => [{LockTF, 0, 10}]}
+            ),
+            %% The lock is advisory for the writers: a transaction that
+            %% only writes into the locked range is not aborted by it.
+            %% The writer wins by its commit serial:
+            Ok(
+                WLock(),
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}]}
+            ),
+            ?assertMatch(
+                [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}],
+                emqx_ds:dirty_read(DB, [<<"l">>, <<"t">>, <<42>>])
+            )
+        end,
+        []
+    ).
+
 t_db_group_crud(Config) ->
     %% This testcase uses the default implicit group created by DS:
     DB = ?FUNCTION_NAME,
