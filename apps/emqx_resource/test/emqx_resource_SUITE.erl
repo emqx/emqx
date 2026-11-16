@@ -2255,6 +2255,104 @@ t_retry_batch(_Config) ->
     ),
     ok.
 
+t_retry_single_sync(_TCConfig) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            batch_time => 0,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_retry_single().
+
+t_retry_single_async(_TCConfig) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            batch_time => 0,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_retry_single().
+
+do_t_retry_single() ->
+    {ok, Agent} = emqx_utils_agent:start_link(0),
+    Get = fun() ->
+        emqx_utils_agent:get_and_update(Agent, fun(N) -> {N + 1, N + 1} end)
+    end,
+    Ctx = #{},
+    Fn = fun(Ctx0) ->
+        maybe
+            #{batch_cb_called := true} ?= Ctx0,
+            throw(shouldnt_call_batch_cb)
+        end,
+        NCalled = Get(),
+        ct:pal("evaluating req, called ~b times so far", [NCalled]),
+        case NCalled < 3 of
+            true ->
+                {error, {recoverable_error, {try_again, NCalled}}};
+            false ->
+                {ok, {succeeded, NCalled}}
+        end
+    end,
+    Req = {chan_res_id, #{q => ask, fn => Fn, ctx => Ctx}},
+    ?check_trace(
+        begin
+            ?assertEqual({ok, {succeeded, 3}}, emqx_resource:query(?ID, Req)),
+
+            ?assertEqual(3, emqx_utils_agent:get(Agent)),
+
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'matched' := 1,
+                            'failed' := 0,
+                            'success' := 1,
+                            'retried' := 1,
+                            'retried.success' := 1,
+                            'retried.failed' := 0,
+                            'dropped.expired' := 0,
+                            'dropped.queue_full' := 0,
+                            'dropped.resource_not_found' := 0,
+                            'dropped.resource_stopped' := 0,
+                            'dropped.other' := 0
+                        },
+                        gauges := #{
+                            'inflight' := 0,
+                            'queuing' := 0
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_delete_and_re_create_with_same_name(_Config) ->
     NumBufferWorkers = 2,
     {ok, _} = create(
@@ -3592,7 +3690,7 @@ t_batch_individual_reply_sync(_Config) ->
         #{name => test_resource},
         #{
             query_mode => sync,
-            batch_size => 5,
+            batch_size => 6,
             batch_time => 100,
             worker_pool_size => 1,
             metrics_flush_interval => 50,
@@ -3612,7 +3710,7 @@ t_batch_individual_reply_async(_Config) ->
         #{
             spawn_buffer_workers => true,
             query_mode => sync,
-            batch_size => 5,
+            batch_size => 6,
             batch_time => 100,
             worker_pool_size => 1,
             metrics_flush_interval => 50,
@@ -3622,24 +3720,85 @@ t_batch_individual_reply_async(_Config) ->
     on_exit(fun() -> emqx_resource:remove_local(?ID) end),
     do_t_batch_individual_reply().
 
+-doc """
+  1) is attempted 2 times and succeeds.
+  3) immediate unrecoverable error
+  5) is attempted 3 times and becomes unrecoverable error.
+  2, 4, 6) immediate success.
+""".
 do_t_batch_individual_reply() ->
+    {ok, Agent} = emqx_utils_agent:start_link(#{}),
+    Get = fun(Idx) ->
+        emqx_utils_agent:get_and_update(Agent, fun(St) ->
+            N = maps:get(Idx, St, 0),
+            {N + 1, St#{Idx => N + 1}}
+        end)
+    end,
+    NumReqs = 6,
+    Ctx = #{},
+    Fn = fun(Ctx0) ->
+        case Ctx0 of
+            #{batch_cb_called := true} ->
+                ok;
+            #{} ->
+                throw(should_have_called_batch_cb)
+        end,
+        #{n := N} = Ctx0,
+        NCalled = Get(N),
+        ct:pal("evaluating req ~b, called ~b times so far", [N, NCalled]),
+        case N of
+            1 when NCalled > 1 ->
+                %% make retries succeed.
+                {ok, {retried_and_succeeded, 1}};
+            5 when NCalled > 2 ->
+                {error, {unrecoverable_error, {failure_after_retry, 5}}};
+            1 ->
+                {error, {recoverable_error, {try_again, 1}}};
+            5 ->
+                {error, {recoverable_error, {try_again, 5}}};
+            N when N rem 2 == 0 ->
+                {ok, {succeeded, N}};
+            _ ->
+                {error, {unrecoverable_error, {bad_request, N}}}
+        end
+    end,
+    MkReq = fun(N) -> {chan_res_id, #{q => ask, fn => Fn, ctx => Ctx#{n => N}}} end,
+    %% sanity check: important that the last query succeeds; so that the buffer worker
+    %% doesn't just take the last query result decision for the whole batch.
+    ?assert(NumReqs rem 2 == 0),
     ?check_trace(
         begin
-            {Results, {ok, _}} =
-                ?wait_async_action(
-                    emqx_utils:pmap(
-                        fun(N) ->
-                            emqx_resource:query(?ID, {individual_reply, N rem 2 =:= 0})
-                        end,
-                        lists:seq(1, 5)
-                    ),
-                    #{?snk_kind := buffer_worker_flush_ack, batch_or_query := [_, _ | _]},
-                    5_000
+            Results =
+                emqx_utils:pmap(
+                    fun(N) ->
+                        emqx_resource:query(?ID, MkReq(N))
+                    end,
+                    lists:seq(1, NumReqs)
                 ),
 
-            Ok = ok,
-            Error = {error, {unrecoverable_error, bad_request}},
-            ?assertEqual([Error, Ok, Error, Ok, Error], Results),
+            ?assertEqual(
+                [
+                    {ok, {retried_and_succeeded, 1}},
+                    {ok, {succeeded, 2}},
+                    {error, {unrecoverable_error, {bad_request, 3}}},
+                    {ok, {succeeded, 4}},
+                    {error, {unrecoverable_error, {failure_after_retry, 5}}},
+                    {ok, {succeeded, 6}}
+                ],
+                Results
+            ),
+
+            ?assertMatch(
+                #{
+                    1 := 2,
+                    2 := 1,
+                    3 := 1,
+                    4 := 1,
+                    5 := 3,
+                    6 := 1
+                },
+                emqx_utils_agent:get(Agent)
+            ),
 
             ?retry(
                 200,
@@ -3647,9 +3806,21 @@ do_t_batch_individual_reply() ->
                 ?assertMatch(
                     #{
                         counters := #{
-                            matched := 5,
-                            failed := 3,
-                            success := 2
+                            'matched' := 6,
+                            'failed' := 2,
+                            'success' := 4,
+                            'retried' := 2,
+                            'retried.success' := 1,
+                            'retried.failed' := 1,
+                            'dropped.expired' := 0,
+                            'dropped.queue_full' := 0,
+                            'dropped.resource_not_found' := 0,
+                            'dropped.resource_stopped' := 0,
+                            'dropped.other' := 0
+                        },
+                        gauges := #{
+                            'inflight' := 0,
+                            'queuing' := 0
                         }
                     },
                     tap_metrics(?LINE)
@@ -5679,7 +5850,7 @@ t_add_large_number_of_channels_oom(_TCConfig) ->
     ok = sys:resume(ResManPid),
     ct:pal("resumed"),
     ct:print(
-        "N.B. if this test OOM crashes, there's something wrong with"
+        "N.B. if this test OOM crashes, there's (possibly) something wrong with"
         " yielding after spawning health check workers"
     ),
     %% Trigger connector health check, which in turn triggers health checks for all

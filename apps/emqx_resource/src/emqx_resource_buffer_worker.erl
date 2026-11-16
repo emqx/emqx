@@ -78,12 +78,23 @@
 -define(RETRY_IDX, 3).
 -define(WORKER_MREF_IDX, 4).
 
+-define(keep_same_items, {?MODULE, keep_same_items}).
+
 -define(is_fallback, is_fallback).
 -define(fallback_actions, fallback_actions).
 -define(queries, queries).
 -define(internal_buffer, internal_buffer).
 -define(reply_to, reply_to).
 -define(result, result).
+
+-record(batch_reply_result, {
+    decision,
+    post_fn,
+    nacked_counters,
+    to_retry,
+    acked_count,
+    acked_counters
+}).
 
 -define(NO_INFLIGHT, []).
 -define(NO_INDEX, []).
@@ -122,6 +133,14 @@
 -type query_result_context() :: #{?queries := [queue_query()]}.
 -type query_result_side_effect() :: fun((query_result_context()) -> ok).
 -type query_result_pure() :: {query_result_decision(), query_result_side_effect(), counters()}.
+-type batch_reply_result() :: #batch_reply_result{
+    decision :: query_result_decision(),
+    post_fn :: query_result_side_effect(),
+    nacked_counters :: counters(),
+    to_retry :: [queue_query()],
+    acked_count :: non_neg_integer(),
+    acked_counters :: counters()
+}.
 -type timeout_ms() :: emqx_schema:timeout_duration_ms().
 -type request_ttl() :: emqx_schema:timeout_duration_ms().
 -type health_check_interval() :: pos_integer().
@@ -557,15 +576,31 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
     IsSimpleQuery = false,
     QueryOpts = #{simple_query => IsSimpleQuery},
     Result = call_query(force_sync, Id, ChanKey, Index, Ref, QueryOrBatch, QueryOpts),
-    {Decision, PostFn, DeltaCounters0} =
+    #batch_reply_result{
+        decision = Decision,
+        post_fn = PostFn,
+        nacked_counters = DeltaCounters0,
+        to_retry = ToRetry,
+        acked_count = AckedCount,
+        acked_counters = AckedCounters
+    } =
         case QueryOrBatch of
             ?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, RequestContext, TraceCtx) ->
                 Reply = ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx),
-                reply_caller_defer_metrics(Id, Reply, QueryOpts);
+                {Decision1, PostFn1, DeltaCounters1} =
+                    reply_caller_defer_metrics(Id, Reply, QueryOpts),
+                #batch_reply_result{
+                    decision = Decision1,
+                    post_fn = PostFn1,
+                    nacked_counters = DeltaCounters1,
+                    to_retry = QueryOrBatch,
+                    acked_count = 1,
+                    acked_counters = #{}
+                };
             [?QUERY(_, _, _, _, _, _) | _] = Batch ->
                 batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery)
         end,
-    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
+    DeltaCounters2 = delta_with_actions_executed(Decision, Result, DeltaCounters0),
     Queries =
         case QueryOrBatch of
             ?QUERY(_, _, _, _, _, _) ->
@@ -585,7 +620,10 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
                     result => Result
                 }
             ),
-            {keep_state, Data0, {state_timeout, ResumeT, unblock}};
+            ok = update_inflight_item(InflightTID, Ref, ToRetry, _NumExpired = 0),
+            _ = dec_inflight_update(InflightTID, AckedCount),
+            Data1 = aggregate_counters(Data0, AckedCounters),
+            {keep_state, Data1, {state_timeout, ResumeT, unblock}};
         %% Send ok or failed but the resource is working
         ?ack ->
             BufferWorkerPid = self(),
@@ -601,6 +639,7 @@ retry_inflight_sync(Ref, QueryOrBatch, Data0) ->
                 case IsAcked of
                     true ->
                         %% We should only change the metrics when the decision is final.
+                        DeltaCounters = merge_counters(DeltaCounters2, AckedCounters),
                         aggregate_counters(Data0, DeltaCounters);
                     false ->
                         Data0
@@ -821,7 +860,7 @@ do_flush(
             %% inserted during `call_query' if the resource was down
             %% and/or if it was a sync request).
             inflight_append(InflightTID, InflightItem),
-            mark_inflight_as_retriable(InflightTID, Ref),
+            mark_inflight_as_retriable(InflightTID, Ref, ?keep_same_items),
             {Data2, AsyncWorkerMRef} = ensure_async_worker_monitored(Data1, Result),
             store_async_worker_reference(InflightTID, Ref, AsyncWorkerMRef),
             ?tp(
@@ -892,9 +931,17 @@ do_flush(#{queue := Q1} = Data0, #{
     IsSimpleQuery = false,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => IsSimpleQuery},
     Result = call_query(async_if_possible, Id, ChanKey, Index, Ref, Batch, QueryOpts),
-    {Decision, PostFn, DeltaCounters0} =
+    #batch_reply_result{
+        decision = Decision,
+        post_fn = PostFn,
+        nacked_counters = DeltaCounters0,
+        to_retry = ToRetry,
+        acked_count = _AckedCount,
+        acked_counters = AckedCounters
+    } =
         batch_reply_caller_defer_metrics(Id, Result, Batch, IsSimpleQuery),
-    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters0),
+    DeltaCounters1 = merge_counters(DeltaCounters0, AckedCounters),
+    DeltaCounters = delta_with_actions_executed(Decision, Result, DeltaCounters1),
     PostFn(result_context(Batch)),
     Data1 = aggregate_counters(Data0, DeltaCounters),
     case Decision of
@@ -906,13 +953,13 @@ do_flush(#{queue := Q1} = Data0, #{
             %% to use tuples for atomic ets updates
             IsRetriable = true,
             AsyncWorkerMRef0 = undefined,
-            InflightItem = ?INFLIGHT_ITEM(Ref, Batch, IsRetriable, AsyncWorkerMRef0),
+            InflightItem = ?INFLIGHT_ITEM(Ref, ToRetry, IsRetriable, AsyncWorkerMRef0),
             %% we must append again to the table to ensure that the
             %% request will be retried (i.e., it might not have been
             %% inserted during `call_query' if the resource was down
             %% and/or if it was a sync request).
             inflight_append(InflightTID, InflightItem),
-            mark_inflight_as_retriable(InflightTID, Ref),
+            mark_inflight_as_retriable(InflightTID, Ref, ToRetry),
             {Data2, AsyncWorkerMRef} = ensure_async_worker_monitored(Data1, Result),
             store_async_worker_reference(InflightTID, Ref, AsyncWorkerMRef),
             ?tp(
@@ -979,29 +1026,63 @@ do_flush(#{queue := Q1} = Data0, #{
 -spec batch_reply_caller_defer_metrics(
     id(), Result | [Result], [queue_query()], IsSimpleQuery :: boolean()
 ) ->
-    query_result_pure()
+    batch_reply_result()
 when
     Result :: term().
 batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery) ->
     Replies = expand_batch_reply(BatchResult, Batch),
-    {Decision, PostFns, Counters} =
+    Result0 =
         lists:foldl(
-            fun(Reply, {_Decision, PostFns, OldCounters}) ->
-                %% `_Decision' should be the same as `Decision' starting from the second
-                %% reply **only** if the batch result is a single value to be repeated for
-                %% all original queries.
-                %%
-                %% Fixme(EMQX-13796): handle case where distinct results for distinct
-                %% queries are returned; in such case, we should ack the whole batch only
-                %% when a final decision has been reached for all of its elements.
-                {Decision, PostFn, DeltaCounters} = reply_caller_defer_metrics(
+            fun(
+                {Request, Reply},
+                Acc0
+            ) ->
+                #batch_reply_result{
+                    decision = Decision0,
+                    post_fn = PostFns,
+                    nacked_counters = NackedCounters0,
+                    to_retry = ToRetry0,
+                    acked_count = AckedCount0,
+                    acked_counters = AckedCounters0
+                } = Acc0,
+                {Decision1, PostFn, DeltaCounters} = reply_caller_defer_metrics(
                     Id, Reply, IsSimpleQuery
                 ),
-                {Decision, [PostFn | PostFns], merge_counters(OldCounters, DeltaCounters)}
+                Decision = join_decision(Decision0, Decision1),
+                {ToRetry, AckedCount, NackedCounters, AckedCounters} =
+                    case Decision1 of
+                        ?ack ->
+                            {ToRetry0, AckedCount0 + 1, NackedCounters0,
+                                merge_counters(AckedCounters0, DeltaCounters)};
+                        ?nack ->
+                            RetryReq = mark_query_as_sent(Request),
+                            {
+                                [RetryReq | ToRetry0],
+                                AckedCount0,
+                                merge_counters(NackedCounters0, DeltaCounters),
+                                AckedCounters0
+                            }
+                    end,
+                Acc0#batch_reply_result{
+                    decision = Decision,
+                    post_fn = [PostFn | PostFns],
+                    nacked_counters = NackedCounters,
+                    to_retry = ToRetry,
+                    acked_count = AckedCount,
+                    acked_counters = AckedCounters
+                }
             end,
-            {?ack, [], #{}},
-            Replies
+            #batch_reply_result{
+                decision = ?ack,
+                post_fn = [],
+                nacked_counters = #{},
+                to_retry = [],
+                acked_count = 0,
+                acked_counters = #{}
+            },
+            lists:zip(Batch, Replies)
         ),
+    #batch_reply_result{post_fn = PostFns, to_retry = ToRetry0} = Result0,
     PostFn = fun(ResultContext) ->
         %% Since this might be called from a callback function that has only "minimized"
         %% batches, we should pick the query given to this function, which comes from the
@@ -1014,7 +1095,18 @@ batch_reply_caller_defer_metrics(Id, BatchResult, Batch, IsSimpleQuery) ->
             lists:zip(lists:reverse(PostFns), Queries)
         )
     end,
-    {Decision, PostFn, Counters}.
+    ToRetry = lists:reverse(ToRetry0),
+    Result0#batch_reply_result{post_fn = PostFn, to_retry = ToRetry}.
+
+join_decision(?nack, _) ->
+    ?nack;
+join_decision(_, ?nack) ->
+    ?nack;
+join_decision(_, _) ->
+    ?ack.
+
+mark_query_as_sent(?QUERY(From, Req, _Sent, ExpireAt, RequestContext, TraceCtx)) ->
+    ?QUERY(From, Req, true, ExpireAt, RequestContext, TraceCtx).
 
 expand_batch_reply(BatchResults, Batch) when is_list(BatchResults) ->
     lists:map(
@@ -1850,7 +1942,7 @@ do_handle_async_reply(
     case Action of
         ?nack ->
             %% Keep retrying.
-            ok = mark_inflight_as_retriable(InflightTID, Ref),
+            ok = mark_inflight_as_retriable(InflightTID, Ref, ?keep_same_items),
             ok = ?MODULE:block(BufferWorkerPid),
             blocked;
         ?ack ->
@@ -2000,11 +2092,19 @@ do_handle_async_batch_reply(
     },
     Result
 ) ->
-    {Action, PostFn, DeltaCounters} = batch_reply_caller_defer_metrics(
-        Id, Result, MinimizedBatch, IsSimpleQuery
-    ),
+    #batch_reply_result{
+        decision = Decision,
+        post_fn = PostFn,
+        nacked_counters = DeltaCounters0,
+        to_retry = ToRetry,
+        acked_count = AckedCount,
+        acked_counters = AckedCounters
+    } =
+        batch_reply_caller_defer_metrics(
+            Id, Result, MinimizedBatch, IsSimpleQuery
+        ),
     ?tp_ignore_side_effects_in_prod(handle_async_reply, #{
-        action => Action,
+        action => Decision,
         is_batch => true,
         batch_or_query => [
             FullQuery
@@ -2016,13 +2116,16 @@ do_handle_async_batch_reply(
         ref => Ref,
         result => Result
     }),
-    case Action of
+    case Decision of
         ?nack ->
             %% Keep retrying.
-            ok = mark_inflight_as_retriable(InflightTID, Ref),
+            ok = mark_inflight_as_retriable(InflightTID, Ref, ToRetry),
+            _ = dec_inflight_update(InflightTID, AckedCount),
+            bump_counters(Id, AckedCounters),
             ok = ?MODULE:block(BufferWorkerPid),
             blocked;
         ?ack ->
+            DeltaCounters = merge_counters(DeltaCounters0, AckedCounters),
             ok = do_async_ack(
                 InflightTID,
                 Ref,
@@ -2243,12 +2346,22 @@ inflight_append(InflightTID, {Ref, Data}) ->
 
 %% a request was already appended and originally not retriable, but an
 %% error occurred and it is now retriable.
-mark_inflight_as_retriable(?NO_INFLIGHT, _Ref) ->
+mark_inflight_as_retriable(?NO_INFLIGHT, _Ref, _ToRetry) ->
     ok;
-mark_inflight_as_retriable(InflightTID, Ref) ->
-    _ = ets:update_element(InflightTID, Ref, {?RETRY_IDX, true}),
-    %% the old worker's DOWN should not affect this inflight any more
-    _ = ets:update_element(InflightTID, Ref, {?WORKER_MREF_IDX, erased}),
+mark_inflight_as_retriable(InflightTID, Ref, ?keep_same_items) ->
+    _ = ets:update_element(InflightTID, Ref, [
+        {?RETRY_IDX, true},
+        %% the old worker's DOWN should not affect this inflight any more
+        {?WORKER_MREF_IDX, erased}
+    ]),
+    ok;
+mark_inflight_as_retriable(InflightTID, Ref, ToRetry) ->
+    _ = ets:update_element(InflightTID, Ref, [
+        {?ITEM_IDX, ToRetry},
+        {?RETRY_IDX, true},
+        %% the old worker's DOWN should not affect this inflight any more
+        {?WORKER_MREF_IDX, erased}
+    ]),
     ok.
 
 %% Track each worker pid only once.
