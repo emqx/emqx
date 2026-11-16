@@ -166,6 +166,7 @@ on_start(
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
+        {application_name, "emqx"},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
@@ -676,6 +677,8 @@ conn_opts([Opt = {timeout, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {application_name, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
@@ -769,6 +772,7 @@ prepare_sql_to_conn(
     ?SLOG(info, LogMeta),
     case epgsql:parse2(Conn, Key, SQL, []) of
         {ok, Statement} ->
+            _ = epgsql:sync(Conn),
             prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
         {error, #error{severity = error, codename = undefined_table} = Error} ->
             %% Target table is not created
