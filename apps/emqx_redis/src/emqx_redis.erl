@@ -544,7 +544,7 @@ is_auth_error1(<<"NOPERM ", _/binary>>) ->
     true;
 is_auth_error1(<<"ERR invalid password", _/binary>>) ->
     true;
-is_auth_error1(<<"ERR client sent AUTH, but", _/binary>>) ->
+is_auth_error1(<<"ERR Client sent AUTH, but", _/binary>>) ->
     true;
 is_auth_error1(_) ->
     false.

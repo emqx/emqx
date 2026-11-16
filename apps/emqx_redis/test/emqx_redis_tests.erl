@@ -95,7 +95,7 @@ is_auth_error_test_() ->
         ~"NOPERM mocked",
         %% reportedly, these are returned by older redis versions (5 and earlier)
         ~"ERR invalid password",
-        ~"ERR client sent AUTH, but no password is set"
+        ~"ERR Client sent AUTH, but no password is set"
     ],
     NonAuthErrors = [
         tcp_closed,
