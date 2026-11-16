@@ -38,6 +38,7 @@ changes.
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -include("emqx_rule_udf.hrl").
+-include_lib("emqx/include/emqx_schema.hrl").
 
 -define(POOL, emqx_rule_udf_http).
 -define(PT_CLIENT, {?MODULE, client}).
@@ -236,38 +237,74 @@ load_plugin_config() ->
     end.
 
 apply_config(RawConfig, #{server := OldServer} = State) ->
-    case parse_config(RawConfig) of
-        {ok, OldServer} ->
-            {ok, State};
-        {ok, NewServer} ->
-            _ = persistent_term:erase(?PT_CLIENT),
-            _ = ehttpc_sup:stop_pool(?POOL),
-            case start_pool(NewServer) of
-                ok ->
-                    {ok, State#{server => NewServer}};
-                {error, _} = Error ->
-                    Error
-            end;
-        {error, _} = Error ->
-            Error
+    maybe
+        {ok, NewServer} ?= parse_config(RawConfig),
+        case NewServer =:= OldServer andalso is_pool_running() of
+            true ->
+                {ok, State};
+            false ->
+                stop_pool(),
+                case start_pool(NewServer) of
+                    ok ->
+                        {ok, State#{server => NewServer}};
+                    {error, _} = Error ->
+                        restore_pool(OldServer),
+                        Error
+                end
+        end
+    end.
+
+is_pool_running() ->
+    persistent_term:get(?PT_CLIENT, undefined) =/= undefined.
+
+stop_pool() ->
+    _ = persistent_term:erase(?PT_CLIENT),
+    _ = ehttpc_sup:stop_pool(?POOL),
+    ok.
+
+%% A failed update keeps the old settings, so it must keep the old pool too.
+restore_pool(undefined) ->
+    ok;
+restore_pool(OldServer) ->
+    case start_pool(OldServer) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?LOG(error, #{msg => "udf_restore_http_pool_failed", reason => Reason})
     end.
 
 parse_config(RawConfig) ->
     Server = maps:get(<<"server">>, RawConfig, #{}),
-    URL = maps:get(<<"url">>, Server, ?DEFAULT_URL),
+    maybe
+        {ok, URI} ?= parse_url(maps:get(<<"url">>, Server, ?DEFAULT_URL)),
+        {ok, PoolSize} ?= pos_int(<<"pool_size">>, Server, 8, 1024),
+        {ok, ConnectTimeout} ?= pos_int(<<"connect_timeout_ms">>, Server, 5000, 600_000),
+        {ok, RequestTimeout} ?= pos_int(<<"request_timeout_ms">>, Server, 2000, 600_000),
+        {ok, #{
+            uri => URI,
+            token => maps:get(<<"token">>, Server, <<>>),
+            pool_size => PoolSize,
+            connect_timeout => ConnectTimeout,
+            request_timeout => RequestTimeout
+        }}
+    end.
+
+parse_url(URL) ->
     case emqx_http_lib:uri_parse(URL) of
         {ok, #{scheme := Scheme} = URI} when Scheme =:= http; Scheme =:= https ->
-            {ok, #{
-                uri => URI,
-                token => maps:get(<<"token">>, Server, <<>>),
-                pool_size => maps:get(<<"pool_size">>, Server, 8),
-                connect_timeout => maps:get(<<"connect_timeout_ms">>, Server, 5000),
-                request_timeout => maps:get(<<"request_timeout_ms">>, Server, 2000)
-            }};
+            {ok, URI};
         {ok, _} ->
             {error, #{reason => bad_url, url => URL, hint => <<"use http:// or https://">>}};
         {error, Reason} ->
             {error, #{reason => bad_url, url => URL, detail => Reason}}
+    end.
+
+pos_int(Key, Map, Default, Max) ->
+    case maps:get(Key, Map, Default) of
+        N when is_integer(N), N >= 1, N =< Max ->
+            {ok, N};
+        Other ->
+            {error, #{reason => bad_config, field => Key, value => Other, expected => {1, Max}}}
     end.
 
 start_pool(#{uri := #{scheme := Scheme, host := Host, port := Port} = URI} = Server) ->
@@ -299,13 +336,15 @@ start_pool(#{uri := #{scheme := Scheme, host := Host, port := Port} = URI} = Ser
             {error, #{reason => http_pool_start_failed, detail => Reason}}
     end.
 
+%% `system_default' trusts the CAs in `node.trusted_certs', or the OS CAs when
+%% it is not set.
 tls_opts(Host) ->
-    [
-        {verify, verify_peer},
-        {cacerts, public_key:cacerts_get()},
-        {server_name_indication, sni(Host)},
-        {customize_hostname_check, [{match_fun, public_key:pkix_verify_hostname_match_fun(https)}]}
-    ].
+    emqx_tls_lib:to_client_opts(tls, #{
+        enable => true,
+        verify => verify_peer,
+        cacertfile => ?CACERTFILE_SYSTEM_DEFAULT,
+        server_name_indication => sni(Host)
+    }).
 
 sni(Host) when is_tuple(Host) -> disable;
 sni(Host) -> str(Host).

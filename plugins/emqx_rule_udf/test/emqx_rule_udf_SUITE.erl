@@ -181,19 +181,92 @@ t_call_works_when_no_instance_keeps_the_program(Config) ->
     %% Behind a load balancer, each request may reach an instance that does not
     %% have the program. The proxy simulates that: it deletes the program on the
     %% server before it forwards a request for it.
-    {ok, ProxyURL} = start_forgetful_proxy(Config),
+    {ok, ProxyURL} = start_proxy(Config, #{forget => true}),
     try
-        NameVsn = ?config(plugin_name_vsn, Config),
-        #{<<"server">> := Server} = Conf = plugin_config(Config),
-        {204, _} = plugin_config_request(
-            put, NameVsn, Conf#{<<"server">> := Server#{<<"url">> := ProxyURL}}
-        ),
+        {204, _} = set_server(Config, #{<<"url">> => ProxyURL}),
         Name = <<"lb.py">>,
         {200, _} = save(Name, ?UPPER_SRC),
         ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])),
         ?assertEqual(<<"XYZ">>, emqx_rule_udf_client:call(Name, [<<"xyz">>]))
     after
         cowboy:stop_listener(?MODULE)
+    end.
+
+t_https_trusts_node_trusted_certs(Config) ->
+    %% The function server uses a private CA. The plugin trusts it only after
+    %% the CA is in `node.trusted_certs'.
+    #{cacertfile := CAFile} = TLS = gen_tls_files(?config(priv_dir, Config)),
+    {ok, ProxyURL} = start_proxy(Config, #{tls => TLS}),
+    Previous = application:get_env(emqx, trusted_certs_path),
+    try
+        ok = application:unset_env(emqx, trusted_certs_path),
+        {204, _} = set_server(Config, #{<<"url">> => ProxyURL}),
+        {error, #{reason := Reason}} = emqx_rule_udf_client:server_info(),
+        ?assertNotEqual(nomatch, string:find(io_lib:format("~0p", [Reason]), "unknown_ca")),
+        ok = application:set_env(emqx, trusted_certs_path, CAFile),
+        %% A changed config restarts the pool, which reads the trusted CAs.
+        {204, _} = set_server(Config, #{<<"url">> => ProxyURL, <<"pool_size">> => 3}),
+        ?assertMatch(
+            {ok, #{<<"protocol">> := <<"emqx-rule-udf/1">>}}, emqx_rule_udf_client:server_info()
+        )
+    after
+        case Previous of
+            {ok, Path} -> application:set_env(emqx, trusted_certs_path, Path);
+            undefined -> application:unset_env(emqx, trusted_certs_path)
+        end,
+        cowboy:stop_listener(?MODULE)
+    end.
+
+t_invalid_config_update_keeps_client(Config) ->
+    Name = <<"keep.py">>,
+    {200, _} = save(Name, ?UPPER_SRC),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"BAD_CONFIG">>}}, set_server(Config, #{<<"pool_size">> => -1})
+    ),
+    ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])).
+
+t_failed_pool_start_restores_old_pool(Config) ->
+    Name = <<"restore.py">>,
+    {200, _} = save(Name, ?UPPER_SRC),
+    ok = meck:new(ehttpc_sup, [passthrough, no_history]),
+    try
+        ok = meck:expect(ehttpc_sup, start_pool, fun(Pool, Opts) ->
+            case proplists:get_value(pool_size, Opts) of
+                7 -> {error, simulated};
+                _ -> meck:passthrough([Pool, Opts])
+            end
+        end),
+        ?assertMatch({400, _}, set_server(Config, #{<<"pool_size">> => 7})),
+        ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])),
+        %% The old config is still the current one: applying it again is a no-op.
+        ?assertMatch({204, _}, set_server(Config, #{})),
+        ?assertEqual(<<"XYZ">>, emqx_rule_udf_client:call(Name, [<<"xyz">>]))
+    after
+        meck:unload(ehttpc_sup)
+    end.
+
+t_one_file_sync_timer(_Config) ->
+    %% Each save syncs the files at once. It must not start another periodic sync.
+    lists:foreach(
+        fun(I) -> {200, _} = save(<<"sync-", (integer_to_binary(I))/binary>>, ?UPPER_SRC) end,
+        lists:seq(1, 5)
+    ),
+    Pid = whereis(emqx_rule_udf_store),
+    erlang:trace(Pid, true, ['receive']),
+    try
+        timer:sleep(5500),
+        Syncs = count_sync_messages(Pid, 0),
+        %% One timer chain delivers one `sync' per 5 s, at most two in 5.5 s.
+        ?assert(Syncs =< 2, Syncs)
+    after
+        erlang:trace(Pid, false, ['receive'])
+    end.
+
+count_sync_messages(Pid, N) ->
+    receive
+        {trace, Pid, 'receive', sync} -> count_sync_messages(Pid, N + 1);
+        {trace, Pid, 'receive', _} -> count_sync_messages(Pid, N)
+    after 0 -> N
     end.
 
 t_delete_program(_Config) ->
@@ -307,16 +380,46 @@ plugin_config_request(Method, NameVsn, Body) ->
         emqx_mgmt_api_test_util:request_api(Method, URL, "", Headers, Body, #{return_all => true})
     ).
 
-%% An HTTP proxy to the function server that deletes a function before it
-%% forwards a request for it.
-start_forgetful_proxy(Config) ->
-    Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, server_url(Config)}]}]),
-    {ok, _} = cowboy:start_clear(?MODULE, [{port, 0}], #{env => #{dispatch => Dispatch}}),
-    Port = ranch:get_port(?MODULE),
-    {ok, iolist_to_binary(["http://127.0.0.1:", integer_to_list(Port)])}.
+%% Change some server settings of the plugin, keeping the others.
+set_server(Config, Changes) ->
+    #{<<"server">> := Server} = Conf = plugin_config(Config),
+    plugin_config_request(
+        put, ?config(plugin_name_vsn, Config), Conf#{<<"server">> := maps:merge(Server, Changes)}
+    ).
+
+%% An HTTP proxy to the function server. With `forget', it deletes a function
+%% before it forwards a request for it. With `tls', it serves HTTPS.
+start_proxy(Config, Opts) ->
+    State = #{server_url => server_url(Config), forget => maps:get(forget, Opts, false)},
+    Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, State}]}]),
+    ProtoOpts = #{env => #{dispatch => Dispatch}},
+    case Opts of
+        #{tls := #{certfile := Cert, keyfile := Key}} ->
+            TransOpts = [{port, 0}, {certfile, Cert}, {keyfile, Key}],
+            {ok, _} = cowboy:start_tls(?MODULE, TransOpts, ProtoOpts),
+            Scheme = "https://localhost:";
+        #{} ->
+            {ok, _} = cowboy:start_clear(?MODULE, [{port, 0}], ProtoOpts),
+            Scheme = "http://127.0.0.1:"
+    end,
+    {ok, iolist_to_binary([Scheme, integer_to_list(ranch:get_port(?MODULE))])}.
+
+%% A CA, and a server certificate for `localhost' that it signs.
+gen_tls_files(Dir) ->
+    {CACert, _} = CA = emqx_cth_tls:gen_cert(#{key => ec, issuer => root}),
+    Server = emqx_cth_tls:gen_cert(#{
+        key => ec,
+        issuer => CA,
+        subject => #{name => "localhost"},
+        extensions => #{subject_alt_name => [{dns, "localhost"}]}
+    }),
+    CAFile = filename:join(Dir, "udf-ca.pem"),
+    ok = emqx_cth_tls:write_pem(CAFile, CACert),
+    {CertFile, KeyFile} = emqx_cth_tls:write_cert(Dir, "udf-server", Server),
+    #{cacertfile => CAFile, certfile => CertFile, keyfile => KeyFile}.
 
 %% cowboy handler of the proxy
-init(Req0, ServerURL) ->
+init(Req0, #{server_url := ServerURL, forget := Forget} = State) ->
     Path = binary_to_list(cowboy_req:path(Req0)),
     {ok, Body, Req} = cowboy_req:read_body(Req0),
     Headers = [
@@ -325,7 +428,7 @@ init(Req0, ServerURL) ->
         lists:member(K, [<<"authorization">>, <<"udf-function-sha256">>])
     ],
     case string:split(Path, "/", all) of
-        ["", "v1", "functions", Name | _] ->
+        ["", "v1", "functions", Name | _] when Forget ->
             {ok, _} = httpc:request(
                 delete, {ServerURL ++ "/v1/functions/" ++ Name, Headers}, [], []
             );
@@ -341,7 +444,7 @@ init(Req0, ServerURL) ->
     {ok, {{_, Status, _}, _, RespBody}} =
         httpc:request(Method, Request, [], [{body_format, binary}]),
     {ok, cowboy_req:reply(Status, #{<<"content-type">> => <<"application/json">>}, RespBody, Req),
-        ServerURL}.
+        State}.
 
 plugin_package() ->
     Root = emqx_common_test_helpers:proj_root(),

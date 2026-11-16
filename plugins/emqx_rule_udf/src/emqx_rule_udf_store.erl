@@ -97,6 +97,7 @@ validate_name(_) ->
 
 init([]) ->
     State = #{written => #{}},
+    schedule_sync(),
     {ok, sync_files(State)}.
 
 handle_call({put, Name, Runtime, Source, UpdatedBy}, _From, State) ->
@@ -129,6 +130,8 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info(sync, State) ->
+    %% The only place that schedules the next sync after `init/1': one timer.
+    schedule_sync(),
     {noreply, sync_files(State)};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -140,11 +143,14 @@ terminate(_Reason, _State) ->
 %% File cache
 %%--------------------------------------------------------------------
 
+schedule_sync() ->
+    _ = erlang:send_after(?SYNC_INTERVAL, self(), sync),
+    ok.
+
 %% Make the files match the table: write new and changed programs, and delete
 %% files that have no program. `written' maps each name to the version of its
 %% file, so an unchanged program costs no file I/O.
 sync_files(#{written := Written0} = State) ->
-    erlang:send_after(?SYNC_INTERVAL, self(), sync),
     Dir = programs_dir(),
     case filelib:ensure_path(Dir) of
         ok ->
