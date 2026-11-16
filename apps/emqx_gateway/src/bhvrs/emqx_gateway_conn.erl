@@ -269,10 +269,14 @@ is_datadram_socket({esockd_udp_proxy, _ProxyId, Sock}) -> erlang:is_port(Sock).
 %%--------------------------------------------------------------------
 
 init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             do_init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod);
-        false ->
+        {error, too_many_processes} ->
+            ok = emqx_node_readiness:log_process_limit_refusal(#{channel_module => ChannMod}),
+            ok = esockd_close(WrappedSock),
+            erlang:exit({shutdown, too_many_processes});
+        {error, node_not_ready} ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             ?SLOG(warning, #{

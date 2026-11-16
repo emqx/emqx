@@ -447,6 +447,24 @@ t_protocol_version_default(_Config) ->
     ?assertError(function_clause, emqx_ocpp_connection:parse_protocol_name(<<"ocpp2.0">>)),
     ?assertError(function_clause, emqx_ocpp_connection:parse_protocol_name(<<"unknown">>)).
 
+-doc """
+OCPP answers the WebSocket upgrade with HTTP 503 when the process count is
+close to the process limit, and accepts it once the count drops.
+""".
+t_process_limit_refusal(_Config) ->
+    ok = meck:new(emqx_node_readiness, [passthrough, no_history, no_link]),
+    try
+        ok = meck:expect(emqx_node_readiness, process_usage, 0, {95, 100}),
+        with_handshake_client(<<"process-limit">>, [<<"ocpp1.6">>], undefined, fun(Result) ->
+            ?assertMatch({error, 503, _}, Result)
+        end)
+    after
+        meck:unload(emqx_node_readiness)
+    end,
+    with_handshake_client(<<"process-limit">>, [<<"ocpp1.6">>], undefined, fun(Result) ->
+        ?assertMatch({ok, _, _}, Result)
+    end).
+
 with_handshake_config(Supported, Required, Fun) ->
     Saved = emqx:get_raw_config([gateway, ocpp]),
     Listener = emqx_utils_maps:deep_get([<<"listeners">>, <<"ws">>, <<"default">>], Saved),

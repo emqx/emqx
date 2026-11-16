@@ -323,10 +323,17 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, Transport, RawSocket, Options) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             do_init(Parent, Transport, RawSocket, Options);
-        false ->
+        {error, too_many_processes} ->
+            %% Checked before wait/1, so that a refused TLS connection
+            %% does not start the TLS processes.
+            %% The exit reason feeds the listener's shutdown counter.
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => Transport}),
+            ok = Transport:fast_close(RawSocket),
+            erlang:exit({shutdown, too_many_processes});
+        {error, node_not_ready} ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             %% The exit reason feeds the listener's shutdown counter.

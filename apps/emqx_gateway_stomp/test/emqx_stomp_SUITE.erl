@@ -206,6 +206,26 @@ t_connect(_) ->
     end,
     with_connection(ProtocolError).
 
+-doc """
+A STOMP TCP connection is closed at init when the process count is close to
+the process limit, accepted once it drops.
+""".
+t_process_limit_refusal(_) ->
+    ok = meck:new(emqx_node_readiness, [passthrough, no_history, no_link]),
+    try
+        ok = meck:expect(emqx_node_readiness, process_usage, 0, {95, 100}),
+        with_connection(fun(Sock) ->
+            ?assertEqual({error, closed}, gen_tcp:recv(Sock, 0, 5000))
+        end)
+    after
+        meck:unload(emqx_node_readiness)
+    end,
+    with_connection(fun(Sock) ->
+        ok = send_connection_frame(Sock, <<"guest">>, <<"guest">>),
+        {ok, Frame} = recv_a_frame(Sock),
+        ?assertMatch(<<"CONNECTED">>, Frame#stomp_frame.command)
+    end).
+
 t_auth_expire(_) ->
     ok = meck:new(emqx_access_control, [passthrough, no_history]),
     ok = meck:expect(
