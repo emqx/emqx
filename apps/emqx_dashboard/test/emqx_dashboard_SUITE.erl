@@ -933,21 +933,51 @@ t_default_password_file(Config) ->
 
 -doc """
 With `dashboard.show_preview_version = false`, the login response reports the
-release version without its `-preview.N` suffix.
+release version without its `-cloud.N` suffix.
 """.
-t_login_preview_version_hidden(_) ->
+t_login_cloud_version_hidden(_) ->
     mnesia:clear_table(?ADMIN),
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"admin">>, <<"public_www1">>, ?ROLE_SUPERUSER, <<"administrator">>
     ),
     meck:new(emqx_release, [passthrough, no_history, no_link]),
-    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+    meck:expect(emqx_release, version, 0, "6.3.3-cloud.1"),
     try
-        ?assertEqual(<<"6.1.5-preview.1">>, login_version()),
+        ?assertEqual(<<"6.3.3-cloud.1">>, login_version()),
         {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
-        ?assertEqual(<<"6.1.5">>, login_version())
+        ?assertEqual(<<"6.3.3">>, login_version())
     after
         meck:unload(emqx_release),
+        {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{})
+    end.
+
+-doc """
+The existing flag hides Cloud suffixes for string and binary API versions.
+Other prerelease suffixes are unchanged.
+""".
+t_reported_cloud_version_variants(_) ->
+    Versions = [
+        {"6.3.3-cloud.1", "6.3.3"},
+        {<<"6.3.3-cloud.12">>, <<"6.3.3">>},
+        {"6.3.3-cloud.1-gabcdef0", "6.3.3-gabcdef0"},
+        {"6.3.3", "6.3.3"},
+        {<<"6.3.3-rc.1">>, <<"6.3.3-rc.1">>},
+        {"6.3.3-preview.1", "6.3.3-preview.1"}
+    ],
+    try
+        {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{}),
+        lists:foreach(
+            fun({Vsn, _}) -> ?assertEqual(Vsn, emqx_dashboard:reported_version(Vsn)) end,
+            Versions
+        ),
+        {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
+        lists:foreach(
+            fun({Vsn, Expected}) ->
+                ?assertEqual(Expected, emqx_dashboard:reported_version(Vsn))
+            end,
+            Versions
+        )
+    after
         {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{})
     end.
 
