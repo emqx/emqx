@@ -40,7 +40,7 @@ jobs:
   prepare:
     if: >-
       github.event_name != 'release' ||
-      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-preview.'))
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.'))
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.prepare.outputs.tag }}
