@@ -10,8 +10,8 @@ downloads. It feeds two consumers:
   - scripts/rel/print-download-links.py (emqx.com download URLs), which imports
     this module and calls matrix().
 
-Snap is built by build_packages.yaml too, but it is published to the Snap Store
-rather than emqx.com, so its (arch-only) matrix stays inline in that workflow.
+Snap is built and published independently by build_snap.yaml. It is published
+to the Snap Store rather than emqx.com, so its architecture matrix stays there.
 
 Because the workflow generates its matrix from here, the two cannot drift.
 

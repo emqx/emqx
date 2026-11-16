@@ -814,19 +814,6 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "erlang_vm_ets_limit {job=~\"$job\", instance=\"$instance\"}",
-          "interval": "",
-          "legendFormat": "ETS max",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "exemplar": true,
           "expr": "erlang_vm_ets_tables {job=~\"$job\", instance=\"$instance\"}",
           "hide": false,
           "interval": "",

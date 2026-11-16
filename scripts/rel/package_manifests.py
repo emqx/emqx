@@ -18,8 +18,9 @@ for each package:
     now.
   - git_commit is the commit the release tag points to. git_tag_signed is false
     for a lightweight tag and for an annotated tag without a signature. A signed
-    tag is recorded as true only when `git verify-tag` accepts it, and is an
-    error otherwise.
+    tag is recorded as true only when `git verify-tag` accepts it, or a trusted
+    CI caller supplies its previously verified tag object ID. A supplied ID
+    must match the signed annotated tag; signature verification is the default.
 
 Only GA versions (X.Y.Z) are accepted.
 
@@ -43,6 +44,7 @@ Usage:
                        [--profile emqx-enterprise] [--git-dir .]
                        [--out-dir DIR] [--publish] [--run-url URL]
                        [--repo emqx/emqx-package-manifests] [--branch master]
+                       [--verified-tag-object FULL_OBJECT_ID]
 """
 
 import argparse
@@ -96,13 +98,21 @@ def git(git_dir, *args):
     )
 
 
-def tag_info(git_dir, tag):
+def tag_info(git_dir, tag, verified_tag_object=None):
     """Return (commit, signed) for a tag present in the local repository.
 
-    Raises ValueError when the tag is missing, or when it carries a signature
-    that `git verify-tag` does not accept.
+    A trusted CI caller can reuse a prior verification of the exact tag object.
+    Other callers verify signatures locally. Missing tags, mismatched object IDs
+    and rejected signatures raise ValueError.
     """
     ref = f"refs/tags/{tag}"
+    if verified_tag_object:
+        tag_object = git(git_dir, "rev-parse", "--verify", ref)
+        if tag_object.returncode != 0:
+            raise ValueError(f"tag {tag} is not present in {git_dir}; fetch it first")
+        if tag_object.stdout.strip() != verified_tag_object:
+            raise ValueError(f"tag {tag} does not match the previously verified object")
+        ref = verified_tag_object
     kind = git(git_dir, "cat-file", "-t", ref)
     if kind.returncode != 0:
         raise ValueError(f"tag {tag} is not present in {git_dir}; fetch it first")
@@ -111,6 +121,9 @@ def tag_info(git_dir, tag):
         raise ValueError(f"tag {tag} does not point to a commit")
     commit = commit.stdout.strip()
     kind = kind.stdout.strip()
+    if verified_tag_object:
+        if kind != "tag":
+            raise ValueError(f"tag {tag} is not an annotated tag")
     if kind == "commit":
         # A lightweight tag has no tag object, so it cannot carry a signature.
         return commit, False
@@ -118,7 +131,11 @@ def tag_info(git_dir, tag):
         raise ValueError(f"tag {tag} refers to a {kind}, not a commit")
     body = git(git_dir, "cat-file", "tag", ref).stdout
     if not any(marker in body for marker in SIGNATURE_MARKERS):
+        if verified_tag_object:
+            raise ValueError(f"tag {tag} does not carry a signature")
         return commit, False
+    if verified_tag_object:
+        return commit, True
     verify = git(git_dir, "verify-tag", ref)
     if verify.returncode != 0:
         raise ValueError(
@@ -308,6 +325,10 @@ def parse_args(argv):
     p.add_argument("--packages-dir", required=True, type=Path)
     p.add_argument("--version", required=True)
     p.add_argument("--tag", required=True)
+    p.add_argument(
+        "--verified-tag-object",
+        help="full tag object ID already verified by trusted CI; empty verifies locally",
+    )
     p.add_argument("--profile", default="emqx-enterprise")
     p.add_argument(
         "--git-dir", default=Path("."), type=Path, help="repository holding the tag"
@@ -333,7 +354,7 @@ def main(argv=None):
         return 2
     problems = Problems()
     try:
-        commit, signed = tag_info(args.git_dir, args.tag)
+        commit, signed = tag_info(args.git_dir, args.tag, args.verified_tag_object)
     except ValueError as e:
         problems.error(str(e))
         return 1
