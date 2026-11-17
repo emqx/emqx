@@ -17,6 +17,10 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+%% See `DataType` in `priv/sparkplug_b.proto`.
+-define(uint32_type, 7).
+-define(string_type, 12).
+
 -define(assertReceivePublish(EXPR, GUARD, EXTRA, TIMEOUT),
     (fun() ->
         lists:foreach(
@@ -323,8 +327,10 @@ run_in_process(Label, Fun) ->
 %% Drives the publish hook directly in the calling process, as the broker does for the
 %% process that publishes the message.
 hook_publish(NodeOrDevice, MsgType, Payload0) ->
+    hook_publish_raw(NodeOrDevice, MsgType, spb_encode(Payload0)).
+
+hook_publish_raw(NodeOrDevice, MsgType, Payload) ->
     Topic = spb_topic(NodeOrDevice, MsgType, _Opts = #{}),
-    Payload = spb_encode(Payload0),
     Message = emqx_message:make(<<"from">>, Topic, Payload),
     _ = emqx_schema_registry_spb_hookcb:on_message_publish_alias_mapping(Message),
     ok.
@@ -1089,3 +1095,151 @@ t_mountpoints(_TCConfig) ->
         ok
     end),
     ok.
+
+-doc """
+Checks that a large birth message does not kill the publisher's channel process.
+
+The publish hook runs in a process that has the heap limit of a channel process with
+the default `force_shutdown` policy. A full protobuf decode of this payload needs more
+heap than that limit. The aliases of the payload must still be registered.
+""".
+t_large_birth_message(_TCConfig) ->
+    #{enable := true, max_heap_size := MaxHeapSize} =
+        ShutdownPolicy =
+        emqx_config:get_zone_conf(default, [force_shutdown]),
+    ?assert(MaxHeapSize > 0),
+    NumMetrics = 20_000,
+    AliasEvery = 1_000,
+    Payload = spb_encode(large_birth_payload(NumMetrics, AliasEvery)),
+    Mapping = run_in_process({clientid, <<"c1">>}, fun() ->
+        _ = emqx_utils:tune_heap_size(ShutdownPolicy),
+        hook_publish_raw(device, <<"DBIRTH">>, Payload),
+        hook_publish(device, <<"DDATA">>, singleton_aliased_metric(no_name, AliasEvery)),
+        emqx_schema_registry_spb_state:get_current_alias_mapping()
+    end),
+    Expected = maps:from_list([
+        {I, large_metric_name(I)}
+     || I <- lists:seq(1, NumMetrics), I rem AliasEvery =:= 0
+    ]),
+    ?assertEqual(Expected, Mapping),
+    ok.
+
+-doc """
+Checks that the alias scan of a birth payload returns the same mapping as the full
+decode, for metrics with and without names and aliases, repeated aliases, the largest
+alias value, and property sets.
+""".
+t_scan_aliases_matches_full_decode(_TCConfig) ->
+    MaxAlias = (1 bsl 64) - 1,
+    Payloads = [
+        sample_birth_payload1(),
+        sample_data_payload1(),
+        large_birth_payload(50, 7),
+        #{
+            <<"seq">> => 1,
+            <<"metrics">> => [
+                #{<<"name">> => <<"a">>, <<"alias">> => 1},
+                #{<<"name">> => <<"b">>, <<"alias">> => 1},
+                #{<<"alias">> => 2},
+                #{<<"name">> => <<"c">>},
+                #{<<"name">> => <<"d">>, <<"alias">> => MaxAlias, <<"double_value">> => 1.5},
+                #{<<"name">> => <<>>, <<"alias">> => 0}
+            ]
+        },
+        #{<<"seq">> => 1}
+    ],
+    lists:foreach(
+        fun(Payload0) ->
+            Payload = spb_encode(Payload0),
+            ?assertEqual(
+                full_decode_aliases(Payload),
+                emqx_schema_registry_spb_state:scan_aliases(Payload),
+                #{payload => Payload0}
+            )
+        end,
+        Payloads
+    ),
+    ok.
+
+-doc """
+Checks that a birth payload that is not valid protobuf registers no aliases and does
+not crash the publisher's channel process.
+""".
+t_bad_birth_message(_TCConfig) ->
+    Good = spb_encode(singleton_aliased_metric(<<"name">>, 1)),
+    BadPayloads = [
+        %% Truncated metric.
+        binary:part(Good, 0, byte_size(Good) - 1),
+        %% Varint longer than 10 bytes.
+        <<(binary:copy(<<16#ff>>, 10))/binary, 1>>,
+        %% Group start (wire type 3), which the scan does not support.
+        <<((3 bsl 3) bor 3), Good/binary>>,
+        %% Length larger than the rest of the payload.
+        <<((2 bsl 3) bor 2), 100, 0>>,
+        %% Truncated fixed64 field.
+        <<((1 bsl 3) bor 1), 0, 0>>
+    ],
+    lists:foreach(
+        fun(Bad) ->
+            ?assertError(
+                {bad_protobuf, _},
+                emqx_schema_registry_spb_state:scan_aliases(Bad),
+                #{payload => Bad}
+            ),
+            Mapping = run_in_process({clientid, <<"c1">>}, fun() ->
+                hook_publish_raw(node, <<"NBIRTH">>, Bad),
+                hook_publish(node, <<"NDATA">>, singleton_aliased_metric(no_name, 1)),
+                emqx_schema_registry_spb_state:get_current_alias_mapping()
+            end),
+            ?assertEqual(#{}, Mapping, #{payload => Bad})
+        end,
+        BadPayloads
+    ),
+    ok.
+
+large_birth_payload(NumMetrics, AliasEvery) ->
+    NumProps = 8,
+    Props = #{
+        <<"keys">> => [
+            <<"property", (integer_to_binary(I))/binary>>
+         || I <- lists:seq(1, NumProps)
+        ],
+        <<"values">> => [
+            #{<<"type">> => ?string_type, <<"string_value">> => <<"property value">>}
+         || _ <- lists:seq(1, NumProps)
+        ]
+    },
+    Metrics = [
+        large_metric(I, I rem AliasEvery =:= 0, Props)
+     || I <- lists:seq(1, NumMetrics)
+    ],
+    #{<<"timestamp">> => 1678094561521, <<"seq">> => 0, <<"metrics">> => Metrics}.
+
+large_metric(I, WithAlias, Props) ->
+    Metric = #{
+        <<"name">> => large_metric_name(I),
+        <<"datatype">> => ?uint32_type,
+        <<"int_value">> => I,
+        <<"properties">> => Props
+    },
+    case WithAlias of
+        true -> Metric#{<<"alias">> => I};
+        false -> Metric
+    end.
+
+large_metric_name(I) ->
+    <<"device/metric/", (integer_to_binary(I))/binary>>.
+
+%% Alias mapping from a full decode, in a process with no current alias mapping.
+full_decode_aliases(Payload) ->
+    run_in_process(_Label = undefined, fun() ->
+        Decoded = emqx_schema_registry_serde:rsf_spb_decode([Payload]),
+        lists:foldl(
+            fun
+                (#{<<"alias">> := Alias, <<"name">> := Name}, Acc) -> Acc#{Alias => Name};
+                (_, Acc) -> Acc
+            end,
+            #{},
+            maps:get(<<"metrics">>, Decoded, [])
+        )
+    end).
