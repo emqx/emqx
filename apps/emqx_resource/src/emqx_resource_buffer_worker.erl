@@ -2533,14 +2533,23 @@ ensure_expire_at(#{timeout := TimeoutMS} = Opts) ->
     Opts#{expire_at => ExpireAt}.
 
 %% no need to keep the request for async reply handler
-minimize(QueryOrBatch, true = _IsSimpleQuery) ->
+minimize(?QUERY(_, _, _, _, _, _) = Q, true = _IsSimpleQuery) ->
     %% ... except for simple queries, which do not possess an inflight table.  if we
     %% minimize queries here, it breaks fallback actions.
-    QueryOrBatch;
-minimize(?QUERY(_, _, _, _, _, _) = Q, false = _IsSimpleQuery) ->
+    do_minimize_simple_query(Q);
+minimize(?QUERY(_, _, _, _, _, _) = Q, _IsSimpleQuery) ->
     do_minimize(Q);
+minimize(L, true = _IsSimpleQuery) when is_list(L) ->
+    [do_minimize_simple_query(Q) || Q <- L];
 minimize(L, false = _IsSimpleQuery) when is_list(L) ->
-    lists:map(fun do_minimize/1, L).
+    [do_minimize(Q) || Q <- L].
+
+do_minimize_simple_query(?QUERY(_, _, _, _, #{?fallback_actions := [_ | _]}, _) = Q) ->
+    %% must not minimize if there are fallback actions; we need the original queries to
+    %% pass them down.
+    Q;
+do_minimize_simple_query(Q) ->
+    do_minimize(Q).
 
 do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt, RequestContext, TraceCtx)) ->
     ?QUERY(ReplyTo, [], Sent, ExpireAt, RequestContext, TraceCtx).
