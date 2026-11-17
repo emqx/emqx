@@ -65,8 +65,8 @@
 -define(ds_tx_read, r).
 -define(ds_tx_expected, e).
 -define(ds_tx_unexpected, u).
--define(ds_tx_wlock, lw).
--define(ds_tx_dlock, ld).
+-define(ds_tx_wmark, mw).
+-define(ds_tx_dmark, md).
 
 %% Client
 -record(emqx_ds_client_retry, {ref :: reference()}).

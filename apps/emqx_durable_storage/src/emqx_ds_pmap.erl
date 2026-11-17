@@ -323,10 +323,11 @@ tx_commit(
             %% with the rest of the collection:
             {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}};
         _ ->
-            %% Claim the entire pmap data topic filter to avoid locking individual keys:
+            %% Mark the entire pmap data topic filter as dirty, to
+            %% avoid tracking conflicts for the individual keys:
             LockedTF = pmap_topic(Name, CollectionId, '+'),
-            emqx_ds:tx_lock(LockedTF, 0, infinity, w),
-            emqx_ds:tx_lock(LockedTF, 0, infinity, d),
+            emqx_ds:tx_mark_dirty(LockedTF, 0, infinity, w),
+            emqx_ds:tx_mark_dirty(LockedTF, 0, infinity, d),
             %% Dump data:
             pmap_dump_dirty(CollectionId, Pmap),
             {TxCntr, Pmap#pmap{tx_counter = TxCntr + 1}}
@@ -362,10 +363,11 @@ tx_commit(
     ),
     case IsDirty of
         true ->
-            %% Claim the entire pmap data topic filter to avoid locking individual keys:
+            %% Mark the entire pmap data topic filter as dirty, to
+            %% avoid tracking conflicts for the individual keys:
             LockedTF = pmap_topic(Name, CollectionId, '+'),
-            emqx_ds:tx_lock(LockedTF, 0, infinity, w),
-            emqx_ds:tx_lock(LockedTF, 0, infinity, d);
+            emqx_ds:tx_mark_dirty(LockedTF, 0, infinity, w),
+            emqx_ds:tx_mark_dirty(LockedTF, 0, infinity, d);
         false ->
             ok
     end,
@@ -888,8 +890,8 @@ pset_copy_comm(V) ->
 %% transaction operations:
 -define(tx_ops_write, emqx_ds_tx_ctx_write).
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
--define(tx_ops_wlock, emqx_ds_tx_ctx_wlock).
--define(tx_ops_dlock, emqx_ds_tx_ctx_dlock).
+-define(tx_ops_wmark, emqx_ds_tx_ctx_wmark).
+-define(tx_ops_dmark, emqx_ds_tx_ctx_dmark).
 
 pmap_encode_key(?test_name, K) ->
     term_to_binary(K).
@@ -906,7 +908,7 @@ pmap_decode_val(?test_name, _K, ValBin) ->
 %% Run a fun with the transaction operation keys of the process
 %% dictionary initialized the same way `emqx_ds:trans_inner' does:
 with_tx_ops(Fun) ->
-    Keys = [?tx_ops_write, ?tx_ops_del_topic, ?tx_ops_wlock, ?tx_ops_dlock],
+    Keys = [?tx_ops_write, ?tx_ops_del_topic, ?tx_ops_wmark, ?tx_ops_dmark],
     [put(K, []) || K <- Keys],
     try
         Fun()
@@ -914,7 +916,7 @@ with_tx_ops(Fun) ->
         [erase(K) || K <- Keys]
     end.
 
-lock_tf() ->
+dirty_tf() ->
     [?top_data, ?test_collection, ?test_name, '+'].
 
 key_topic(K) ->
@@ -927,19 +929,19 @@ clean_commit_test() ->
         {0, P1} = tx_commit(?test_collection, P0),
         ?assertEqual([], get(?tx_ops_write)),
         ?assertEqual([], get(?tx_ops_del_topic)),
-        ?assertEqual([], get(?tx_ops_wlock)),
-        ?assertEqual([], get(?tx_ops_dlock)),
+        ?assertEqual([], get(?tx_ops_wmark)),
+        ?assertEqual([], get(?tx_ops_dmark)),
         %% The counter is still stepped, to keep the counters of the
         %% pmaps in the collection in accord:
         {1, _} = tx_commit(?test_collection, P1)
     end).
 
-dirty_commit_locks_the_topic_test() ->
+dirty_commit_marks_the_topic_dirty_test() ->
     P0 = put(k, v, new_pmap(?MODULE, ?test_name, dirty)),
     with_tx_ops(fun() ->
         {0, _} = tx_commit(?test_collection, P0),
-        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
-        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_dlock)),
+        ?assertEqual([{dirty_tf(), 0, infinity}], get(?tx_ops_wmark)),
+        ?assertEqual([{dirty_tf(), 0, infinity}], get(?tx_ops_dmark)),
         ?assertEqual([{key_topic(k), 0, term_to_binary(v)}], get(?tx_ops_write))
     end).
 
@@ -950,8 +952,8 @@ put_del_of_a_new_key_is_a_noop_test() ->
         {0, _} = tx_commit(?test_collection, P0),
         ?assertEqual([], get(?tx_ops_write)),
         ?assertEqual([], get(?tx_ops_del_topic)),
-        ?assertEqual([], get(?tx_ops_wlock)),
-        ?assertEqual([], get(?tx_ops_dlock))
+        ?assertEqual([], get(?tx_ops_wmark)),
+        ?assertEqual([], get(?tx_ops_dmark))
     end).
 
 del_of_a_missing_key_is_a_noop_test() ->
@@ -991,7 +993,7 @@ legacy_put_marker_test() ->
     with_tx_ops(fun() ->
         {1, P1} = tx_commit(?test_collection, P0),
         ?assertEqual([{key_topic(k), 0, term_to_binary(v)}], get(?tx_ops_write)),
-        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
+        ?assertEqual([{dirty_tf(), 0, infinity}], get(?tx_ops_wmark)),
         P2 = tx_success(1, P1),
         ?assertNot(is_dirty(P2))
     end).
@@ -1033,8 +1035,8 @@ pset_clean_commit_test() ->
         {undefined, _} = tx_commit(?test_collection, P0),
         ?assertEqual([], get(?tx_ops_write)),
         ?assertEqual([], get(?tx_ops_del_topic)),
-        ?assertEqual([], get(?tx_ops_wlock)),
-        ?assertEqual([], get(?tx_ops_dlock))
+        ?assertEqual([], get(?tx_ops_wmark)),
+        ?assertEqual([], get(?tx_ops_dmark))
     end).
 
 pset_del_topic_uses_encoded_key_test() ->
@@ -1042,7 +1044,7 @@ pset_del_topic_uses_encoded_key_test() ->
     with_tx_ops(fun() ->
         {undefined, P1} = tx_commit(?test_collection, P0),
         ?assertEqual([{key_topic(k), 0, term_to_binary(true)}], get(?tx_ops_write)),
-        ?assertEqual([{lock_tf(), 0, infinity}], get(?tx_ops_wlock)),
+        ?assertEqual([{dirty_tf(), 0, infinity}], get(?tx_ops_wmark)),
         P2 = tx_success(undefined, P1),
         P3 = del(?test_collection, k, P2),
         {undefined, _} = tx_commit(?test_collection, P3),

@@ -1164,11 +1164,11 @@ update_dirty_d(Serial, Ops, Dirty0) ->
         Dirty0,
         maps:get(?ds_tx_delete_topic, Ops, [])
     ),
-    %% Add dlocks:
+    %% Add d-marks:
     mark_tf_ranges_dirty(
         Serial,
         Dirty,
-        maps:get(?ds_tx_dlock, Ops, [])
+        maps:get(?ds_tx_dmark, Ops, [])
     ).
 
 -spec update_dirty_w(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
@@ -1182,11 +1182,11 @@ update_dirty_w(Serial, Ops, Dirty0) ->
         Dirty0,
         maps:get(?ds_tx_write, Ops, [])
     ),
-    %% Add wlocks:
+    %% Add w-marks:
     mark_tf_ranges_dirty(
         Serial,
         Dirty,
-        maps:get(?ds_tx_wlock, Ops, [])
+        maps:get(?ds_tx_wmark, Ops, [])
     ).
 
 mark_tf_ranges_dirty(Serial, Dirty, TopicRanges) ->
@@ -1352,8 +1352,8 @@ preprocess_ops(_PresumedCommitSerial, Tx) ->
         fun
             (K, Ops) when
                 K =:= ?ds_tx_delete_topic;
-                K =:= ?ds_tx_wlock;
-                K =:= ?ds_tx_dlock
+                K =:= ?ds_tx_wmark;
+                K =:= ?ds_tx_dmark
             ->
                 [preprocess_topic_range(MonotonicTS, I) || I <- Ops];
             (_K, Ops) ->
@@ -1406,8 +1406,8 @@ check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
     emqx_ds:tx_ops()
 ) -> ok | ?err_rec(_).
 do_check_explicit_locks(DirtyW, DirtyD, TxStartSerial, Ops) ->
-    Wlocks = maps:get(?ds_tx_wlock, Ops, []),
-    Dlocks = maps:get(?ds_tx_dlock, Ops, []),
+    Wlocks = maps:get(?ds_tx_wmark, Ops, []),
+    Dlocks = maps:get(?ds_tx_dmark, Ops, []),
     case {Wlocks, Dlocks} of
         {[], []} ->
             ok;

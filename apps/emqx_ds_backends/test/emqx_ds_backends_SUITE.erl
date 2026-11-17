@@ -2395,13 +2395,13 @@ t_30_quotas(Config) ->
     ).
 
 %% This testcase verifies the conflict semantics of the explicit
-%% transaction locks (`emqx_ds:tx_lock/4`). A transaction that takes a
-%% lock is aborted when a write, a topic deletion, a read or another
-%% lock was committed for the overlapping range after the transaction
-%% started. The lock does not abort a transaction that only writes
-%% into the locked range: such a writer is ordered by its commit
+%% dirty marks (`emqx_ds:tx_mark_dirty/4`). A transaction that marks a
+%% region is aborted when a write, a topic deletion, a read or another
+%% mark was committed for the overlapping range after the transaction
+%% started. The mark does not abort a transaction that only writes
+%% into the marked range: such a writer is ordered by its commit
 %% serial instead.
-t_31_tx_lock_conflicts(Config) ->
+t_31_tx_mark_dirty(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = opts(Config),
     TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
@@ -2439,60 +2439,60 @@ t_31_tx_lock_conflicts(Config) ->
         ),
         CheckCanary()
     end,
-    %% Locks of both kinds over an entire pmap-like topic filter:
-    LockTF = [<<"l">>, <<"t">>, '+'],
-    WLock = fun() -> #{?ds_tx_wlock => [{LockTF, 0, infinity}]} end,
-    DLock = fun() -> #{?ds_tx_dlock => [{LockTF, 0, infinity}]} end,
+    %% Dirty marks of both kinds over an entire pmap-like topic filter:
+    MarkTF = [<<"l">>, <<"t">>, '+'],
+    WMark = fun() -> #{?ds_tx_wmark => [{MarkTF, 0, infinity}]} end,
+    DMark = fun() -> #{?ds_tx_dmark => [{MarkTF, 0, infinity}]} end,
     ?check_trace(
         begin
             ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
-            %% Locks conflict with the concurrent writes into the locked range:
+            %% Marks conflict with the concurrent writes into the marked range:
             Conflict(
                 #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
-                WLock()
+                WMark()
             ),
             Conflict(
                 #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
-                DLock()
+                DMark()
             ),
-            %% Locks conflict with the concurrent topic deletions:
+            %% Marks conflict with the concurrent topic deletions:
             Conflict(
-                #{?ds_tx_delete_topic => [{LockTF, 0, infinity}]},
-                WLock()
+                #{?ds_tx_delete_topic => [{MarkTF, 0, infinity}]},
+                WMark()
             ),
             Conflict(
-                #{?ds_tx_delete_topic => [{LockTF, 0, infinity}]},
-                DLock()
+                #{?ds_tx_delete_topic => [{MarkTF, 0, infinity}]},
+                DMark()
             ),
-            %% Locks conflict with the concurrent reads of the locked range.
+            %% Marks conflict with the concurrent reads of the marked range.
             %% This is what protects the read-modify-write cycles of
             %% the pmap collections:
-            Conflict(WLock(), #{?ds_tx_read => [{LockTF, 0, infinity}]}),
-            Conflict(DLock(), #{?ds_tx_read => [{LockTF, 0, infinity}]}),
-            %% Locks conflict with the concurrent locks of either kind:
-            Conflict(WLock(), WLock()),
-            Conflict(WLock(), DLock()),
-            Conflict(DLock(), WLock()),
-            Conflict(DLock(), DLock()),
+            Conflict(WMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
+            Conflict(DMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
+            %% Marks conflict with the concurrent marks of either kind:
+            Conflict(WMark(), WMark()),
+            Conflict(WMark(), DMark()),
+            Conflict(DMark(), WMark()),
+            Conflict(DMark(), DMark()),
             %% No conflict when the ranges don't overlap:
             Ok(
                 #{?ds_tx_write => [{[<<"l">>, <<"x">>, <<1>>], 0, <<>>}]},
-                WLock()
+                WMark()
             ),
             Ok(
                 #{?ds_tx_delete_topic => [{[<<"l">>, <<"x">>, '+'], 0, infinity}]},
-                DLock()
+                DMark()
             ),
             %% No conflict when the time ranges don't overlap:
             Ok(
                 #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 100, <<>>}]},
-                #{?ds_tx_wlock => [{LockTF, 0, 10}]}
+                #{?ds_tx_wmark => [{MarkTF, 0, 10}]}
             ),
             %% The lock is advisory for the writers: a transaction that
             %% only writes into the locked range is not aborted by it.
             %% The writer wins by its commit serial:
             Ok(
-                WLock(),
+                WMark(),
                 #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}]}
             ),
             ?assertMatch(

@@ -449,11 +449,11 @@ is_dirty3_test() ->
     ?clean([<<1>>, '#'], 0, 0, 2, Trie),
     ?clean(['#'], 0, 0, 2, Trie).
 
-%% A wildcard push (an explicit lock) must absorb the per-key entries
-%% pushed for the same serial, while retaining their conflict
+%% A wildcard push (an explicit dirty mark) must absorb the per-key
+%% entries pushed for the same serial, while retaining their conflict
 %% information. The optimistic transaction manager relies on this when
-%% it pushes the explicit locks after the implicit operations of the
-%% same transaction:
+%% it pushes the explicit dirty marks after the implicit operations of
+%% the same transaction:
 lock_absorbs_per_key_entries_test() ->
     T0 = new(0, infinity),
     T1 = push_topic([<<"d">>, <<"c">>, <<"t">>, <<"k1">>], 0, 0, 1, T0),
