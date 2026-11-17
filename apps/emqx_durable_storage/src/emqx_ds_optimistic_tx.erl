@@ -450,7 +450,11 @@ get_monotonic_timestamp() ->
     TS.
 
 -doc """
-Get the number of tracked conflict per generation.
+Get the number of tracked conflicts per generation.
+
+This is an operator helper for interactive debugging: the call blocks
+until the shard's transaction manager replies, and the business code
+must never call it.
 """.
 -spec conflict_stats(emqx_ds:db(), emqx_ds:shard()) ->
     #{emqx_ds:generation() => #{w := non_neg_integer(), d := non_neg_integer()}}.
@@ -465,6 +469,10 @@ conflict_stats(DB, Shard) ->
 Dump conflict statistics for all generations.
 
 WARNING: This function may be extremely expensive if the conflict tree is large.
+
+This is an operator helper for interactive debugging: the call blocks
+until the shard's transaction manager replies, and the business code
+must never call it.
 """.
 -spec dump_conflicts(emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), w | d) ->
     list() | undefined.
