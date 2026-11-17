@@ -1,0 +1,21 @@
+[package]
+name = "emqx_nif"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+resolver = "3"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+name = "emqx_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "=0.37.0"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
