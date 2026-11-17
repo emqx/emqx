@@ -42,6 +42,14 @@ load/delete returns.
     health_check/0
 ]).
 
+%% Management API (REST): every running node confirms its cache
+-export([
+    put_table/3,
+    delete_table/2,
+    reconcile_cluster/1,
+    list_cluster/1
+]).
+
 %% Config accessors
 -export([
     max_tables/0,
@@ -116,10 +124,7 @@ load_file(Path) ->
         %% not be pulled into memory at all
         ok ?= check_source_file_size(Path),
         {ok, Bin} ?= read_source_file(Path),
-        {ok, Parsed} ?= emqx_maptabs_loader:parse(Bin),
-        ok ?= check_row_limit(Parsed),
-        ok ?= check_table_limit(Name),
-        ok ?= emqx_maptabs_store:put(Name, Bin),
+        {ok, _} ?= store_table(Name, Bin),
         emqx_maptabs_server:reconcile(node())
     end.
 
@@ -139,6 +144,57 @@ delete(Name) ->
 -spec reconcile_cluster() -> [{node(), term()}].
 reconcile_cluster() ->
     [{Node, emqx_maptabs_server:reconcile(Node)} || Node <- emqx:running_nodes()].
+
+-doc """
+Validates and stores a table, then asks every running node to confirm
+its cache holds the new version before `Deadline`
+(`erlang:monotonic_time` in milliseconds). A node that does not
+confirm makes the result `{error, {partial, Info, Failed}}`; the
+stored table is kept, and a repeat of the same content completes the
+update, because the version is the hash of the content.
+""".
+-spec put_table(binary(), binary(), integer()) ->
+    {ok, map()} | {error, {partial, map(), [{node(), term()}]}} | {error, term()}.
+put_table(Name, Json, Deadline) ->
+    maybe
+        ok ?= health_check(),
+        {ok, #{version := Version} = Info} ?= store_table(Name, Json),
+        confirm_cluster(Name, Version, Info#{name => Name}, Deadline)
+    end.
+
+-doc """
+Deletes a table, then asks every running node to confirm its cache
+has dropped it, as `put_table/3`. Idempotent: an unknown table is
+`ok` once every node confirms none is cached.
+""".
+-spec delete_table(binary(), integer()) ->
+    ok
+    | {error, {partial, map(), [{node(), term()}]}}
+    | {error, term()}.
+delete_table(Name, Deadline) ->
+    maybe
+        ok ?= health_check(),
+        ok ?= emqx_maptabs_loader:validate_name(Name),
+        %% an unknown table still goes to confirm: a retry after a
+        %% partial delete must reach the nodes that missed it
+        ok ?=
+            case emqx_maptabs_store:get(Name) of
+                {ok, _} -> emqx_maptabs_store:delete(Name);
+                {error, not_found} -> ok
+            end,
+        {ok, _} ?= confirm_cluster(Name, absent, #{name => Name}, Deadline),
+        ok
+    end.
+
+-doc "Rebuilds the cache from storage on every running node, in parallel.".
+-spec reconcile_cluster(integer()) -> [{node(), ok | {error, term()}}].
+reconcile_cluster(Deadline) ->
+    emqx_maptabs_server:reconcile_on_nodes(emqx:running_nodes(), Deadline).
+
+-doc "Metadata of the tables cached on every running node, in parallel.".
+-spec list_cluster(integer()) -> [{node(), [map()] | {error, term()}}].
+list_cluster(Deadline) ->
+    emqx_maptabs_server:list_tables_on_nodes(emqx:running_nodes(), Deadline).
 
 %% Metadata of the tables cached on this node.
 -spec list_local() -> [map()].
@@ -209,6 +265,33 @@ name_vsn() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+%% Validates and stores a table; caches follow on their own.
+store_table(Name, Json) ->
+    maybe
+        ok ?= emqx_maptabs_loader:validate_name(Name),
+        ok ?= check_file_size(byte_size(Json)),
+        {ok, #{row_count := RowCount, version := Version} = Parsed} ?=
+            emqx_maptabs_loader:parse(Json),
+        ok ?= check_row_limit(Parsed),
+        ok ?= check_table_limit(Name),
+        ok ?= emqx_maptabs_store:put(Name, Json),
+        {ok, #{row_count => RowCount, version => Version}}
+    end.
+
+confirm_cluster(Name, Expect, Info, Deadline) ->
+    Results = emqx_maptabs_server:confirm_on_nodes(
+        emqx:running_nodes(), Name, Expect, Deadline
+    ),
+    case [{Node, failure_reason(Result)} || {Node, Result} <- Results, Result =/= ok] of
+        [] ->
+            {ok, Info#{nodes => [Node || {Node, _} <- Results]}};
+        Failed ->
+            {error, {partial, Info#{nodes => [Node || {Node, ok} <- Results]}, Failed}}
+    end.
+
+failure_reason({error, Reason}) -> Reason;
+failure_reason(Other) -> Other.
 
 read_source_file(Path) ->
     case file:read_file(Path) of

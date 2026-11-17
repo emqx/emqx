@@ -560,8 +560,8 @@ reported_version() ->
 
 -doc """
 Return `Vsn` as the REST API reports it.
-When `dashboard.show_preview_version` is `false`, the `-preview.N` suffix is
-removed, for example `6.1.5-preview.1` becomes `6.1.5`.
+When `dashboard.show_preview_version` is `false`, the `-cloud.N` suffix is
+removed, for example `6.3.3-cloud.1` becomes `6.3.3`.
 Use this only for the version in a REST API response. Other code must use
 `emqx_release:version/0`, which always returns the real version.
 """.
@@ -569,10 +569,10 @@ Use this only for the version in a REST API response. Other code must use
 reported_version(Vsn) ->
     case emqx:get_config([dashboard, show_preview_version], true) of
         true -> Vsn;
-        false -> strip_preview_suffix(Vsn)
+        false -> strip_cloud_suffix(Vsn)
     end.
 
-strip_preview_suffix(Vsn) when is_binary(Vsn) ->
-    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, binary}]);
-strip_preview_suffix(Vsn) when is_list(Vsn) ->
-    re:replace(Vsn, "-preview\\.[0-9]+", "", [{return, list}]).
+strip_cloud_suffix(Vsn) when is_binary(Vsn) ->
+    re:replace(Vsn, "-cloud\\.[0-9]+", "", [{return, binary}]);
+strip_cloud_suffix(Vsn) when is_list(Vsn) ->
+    re:replace(Vsn, "-cloud\\.[0-9]+", "", [{return, list}]).

@@ -167,13 +167,13 @@ swagger_support.label:
 """Enable API Specs"""
 
 show_preview_version.desc:
-"""Report the release version with its preview suffix in the REST API.
-When set to `false`, the REST API removes the `-preview.N` suffix from the version that it reports.
-For example, `6.1.5-preview.1` is reported as `6.1.5`.
+"""Report the release version with its Cloud suffix in the REST API.
+When set to `false`, the REST API removes the `-cloud.N` suffix from the version that it reports.
+For example, `6.3.3-cloud.1` is reported as `6.3.3`.
 The setting has no effect on a release version without the suffix."""
 
 show_preview_version.label:
-"""Show Preview Version"""
+"""Show Cloud Version"""
 
 mfa_settings.label: "MFA Settings"
 mfa_settings.desc: "Multifactor authentication settings."

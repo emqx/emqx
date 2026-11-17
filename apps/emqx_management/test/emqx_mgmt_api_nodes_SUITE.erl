@@ -36,9 +36,9 @@ init_per_testcase(t_log_path, Config) ->
     {ok, #{}} = emqx_conf:update([log], Log2, #{rawconf_with_defaults => true}),
     Config;
 init_per_testcase(TC, Config) when
-    TC =:= t_preview_version_shown;
-    TC =:= t_preview_version_hidden;
-    TC =:= t_preview_version_hidden_no_suffix
+    TC =:= t_cloud_version_shown;
+    TC =:= t_cloud_version_hidden;
+    TC =:= t_cloud_version_hidden_no_suffix
 ->
     meck:new(emqx_release, [passthrough, no_history, no_link]),
     Config;
@@ -52,9 +52,9 @@ end_per_testcase(t_log_path, Config) ->
     emqx_config_logger:remove_handler(),
     Config;
 end_per_testcase(TC, Config) when
-    TC =:= t_preview_version_shown;
-    TC =:= t_preview_version_hidden;
-    TC =:= t_preview_version_hidden_no_suffix
+    TC =:= t_cloud_version_shown;
+    TC =:= t_cloud_version_hidden;
+    TC =:= t_cloud_version_hidden_no_suffix
 ->
     meck:unload(emqx_release),
     {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => true}, #{}),
@@ -111,29 +111,29 @@ t_node_api_unreachable_node(_) ->
 
 -doc """
 With the default `dashboard.show_preview_version = true`, the nodes API
-reports a preview release version unchanged.
+reports a cloud release version unchanged.
 """.
-t_preview_version_shown(_) ->
-    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+t_cloud_version_shown(_) ->
+    meck:expect(emqx_release, version, 0, "6.3.3-cloud.1"),
     ?assertEqual(true, emqx:get_config([dashboard, show_preview_version])),
-    ?assertEqual([<<"6.1.5-preview.1">>], api_node_versions()).
+    ?assertEqual([<<"6.3.3-cloud.1">>], api_node_versions()).
 
 -doc """
 With `dashboard.show_preview_version = false`, the nodes API cuts the
-`-preview.N` suffix. The node info that the data backup import reads keeps the
+`-cloud.N` suffix. The node info that the data backup import reads keeps the
 real version.
 """.
-t_preview_version_hidden(_) ->
-    meck:expect(emqx_release, version, 0, "6.1.5-preview.1"),
+t_cloud_version_hidden(_) ->
+    meck:expect(emqx_release, version, 0, "6.3.3-cloud.1"),
     {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
-    ?assertEqual([<<"6.1.5">>], api_node_versions()),
-    ?assertMatch(#{version := <<"6.1.5-preview.1">>}, emqx_mgmt:node_info()).
+    ?assertEqual([<<"6.3.3">>], api_node_versions()),
+    ?assertMatch(#{version := <<"6.3.3-cloud.1">>}, emqx_mgmt:node_info()).
 
 -doc """
 With `dashboard.show_preview_version = false`, a version without the
-`-preview.N` suffix is reported unchanged.
+`-cloud.N` suffix is reported unchanged.
 """.
-t_preview_version_hidden_no_suffix(_) ->
+t_cloud_version_hidden_no_suffix(_) ->
     meck:expect(emqx_release, version, 0, "6.1.5-rc.1"),
     {ok, _} = emqx_conf:update([dashboard], #{<<"show_preview_version">> => false}, #{}),
     ?assertEqual([<<"6.1.5-rc.1">>], api_node_versions()).
