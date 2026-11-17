@@ -26,6 +26,17 @@ emqx_mq_api {
         desc: "Get message queue config."
         label: "Get Message Queue Config"
     }
+    message_queues_purge {
+        desc: """~
+            Purge messages without deleting the queue or its consumer progress.
+            Without `before`, purge all messages.
+            With `before`, purge the messages stored before the specified time.
+            The queue stops dispatching purged messages when the request returns.
+            Messages already passed to subscriber sessions can still be delivered.
+            A background job deletes them later.
+            MQTT clients stay connected."""
+        label: "Purge Message Queue"
+    }
     message_queues_config_update {
         desc: "Update message queue config."
         label: "Update Message Queue Config"
@@ -38,6 +49,24 @@ emqx_mq_api {
     }
     message_queues_delete_success {
         desc: "Message queue deleted successfully"
+    }
+    message_queues_config_update_success {
+        desc: "Message queue configuration updated successfully."
+        label: "Message Queue Config Updated"
+    }
+    message_queues_purge_success {
+        desc: "Message queue purged successfully"
+    }
+    purge_before {
+        desc: """~
+            Delivery cutoff as an RFC 3339 timestamp or milliseconds since the Unix epoch.
+            Messages stored before it are not delivered.
+            The value must not precede the Unix epoch or be later than the current time.
+            If the value precedes the current delivery cutoff of the queue, the request does nothing.
+            Omit this parameter to purge all messages."""
+    }
+    invalid_purge_request {
+        desc: "Invalid purge cutoff timestamp, or the message queue is being deleted"
     }
     cannot_create_message_queue {
         desc: "Cannot create message queue"
@@ -63,10 +92,4 @@ emqx_mq_api {
     name {
         desc: "Message queue name"
     }
-
-message_queues_config_update_success.desc:
-"""Message queue configuration updated successfully."""
-message_queues_config_update_success.label:
-"""Message Queue Config Updated"""
-
 }

@@ -54,8 +54,7 @@ Facade for all operations with the message database.
     quota_buffer_flush_interval/0,
     quota_buffer_notify_queue_size/2,
     quota_buffer_flush_transaction/2,
-    quota_buffer_flush_tx_read/3,
-    quota_buffer_flush_tx_write/3
+    quota_buffer_flush_tx_update/5
 ]).
 
 -export([
@@ -83,6 +82,9 @@ Facade for all operations with the message database.
 -define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
 -define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
+]).
+-define(STREAMS_FENCE_TOPIC(STREAM_TOPIC, STREAM_ID), [
+    <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"fence">>
 ]).
 -define(STREAMS_DIRTY_APPEND_TIMEOUT, 5000).
 -define(STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION, 1).
@@ -184,7 +186,7 @@ insert(#{is_lastvalue := true, id := Id} = Stream, IsLimited, Key, Message) ->
     end,
     {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
     case Result of
-        {atomic, _Serial, MaybeOldMessage} ->
+        {atomic, Serial, MaybeOldMessage} ->
             emqx_streams_metrics:observe_hist_stream(
                 Stream, insert_latency_ms, us_to_ms(Time)
             ),
@@ -194,7 +196,7 @@ insert(#{is_lastvalue := true, id := Id} = Stream, IsLimited, Key, Message) ->
                     Stream,
                     {Shard, Gen},
                     old_message_quota_info(MaybeOldMessage),
-                    #{message => Message, message_size => byte_size(MessageBin)}
+                    #{message => Message, message_size => byte_size(MessageBin), serial => Serial}
                 ),
             ok;
         {error, IsRecoverable, Reason} ->
@@ -225,7 +227,7 @@ insert(#{is_lastvalue := false, id := Id} = Stream, true = _IsLimited, Key, Mess
     end,
     {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
     case Result of
-        {atomic, _Serial, ok} ->
+        {atomic, Serial, ok} ->
             emqx_streams_metrics:observe_hist_stream(
                 Stream, insert_latency_ms, us_to_ms(Time)
             ),
@@ -234,7 +236,7 @@ insert(#{is_lastvalue := false, id := Id} = Stream, true = _IsLimited, Key, Mess
                 Stream,
                 {Shard, Gen},
                 undefined,
-                #{message => Message, message_size => byte_size(MessageBin)}
+                #{message => Message, message_size => byte_size(MessageBin), serial => Serial}
             );
         {error, IsRecoverable, Reason} ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
@@ -514,17 +516,10 @@ quota_buffer_flush_transaction({DB, {Shard, Generation}} = _TxKey, TxFun) ->
             ok
     end.
 
-quota_buffer_flush_tx_read(_TxKey, IndexTopic = _Key, QuotaIndexOpts) ->
-    case emqx_ds:tx_read(IndexTopic) of
-        [] ->
-            undefined;
-        [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
-            emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
-    end.
-
-quota_buffer_flush_tx_write(_TxKey, IndexTopic = _Key, Index) ->
-    IndexBin = emqx_mq_quota_index:encode(Index),
-    emqx_ds:tx_write({IndexTopic, ?QUOTA_INDEX_TS, IndexBin}).
+quota_buffer_flush_tx_update(
+    _TxKey, {IndexTopic, FenceTopic} = _Key, QuotaIndexOpts, Updates, NeedLegacy
+) ->
+    emqx_mq_quota_index_tx:update_tx(IndexTopic, FenceTopic, QuotaIndexOpts, Updates, NeedLegacy).
 
 %%--------------------------------------------------------------------
 %% Quota index utilities
@@ -560,15 +555,15 @@ dirty_index(Stream, Shard, true = _IsLimited) ->
 
 old_message_quota_info([]) ->
     undefined;
-old_message_quota_info([{_, _, OldMessageBin}]) ->
+old_message_quota_info([{_, DsTsUs, OldMessageBin}]) ->
     OldMessage = decode_message(OldMessageBin),
-    #{message => OldMessage, message_size => byte_size(OldMessageBin)}.
+    #{message => OldMessage, message_size => byte_size(OldMessageBin), ds_ts_us => DsTsUs}.
 
 update_quota(Stream, Slab, OldMessageInfo, NewMessageInfo) ->
     emqx_mq_quota_buffer:add(
         ?STREAMS_QUOTA_BUFFER,
         {db(Stream), Slab},
-        stream_index_topic(Stream),
+        {stream_index_topic(Stream), stream_fence_topic(Stream)},
         emqx_streams_prop:quota_index_opts(Stream),
         OldMessageInfo,
         NewMessageInfo
@@ -576,6 +571,9 @@ update_quota(Stream, Slab, OldMessageInfo, NewMessageInfo) ->
 
 stream_index_topic(#{topic_filter := TopicFilter, id := Id} = _Stream) ->
     ?STREAMS_INDEX_TOPIC(TopicFilter, Id).
+
+stream_fence_topic(#{topic_filter := TopicFilter, id := Id} = _Stream) ->
+    ?STREAMS_FENCE_TOPIC(TopicFilter, Id).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -650,7 +648,7 @@ us_to_ms(Us) ->
 delete_topics(?STREAMS_MESSAGE_REGULAR_DB, Stream) ->
     [stream_message_topic(Stream, '#')];
 delete_topics(?STREAMS_MESSAGE_LASTVALUE_DB, Stream) ->
-    [stream_index_topic(Stream), stream_message_topic(Stream, '#')].
+    [stream_index_topic(Stream), stream_fence_topic(Stream), stream_message_topic(Stream, '#')].
 
 now_us() ->
     erlang:system_time(microsecond).

@@ -26,6 +26,8 @@
 
 -export([reset_config/0]).
 
+-export([stub_bpapi_supported_version/2]).
+
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -261,3 +263,23 @@ default_mq_config() ->
         },
         <<"enable">> => true
     }.
+
+-doc """
+Make `emqx_bpapi:supported_version/1` return Version for API. Version can be a fun of no arguments.
+Other APIs keep their real versions. The stub is removed when the test case ends.
+""".
+-spec stub_bpapi_supported_version(emqx_bpapi:api(), emqx_bpapi:api_version() | fun(() -> term())) ->
+    ok.
+stub_bpapi_supported_version(API, Version) ->
+    try meck:new(emqx_bpapi, [passthrough, no_link]) of
+        ok -> emqx_common_test_helpers:on_exit(fun() -> meck:unload(emqx_bpapi) end)
+    catch
+        error:{already_started, _} -> ok
+    end,
+    ok = meck:expect(emqx_bpapi, supported_version, fun
+        (A) when A =:= API -> stub_version(Version);
+        (A) -> meck:passthrough([A])
+    end).
+
+stub_version(Version) when is_function(Version, 0) -> Version();
+stub_version(Version) -> Version.

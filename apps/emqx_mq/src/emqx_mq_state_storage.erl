@@ -244,9 +244,17 @@ create_mq_state(MQ) ->
             {error, {failed_to_create_mq_state, Err}}
     end.
 
--spec update_mq_state(emqx_mq_types:mqid(), map()) ->
-    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
-update_mq_state(MQId, MQFields) ->
+-doc """
+Merge MQFields into the stored queue, or apply UpdateFun to the stored queue.
+UpdateFun runs in the update transaction, so it sees the latest stored queue.
+""".
+-spec update_mq_state(
+    emqx_mq_types:mqid(), map() | fun((emqx_mq_types:mq()) -> emqx_mq_types:mq())
+) ->
+    {ok, emqx_mq_types:mq(), Changed :: boolean()} | not_found | {error, term()}.
+update_mq_state(MQId, MQFields) when is_map(MQFields) ->
+    update_mq_state(MQId, fun(MQ0) -> maps:merge(MQ0, MQFields) end);
+update_mq_state(MQId, UpdateFun) when is_function(UpdateFun, 1) ->
     Id = mq_state_id(MQId),
     TransOpts = trans_opts(Id),
     TxRes = emqx_ds:trans(
@@ -258,11 +266,11 @@ update_mq_state(MQId, MQFields) ->
                 _Guard ->
                     Pmap0 = emqx_ds_pmap:tx_restore(?MODULE, ?pn_mq, Id),
                     MQ0 = emqx_ds_pmap:get(?mq_key, Pmap0),
-                    MQ = maps:merge(MQ0, MQFields),
+                    MQ = UpdateFun(MQ0),
                     Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
                     _ = emqx_ds_pmap:tx_commit(Id, Pmap),
-                    {ok, MQ}
+                    {ok, MQ, MQ =/= MQ0}
             end
         end
     ),
@@ -499,7 +507,8 @@ pmap_encode_val(
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = key_expression_to_asn1(KeyExpression),
         limits = limits_to_asn1(Limits),
-        name = name_to_asn1(Name)
+        name = name_to_asn1(Name),
+        deliverCutoffDate = to_asn1_optional_integer(maps:get(deliver_cutoff_date, MQ, undefined))
     });
 pmap_encode_val(?pn_id, ?id_key, MQId) ->
     MQId.
@@ -552,7 +561,8 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = KeyExpression,
         limits = Limits,
-        name = Name
+        name = Name,
+        deliverCutoffDate = DeliverCutoffDate
     } = 'MessageQueue':decode('MQ', ValBin),
     MQ0 = #{
         id => Id,
@@ -570,8 +580,9 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         data_retention_period => DataRetentionPeriod,
         limits => limits_from_asn1(Limits)
     },
-    MQ = key_expression_from_asn1(MQ0, KeyExpression),
-    name_from_asn1(MQ, Name);
+    MQ1 = key_expression_from_asn1(MQ0, KeyExpression),
+    MQ = name_from_asn1(MQ1, Name),
+    deliver_cutoff_date_from_asn1(MQ, DeliverCutoffDate);
 pmap_decode_val(?pn_id, ?id_key, IdKeyBin) ->
     IdKeyBin.
 
@@ -670,6 +681,11 @@ name_from_asn1(#{topic_filter := TopicFilter} = MQ, asn1_NOVALUE) ->
     MQ#{name => emqx_mq_prop:default_name_from_topic(TopicFilter)};
 name_from_asn1(MQ, Name) ->
     MQ#{name => Name}.
+
+deliver_cutoff_date_from_asn1(MQ, asn1_NOVALUE) ->
+    MQ;
+deliver_cutoff_date_from_asn1(MQ, Timestamp) ->
+    MQ#{deliver_cutoff_date => Timestamp}.
 
 limit_from_asn1_optional_integer(asn1_NOVALUE) ->
     infinity;
