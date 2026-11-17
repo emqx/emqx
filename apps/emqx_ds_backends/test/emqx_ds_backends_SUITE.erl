@@ -2394,13 +2394,13 @@ t_30_quotas(Config) ->
         []
     ).
 
-%% This testcase verifies the conflict semantics of the explicit
-%% dirty marks (`emqx_ds:tx_mark_dirty/4`). A transaction that marks a
-%% region is aborted when a write, a topic deletion, a read or another
-%% mark was committed for the overlapping range after the transaction
-%% started. The mark does not abort a transaction that only writes
-%% into the marked range: such a writer is ordered by its commit
-%% serial instead.
+%% This testcase verifies the semantics of the explicit dirty marks
+%% (`emqx_ds:tx_mark_dirty/4`). The mark doesn't modify the data and
+%% doesn't conflict-check its own transaction: it only collapses the
+%% conflict tracking of the region into a single wildcard entry, so
+%% the individual keys that the transaction wrote or deleted don't
+%% appear in the conflict trees, while the transactions that read the
+%% region are still aborted.
 t_31_tx_mark_dirty(Config) ->
     DB = ?FUNCTION_NAME,
     Opts = opts(Config),
@@ -2443,54 +2443,75 @@ t_31_tx_mark_dirty(Config) ->
     MarkTF = [<<"l">>, <<"t">>, '+'],
     WMark = fun() -> #{?ds_tx_wmark => [{MarkTF, 0, infinity}]} end,
     DMark = fun() -> #{?ds_tx_dmark => [{MarkTF, 0, infinity}]} end,
+    %% Dump the conflict tree of the shard and return its entries:
+    Entries = fun(Kind) ->
+        Shard = emqx_ds:shard_of(DB, <<"me">>),
+        case emqx_ds_optimistic_tx:dump_conflicts(DB, Shard, 1, Kind) of
+            #{old := Old, current := Current} -> maps:from_list(Old ++ Current);
+            undefined -> #{}
+        end
+    end,
     ?check_trace(
         begin
             ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
-            %% Marks conflict with the concurrent writes into the marked range:
-            Conflict(
-                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
-                WMark()
+            %% 1. Commit a transaction that writes and deletes several
+            %% keys under a common topic filter, and marks the filter
+            %% dirty:
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+            ?assertMatch(
+                {ok, _},
+                do_commit_tx(
+                    DB,
+                    Tx1,
+                    #{
+                        ?ds_tx_write => [
+                            {[<<"l">>, <<"t">>, <<1>>], 0, <<1>>},
+                            {[<<"l">>, <<"t">>, <<2>>], 0, <<2>>},
+                            %% Control: a key outside of the marked filter:
+                            {[<<"x">>, <<1>>], 0, <<1>>}
+                        ],
+                        ?ds_tx_delete_topic => [
+                            {[<<"l">>, <<"t">>, <<3>>], 0, infinity}
+                        ],
+                        ?ds_tx_wmark => [{MarkTF, 0, infinity}],
+                        ?ds_tx_dmark => [{MarkTF, 0, infinity}]
+                    }
+                )
             ),
-            Conflict(
-                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 0, <<>>}]},
-                DMark()
+            %% The written and the deleted keys must not appear in the
+            %% conflict trees: the marks collapsed the entire region
+            %% into a single wildcard entry covering the whole time
+            %% range:
+            W = Entries(w),
+            ?assertEqual(
+                [[<<"l">>, <<"t">>, '#']],
+                [K || K <- maps:keys(W), lists:prefix([<<"l">>, <<"t">>], K)]
             ),
-            %% Marks conflict with the concurrent topic deletions:
-            Conflict(
-                #{?ds_tx_delete_topic => [{MarkTF, 0, infinity}]},
-                WMark()
+            ?assertMatch({0, infinity, _}, maps:get([<<"l">>, <<"t">>, '#'], W)),
+            D = Entries(d),
+            ?assertEqual(
+                [[<<"l">>, <<"t">>, '#']],
+                [K || K <- maps:keys(D), lists:prefix([<<"l">>, <<"t">>], K)]
             ),
-            Conflict(
-                #{?ds_tx_delete_topic => [{MarkTF, 0, infinity}]},
-                DMark()
-            ),
-            %% Marks conflict with the concurrent reads of the marked range.
-            %% This is what protects the read-modify-write cycles of
-            %% the pmap collections:
+            ?assertMatch({0, infinity, _}, maps:get([<<"l">>, <<"t">>, '#'], D)),
+            %% The keys outside of the marked filter are still tracked
+            %% individually:
+            ?assert(maps:is_key([<<"x">>, <<1>>], W)),
+            %% 2. The marked region still conflicts with the
+            %% concurrent reads, which is what protects the
+            %% read-modify-write cycles of the pmap collections:
             Conflict(WMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
             Conflict(DMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
-            %% Marks conflict with the concurrent marks of either kind:
-            Conflict(WMark(), WMark()),
-            Conflict(WMark(), DMark()),
-            Conflict(DMark(), WMark()),
-            Conflict(DMark(), DMark()),
-            %% No conflict when the ranges don't overlap:
+            %% 3. The mark doesn't conflict-check its own transaction:
+            %% a concurrent write into the marked range doesn't abort
+            %% the marking transaction:
             Ok(
-                #{?ds_tx_write => [{[<<"l">>, <<"x">>, <<1>>], 0, <<>>}]},
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<9>>], 0, <<>>}]},
                 WMark()
             ),
-            Ok(
-                #{?ds_tx_delete_topic => [{[<<"l">>, <<"x">>, '+'], 0, infinity}]},
-                DMark()
-            ),
-            %% No conflict when the time ranges don't overlap:
-            Ok(
-                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<1>>], 100, <<>>}]},
-                #{?ds_tx_wmark => [{MarkTF, 0, 10}]}
-            ),
-            %% The lock is advisory for the writers: a transaction that
-            %% only writes into the locked range is not aborted by it.
-            %% The writer wins by its commit serial:
+            %% 4. The mark doesn't abort the writers either: a
+            %% transaction that only writes into the marked range
+            %% succeeds and wins by its commit serial:
             Ok(
                 WMark(),
                 #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}]}

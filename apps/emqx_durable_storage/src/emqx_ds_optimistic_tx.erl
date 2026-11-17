@@ -1375,7 +1375,6 @@ preprocess_topic_range(_MonotonicTS, A) ->
     ok | emqx_ds:error(_).
 check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
     maybe
-        ok ?= do_check_explicit_locks(DirtyW, DirtyD, TxStartSerial, Ops),
         %% Check reads against writes and deletions:
         Reads = maps:get(?ds_tx_read, Ops, []),
         ok ?= do_check_conflicts(DirtyW, TxStartSerial, Reads),
@@ -1397,27 +1396,6 @@ check_conflicts(DirtyW, DirtyD, TxStartSerial, SafeToReadSerial, Ops) ->
         ok ?= do_check_conflicts(DirtyD, SafeToReadSerial, ExpectedTopics),
         UnexpectedTopics = [{Topic, TS, TS} || {Topic, TS} <- maps:get(?ds_tx_unexpected, Ops, [])],
         ok ?= do_check_conflicts(DirtyW, SafeToReadSerial, UnexpectedTopics)
-    end.
-
--spec do_check_explicit_locks(
-    emqx_ds_tx_conflict_trie:t(),
-    emqx_ds_tx_conflict_trie:t(),
-    serial(),
-    emqx_ds:tx_ops()
-) -> ok | ?err_rec(_).
-do_check_explicit_locks(DirtyW, DirtyD, TxStartSerial, Ops) ->
-    Wlocks = maps:get(?ds_tx_wmark, Ops, []),
-    Dlocks = maps:get(?ds_tx_dmark, Ops, []),
-    case {Wlocks, Dlocks} of
-        {[], []} ->
-            ok;
-        _ ->
-            maybe
-                ok ?= do_check_conflicts(DirtyW, TxStartSerial, Wlocks),
-                ok ?= do_check_conflicts(DirtyD, TxStartSerial, Wlocks),
-                ok ?= do_check_conflicts(DirtyW, TxStartSerial, Dlocks),
-                ok ?= do_check_conflicts(DirtyD, TxStartSerial, Dlocks)
-            end
     end.
 
 -spec do_check_conflicts(emqx_ds_tx_conflict_trie:t(), serial(), [
