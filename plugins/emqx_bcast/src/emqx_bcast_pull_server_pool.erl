@@ -93,7 +93,7 @@ init([]) ->
     _ = ensure_core_copies(),
     _ = erlang:send_after(?BCAST_ENSURE_COPIES_MS, self(), ensure_core_copies),
     AckCap = max(1, erlang:system_info(schedulers_online)),
-    {ok, #{in_flight => 0, pending_acks => [], ack_cap => AckCap}}.
+    {ok, #{in_flight => 0, pending_acks => queue:new(), ack_cap => AckCap}}.
 
 handle_call({want_next, Entries, Origin}, From, State) ->
     %% Run the claim in the server worker pool so concurrent want_next
@@ -156,7 +156,7 @@ handle_cast({ack_batch, Origin, Acks}, State) ->
             {noreply, State#{in_flight => maps:get(in_flight, State) + 1}};
         false ->
             Pending = maps:get(pending_acks, State),
-            {noreply, State#{pending_acks => Pending ++ [{Origin, Acks}]}}
+            {noreply, State#{pending_acks => queue:in({Origin, Acks}, Pending)}}
     end;
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -166,11 +166,14 @@ handle_info({ack_batch_done, Pid}, State) ->
     %% by design, but receiving keeps the mailbox from accumulating DOWNs).
     _ = Pid,
     case maps:get(pending_acks, State) of
-        [] ->
-            {noreply, State#{in_flight => maps:get(in_flight, State) - 1}};
-        [{Origin, Next} | Rest] ->
-            spawn_ack_worker(Next, Origin),
-            {noreply, State#{pending_acks => Rest}}
+        Pending ->
+            case queue:out(Pending) of
+                {empty, _} ->
+                    {noreply, State#{in_flight => maps:get(in_flight, State) - 1}};
+                {{value, {Origin, Next}}, Rest} ->
+                    spawn_ack_worker(Next, Origin),
+                    {noreply, State#{pending_acks => Rest}}
+            end
     end;
 handle_info(ensure_core_copies, State) ->
     _ = ensure_core_copies(),
