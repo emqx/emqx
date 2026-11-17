@@ -20,6 +20,7 @@ The worker monitors each reporting consumer and keeps the processed boundary of 
 It ignores reports at or below that boundary, so repeated reports of an idle queue do not read the index.
 When the consumer stops, the worker drops its boundaries.
 Consumers repeat their latest boundary periodically, so a restarted worker recovers it.
+A restarted consumer reports the acknowledged progress of its checkpoint.
 Expiry reports have no consumer. The worker processes each of them once.
 
 The pool is separate from the deletion pool, so quota release does not wait for queue deletion or purge.

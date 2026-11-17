@@ -374,7 +374,10 @@ handle_shutdown(
     } = State0
 ) ->
     ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
-    Streams1 = emqx_mq_consumer_streams:destroy(Streams0),
+    %% Report the last consumption progress, so a stopped consumer does not keep quota charged
+    Streams1 = emqx_mq_consumer_streams:destroy(
+        emqx_mq_consumer_streams:flush_progress_reporters(Streams0)
+    ),
     {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
     ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
     State = State0#state{streams = Streams, consumer_state = ConsumerState},

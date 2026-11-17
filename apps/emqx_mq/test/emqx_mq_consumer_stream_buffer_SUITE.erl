@@ -22,6 +22,20 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _) ->
     meck:unload().
 
+%% Check the acknowledged boundary of saved progress.
+t_acked_boundary(_Config) ->
+    Boundary = fun(LastMessageId, Unacked) ->
+        emqx_mq_consumer_stream_buffer:acked_boundary(#{
+            it => it, last_message_id => LastMessageId, unacked => Unacked
+        })
+    end,
+    %% Nothing read yet
+    ?assertEqual(undefined, Boundary(undefined, [#{}])),
+    %% Everything read is acknowledged
+    ?assertEqual(31, Boundary(30, [#{}, #{}])),
+    %% The oldest unacknowledged record of both buffers bounds the progress
+    ?assertEqual(12, Boundary(30, [#{20 => true}, #{12 => true, 25 => true}])).
+
 %% Check that partial and out-of-order acknowledgments report progress only for complete buffers.
 t_ordered_retirement(_Config) ->
     SB0 = emqx_mq_consumer_stream_buffer:new(start, mq()),

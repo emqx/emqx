@@ -12,13 +12,15 @@ the on_full=reject policy accept more messages.
 The state keeps the latest consumed boundary and the totals of records consumed since the
 last report. It sends the boundary when either total reaches half of the quota
 bucket threshold, and at once when the totals are unknown. The consumer also flushes
-periodically. A flush repeats the latest boundary, so a restarted cleanup worker recovers it.
+periodically and when it stops. A flush repeats the latest boundary, so a restarted cleanup
+worker recovers it. A restored shard starts from the acknowledged boundary of the saved progress,
+so the cleanup that a restart interrupted is finished.
 The cleanup worker ignores a boundary it has already processed. The state holds no index state.
 """.
 
 -include("../emqx_mq_internal.hrl").
 
--export([new/2, handle_progress/2, flush/1]).
+-export([new/2, new/3, handle_progress/2, flush/1]).
 
 -define(EMPTY_TOTALS, #{count => 0, bytes => 0}).
 
@@ -46,6 +48,21 @@ The cleanup worker ignores a boundary it has already processed. The state holds 
 -doc "Create the progress reporter of a shard for reject queues. Other queues need none.".
 -spec new(emqx_mq_types:mq(), emqx_ds:shard()) -> t().
 new(MQ, Shard) ->
+    new(MQ, Shard, undefined).
+
+-doc """
+Create the progress reporter of a restored shard. `Acked` is the boundary below which the saved
+consumer progress is acknowledged, or `undefined`. The next flush reports it, so cleanup that
+did not finish before a restart releases the quota.
+""".
+-spec new(emqx_mq_types:mq(), emqx_ds:shard(), non_neg_integer() | undefined) -> t().
+new(MQ, Shard, Acked) ->
+    case new_state(MQ, Shard) of
+        #{} = State when is_integer(Acked) -> State#{latest := Acked};
+        State -> State
+    end.
+
+new_state(MQ, Shard) ->
     case emqx_mq_prop:on_full(MQ) of
         evict ->
             undefined;

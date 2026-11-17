@@ -509,6 +509,49 @@ t_single_head_admission(_Config) ->
     ?assertMatch({ok, #{bytes := SmallBytes, buckets := 1}}, occupancy(MQ)),
     ok = emqtt:disconnect(C).
 
+%% Check that a restarted consumer reports its saved acknowledged progress, so a full queue whose
+%% cleanup did not finish before the consumer and the cleanup worker restarted accepts messages again.
+t_restart_reports_saved_progress(_Config) ->
+    #{id := Id} = MQ = queue(#{max_shard_message_count => 1}),
+    ok = fill(MQ, [<<"first">>, <<"second">>]),
+    ?assertEqual({error, queue_full}, emqx_mq_message_db:insert(MQ, message(<<"third">>))),
+    meck:new(emqx_mq_cleanup_worker, [passthrough, no_link]),
+    meck:expect(emqx_mq_cleanup_worker, retry_interval, fun() -> 100 end),
+    meck:new(emqx_mq_message_db, [passthrough, no_link]),
+    meck:expect(
+        emqx_mq_message_db,
+        release_before,
+        fun(_, _, _) -> {error, {recoverable, injected}} end
+    ),
+    %% Consume everything while cleanup fails
+    C0 = subscriber(),
+    {ok, Received} = emqx_mq_test_utils:emqtt_drain(2, 1000),
+    ?assertWaitEvent(
+        emqx_mq_test_utils:emqtt_ack(Received), #{?snk_kind := mq_cleanup_retry}, 5000
+    ),
+    %% The consumer saves its acknowledged progress when it stops
+    ok = emqtt:disconnect(C0),
+    {ok, Consumer} = emqx_mq_consumer:find(Id),
+    ok = emqx_mq_consumer:stop(Consumer),
+    %% The restarted cleanup worker has no pending work
+    Worker0 = gproc_pool:pick_worker(emqx_mq_cleanup_worker, Id),
+    exit(Worker0, kill),
+    ?retry(
+        50,
+        100,
+        ?assertMatch(
+            Pid when is_pid(Pid) andalso Pid =/= Worker0,
+            gproc_pool:pick_worker(emqx_mq_cleanup_worker, Id)
+        )
+    ),
+    meck:unload(emqx_mq_message_db),
+    ?assertMatch({ok, #{count := 2, buckets := 2}}, occupancy(MQ)),
+    ?assertEqual({error, queue_full}, emqx_mq_message_db:insert(MQ, message(<<"third">>))),
+    %% A new consumer restores the saved progress and reports it
+    C1 = subscriber(),
+    ?retry(100, 100, ?assertEqual(ok, emqx_mq_message_db:insert(MQ, message(<<"third">>)))),
+    ok = emqtt:disconnect(C1).
+
 %% Check that the cleanup worker retries reported progress after a release fails.
 t_cleanup_retry(_Config) ->
     MQ = queue(#{max_shard_message_count => 1}),

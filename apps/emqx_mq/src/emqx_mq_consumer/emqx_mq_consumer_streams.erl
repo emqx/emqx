@@ -433,7 +433,13 @@ restore_stream(
                         stream_buffer => emqx_mq_consumer_stream_buffer:restore(
                             BufferProgress, MQ
                         ),
-                        progress_reporter => new_progress_reporter(State, Shard),
+                        %% Report the saved acknowledged progress again: cleanup can
+                        %% have lost it before the restart
+                        progress_reporter => emqx_mq_consumer_progress_reporter:new(
+                            MQ,
+                            Shard,
+                            emqx_mq_consumer_stream_buffer:acked_boundary(BufferProgress)
+                        ),
                         stream => Stream,
                         sub_ref => undefined
                     }

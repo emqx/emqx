@@ -15,6 +15,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -export([
     new/2,
     restore/2,
+    acked_boundary/1,
     handle_ds_reply/3,
     handle_ack/2,
     progress/1,
@@ -113,6 +114,21 @@ new(StartIterator, MQ) ->
         upper_seqno => undefined,
         last_message_id => undefined
     }.
+
+-doc """
+Return the exclusive DS timestamp boundary below which every record of a saved progress
+is acknowledged, or `undefined` when the progress has read no record.
+Records before the saved iterator are acknowledged. Records after it, up to the last read
+record, are acknowledged unless they are listed as unacknowledged.
+""".
+-spec acked_boundary(progress()) -> non_neg_integer() | undefined.
+acked_boundary(#{last_message_id := undefined}) ->
+    undefined;
+acked_boundary(#{last_message_id := LastMessageId, unacked := UnackedMaps}) ->
+    case maps:keys(emqx_utils_maps:merge(UnackedMaps)) of
+        [] -> LastMessageId + 1;
+        Unacked -> lists:min(Unacked)
+    end.
 
 -spec restore(progress(), emqx_mq_types:mq()) -> t().
 %% The previous buffer did not see any messages, so we can just start a new buffer
