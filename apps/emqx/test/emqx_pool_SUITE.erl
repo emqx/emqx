@@ -13,7 +13,8 @@ all() ->
     [
         {group, submit},
         {group, async_submit},
-        t_unexpected
+        t_unexpected,
+        t_take_async_tasks
     ].
 
 groups() ->
@@ -73,6 +74,55 @@ t_unexpected(_) ->
     ?assertEqual(ok, gen_server:cast(Pid, bad_msg)),
     Pid ! bad_info,
     ok = gen_server:stop(Pid).
+
+-doc """
+A running task takes the queued tasks of the same fun, in queue order, until
+the limit. A task of another fun stays queued and runs later.
+""".
+t_take_async_tasks(_) ->
+    Pool = take_async_tasks_pool,
+    {ok, Sup} = emqx_pool_sup:start_link(Pool, random, 1, {emqx_pool, start_link, []}),
+    Self = self(),
+    Fun = fun ?MODULE:take_test_task/1,
+    ok = emqx_pool:async_submit_to_pool(Pool, fun() -> take_and_report(Self, Fun) end, []),
+    lists:foreach(
+        fun(Args) -> ok = emqx_pool:async_submit_to_pool(Pool, Fun, Args) end,
+        [[[1, 2]], [[3]], [[4, 5]], [[6]]]
+    ),
+    ok = emqx_pool:async_submit_to_pool(Pool, fun ?MODULE:send_to/2, [Self, other_task_ran]),
+    ok = emqx_pool:async_submit_to_pool(Pool, Fun, [[7]]),
+    gproc_pool:pick_worker(Pool) ! go,
+    ?assertEqual(
+        {taken, [], [1, 2, 3], [4, 5, 6, 7]},
+        receive
+            {taken, _, _, _} = Taken -> Taken
+        after 5000 -> timeout
+        end
+    ),
+    ?assertEqual(
+        other_task_ran,
+        receive
+            other_task_ran -> other_task_ran
+        after 5000 -> timeout
+        end
+    ),
+    unlink(Sup),
+    ok = gen_server:stop(Sup).
+
+take_and_report(Pid, Fun) ->
+    receive
+        go -> ok
+    end,
+    None = emqx_pool:take_async_tasks(Fun, 0),
+    First = emqx_pool:take_async_tasks(Fun, 3),
+    Rest = emqx_pool:take_async_tasks(Fun, 100),
+    Pid ! {taken, None, First, Rest}.
+
+take_test_task(_List) ->
+    error(should_be_taken).
+
+send_to(Pid, Msg) ->
+    Pid ! Msg.
 
 test_mfa() ->
     lists:foldl(fun(X, Sum) -> X + Sum end, 0, [1, 2, 3, 4, 5]).

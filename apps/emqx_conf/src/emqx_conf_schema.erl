@@ -975,7 +975,7 @@ fields("node") ->
                 pos_integer(),
                 #{
                     importance => ?IMPORTANCE_HIDDEN,
-                    default => 100_000,
+                    default => 1000,
                     desc => ?DESC(node_channel_cleanup_batch_size)
                 }
             )},
