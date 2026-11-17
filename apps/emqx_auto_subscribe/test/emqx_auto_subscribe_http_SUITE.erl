@@ -345,17 +345,21 @@ t_message_filter(Config) ->
         Topics
     ).
 
--doc "Unsupported filtered queue and stream entries are skipped without dropping valid subscriptions.".
+-doc "Filtered queue and stream entries are skipped; removed aliases are ordinary topics.".
 t_message_filter_unsupported_topics(Config) ->
     set_mqtt_conf(subscription_message_filter, enable),
-    Invalid = [
+    Entries = [
         #{topic => <<Prefix/binary, "auto/unsupported?location=roomA">>}
      || Prefix <- [<<"$stream/">>, <<"$s/">>, <<"$queue/">>, <<"$q/">>]
     ],
-    configure(Config, #{auto_subscribe => Invalid ++ [#{topic => <<"auto/valid">>}]}),
+    configure(Config, #{auto_subscribe => Entries ++ [#{topic => <<"auto/valid">>}]}),
     process_flag(trap_exit, true),
     _ = connect(<<"unsupported-filters">>, #{}),
-    assert_subscriptions(<<"unsupported-filters">>, [{<<"auto/valid">>, 0}]),
+    assert_subscriptions(<<"unsupported-filters">>, [
+        {<<"$q/auto/unsupported">>, 0},
+        {<<"$s/auto/unsupported">>, 0},
+        {<<"auto/valid">>, 0}
+    ]),
     assert_delivery(<<"auto/valid">>, <<"auto/valid">>, 0).
 
 -doc "HTTP exclusive subscriptions use the same profile-dependent locking as global rules.".
