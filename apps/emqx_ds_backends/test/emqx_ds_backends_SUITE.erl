@@ -2404,6 +2404,136 @@ t_30_quotas(Config) ->
         []
     ).
 
+%% This testcase verifies the semantics of the explicit dirty marks
+%% (`emqx_ds:tx_mark_dirty/4`). The mark doesn't modify the data and
+%% doesn't conflict-check its own transaction: it only collapses the
+%% conflict tracking of the region into a single wildcard entry, so
+%% the individual keys that the transaction wrote or deleted don't
+%% appear in the conflict trees, while the transactions that read the
+%% region are still aborted.
+t_31_tx_mark_dirty(Config) ->
+    DB = ?FUNCTION_NAME,
+    Opts = opts(Config),
+    TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
+    %% Record that should not be present in the DB:
+    Canary = [{[<<"canary">>], 0, <<>>}],
+    CheckCanary = fun() ->
+        ?assertMatch([], emqx_ds:dirty_read(DB, [<<"canary">>]))
+    end,
+    %% Helper function that create a pair of transactions
+    %% (simultaneously), commits the first one, and then tries to
+    %% commit the second one.
+    Par = fun(Ops1, Ops2) ->
+        %% 1. Create context for two transactions:
+        {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+        {ok, Tx2} = emqx_ds:new_tx(DB, TXOpts),
+        %% 2. Commit the first one:
+        ?assertMatch(
+            {ok, _},
+            do_commit_tx(DB, Tx1, Ops1)
+        ),
+        %% 3. Try to commit the second one and return the result:
+        do_commit_tx(DB, Tx2, Ops2)
+    end,
+    %% Wrappers:
+    Ok = fun(Ops1, Ops2) ->
+        ?assertMatch({ok, _}, Par(Ops1, Ops2))
+    end,
+    Conflict = fun(Ops1, Ops2) ->
+        ?assertMatch(
+            ?err_rec({read_conflict, _}),
+            Par(
+                Ops1,
+                Ops2#{?ds_tx_write => Canary}
+            )
+        ),
+        CheckCanary()
+    end,
+    %% Dirty marks of both kinds over an entire pmap-like topic filter:
+    MarkTF = [<<"l">>, <<"t">>, '+'],
+    WMark = fun() -> #{?ds_tx_wmark => [{MarkTF, 0, infinity}]} end,
+    DMark = fun() -> #{?ds_tx_dmark => [{MarkTF, 0, infinity}]} end,
+    %% Dump the conflict tree of the shard and return its entries:
+    Entries = fun(Kind) ->
+        Shard = emqx_ds:shard_of(DB, <<"me">>),
+        case emqx_ds_optimistic_tx:dump_conflicts(DB, Shard, 1, Kind) of
+            #{old := Old, current := Current} -> maps:from_list(Old ++ Current);
+            undefined -> #{}
+        end
+    end,
+    ?check_trace(
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            %% 1. Commit a transaction that writes and deletes several
+            %% keys under a common topic filter, and marks the filter
+            %% dirty:
+            {ok, Tx1} = emqx_ds:new_tx(DB, TXOpts),
+            ?assertMatch(
+                {ok, _},
+                do_commit_tx(
+                    DB,
+                    Tx1,
+                    #{
+                        ?ds_tx_write => [
+                            {[<<"l">>, <<"t">>, <<1>>], 0, <<1>>},
+                            {[<<"l">>, <<"t">>, <<2>>], 0, <<2>>},
+                            %% Control: a key outside of the marked filter:
+                            {[<<"x">>, <<1>>], 0, <<1>>}
+                        ],
+                        ?ds_tx_delete_topic => [
+                            {[<<"l">>, <<"t">>, <<3>>], 0, infinity}
+                        ],
+                        ?ds_tx_wmark => [{MarkTF, 0, infinity}],
+                        ?ds_tx_dmark => [{MarkTF, 0, infinity}]
+                    }
+                )
+            ),
+            %% The written and the deleted keys must not appear in the
+            %% conflict trees: the marks collapsed the entire region
+            %% into a single wildcard entry covering the whole time
+            %% range:
+            W = Entries(w),
+            ?assertEqual(
+                [[<<"l">>, <<"t">>, '#']],
+                [K || K <- maps:keys(W), lists:prefix([<<"l">>, <<"t">>], K)]
+            ),
+            ?assertMatch({0, infinity, _}, maps:get([<<"l">>, <<"t">>, '#'], W)),
+            D = Entries(d),
+            ?assertEqual(
+                [[<<"l">>, <<"t">>, '#']],
+                [K || K <- maps:keys(D), lists:prefix([<<"l">>, <<"t">>], K)]
+            ),
+            ?assertMatch({0, infinity, _}, maps:get([<<"l">>, <<"t">>, '#'], D)),
+            %% The keys outside of the marked filter are still tracked
+            %% individually:
+            ?assert(maps:is_key([<<"x">>, <<1>>], W)),
+            %% 2. The marked region still conflicts with the
+            %% concurrent reads, which is what protects the
+            %% read-modify-write cycles of the pmap collections:
+            Conflict(WMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
+            Conflict(DMark(), #{?ds_tx_read => [{MarkTF, 0, infinity}]}),
+            %% 3. The mark doesn't conflict-check its own transaction:
+            %% a concurrent write into the marked range doesn't abort
+            %% the marking transaction:
+            Ok(
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<9>>], 0, <<>>}]},
+                WMark()
+            ),
+            %% 4. The mark doesn't abort the writers either: a
+            %% transaction that only writes into the marked range
+            %% succeeds and wins by its commit serial:
+            Ok(
+                WMark(),
+                #{?ds_tx_write => [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}]}
+            ),
+            ?assertMatch(
+                [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}],
+                emqx_ds:dirty_read(DB, [<<"l">>, <<"t">>, <<42>>])
+            )
+        end,
+        []
+    ).
+
 t_db_group_crud(Config) ->
     %% This testcase uses the default implicit group created by DS:
     DB = ?FUNCTION_NAME,

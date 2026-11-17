@@ -204,8 +204,9 @@ t_delayed_precision(_) ->
     DelayedMsg0 = emqx_message:make(
         ?MODULE, 1, <<"$delayed/1/delayed/test">>, <<"delayed/test">>
     ),
+    PublishedAt = erlang:system_time(millisecond),
     _ = on_message_publish(DelayedMsg0),
-    ?assert(FutureDiff() =< MaxSpan).
+    ?assert(FutureDiff(PublishedAt) =< MaxSpan).
 
 t_banned_delayed(_) ->
     emqx:update_config([delayed, max_delayed_messages], 10000),
@@ -257,25 +258,38 @@ t_banned_delayed(_) ->
 
     ?assertEqual(4, length(?of_kind(ignore_delayed_message_publish, Trace))).
 
+%% Measures the delay from a caller-supplied publish timestamp instead of the
+%% message timestamp, which delayed republication refreshes.
 subscribe_proc() ->
     Self = self(),
     Ref = erlang:make_ref(),
-    erlang:spawn(fun() ->
-        Topic = <<"delayed/+">>,
-        emqx_broker:subscribe(Topic),
-        Self !
-            {Ref,
-                receive
-                    {deliver, Topic, Msg} ->
-                        erlang:system_time(milli_seconds) - Msg#message.timestamp
-                after 2000 ->
-                    2000
-                end},
-        emqx_broker:unsubscribe(Topic)
-    end),
-    fun() ->
+    Subscriber =
+        erlang:spawn(fun() ->
+            Topic = <<"delayed/+">>,
+            emqx_broker:subscribe(Topic),
+            Self ! {Ref, subscribed},
+            receive
+                {Ref, published_at, PublishedAt} ->
+                    receive
+                        {deliver, Topic, _Msg} ->
+                            Self ! {Ref, done, erlang:system_time(millisecond) - PublishedAt}
+                    after 2000 ->
+                        Self ! {Ref, done, 2000}
+                    end
+            after 2000 ->
+                Self ! {Ref, done, 2000}
+            end,
+            emqx_broker:unsubscribe(Topic)
+        end),
+    receive
+        {Ref, subscribed} -> ok
+    after 2000 ->
+        ct:fail(subscriber_timeout)
+    end,
+    fun(PublishedAt) ->
+        Subscriber ! {Ref, published_at, PublishedAt},
         receive
-            {Ref, Diff} ->
+            {Ref, done, Diff} ->
                 Diff
         after 2000 ->
             2000

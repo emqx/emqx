@@ -54,7 +54,7 @@
 ]).
 
 %% Behavior callbacks:
--export([pmap_encode_key/3, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
+-export([pmap_encode_key/2, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
 
 -export_type([session_iterator/0, subscription_iterator/0]).
 
@@ -74,7 +74,7 @@
 %% TODO: https://github.com/erlang/otp/issues/9841
 -dialyzer(
     {nowarn_function, [
-        pmap_encode_key/3,
+        pmap_encode_key/2,
         pmap_decode_key/2,
         ser_stream_key/1,
         deser_stream_key/1,
@@ -478,6 +478,9 @@ open_tx(ClientId, MaybeOldGuard) ->
         OldGuard when is_binary(OldGuard) ->
             emqx_ds_pmap:tx_assert_guard(ClientId, OldGuard)
     end,
+    RestorePmap = fun(PMap) ->
+        emqx_ds_pmap:tx_restore(?MODULE, pmap_name(PMap), ClientId, pmap_kind(PMap))
+    end,
     case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;
@@ -489,15 +492,13 @@ open_tx(ClientId, MaybeOldGuard) ->
                 ?checkpoint_n => 0,
                 ?checkpoint_ref => undefined,
                 ?invalid => false,
-                ?metadata => emqx_ds_pmap:tx_restore(?MODULE, ?top_metadata, ClientId),
-                ?subscriptions => emqx_ds_pmap:tx_restore(?MODULE, ?top_subscriptions, ClientId),
-                ?subscription_states => emqx_ds_pmap:tx_restore(
-                    ?MODULE, ?top_subscription_states, ClientId
-                ),
-                ?seqnos => emqx_ds_pmap:tx_restore(?MODULE, ?top_seqnos, ClientId),
-                ?streams => emqx_ds_pmap:tx_restore(?MODULE, ?top_streams, ClientId),
-                ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
-                ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId),
+                ?metadata => RestorePmap(?metadata),
+                ?subscriptions => RestorePmap(?subscriptions),
+                ?subscription_states => RestorePmap(?subscription_states),
+                ?seqnos => RestorePmap(?seqnos),
+                ?streams => RestorePmap(?streams),
+                ?ranks => RestorePmap(?ranks),
+                ?awaiting_rel => RestorePmap(?awaiting_rel),
                 ?new_pmap_collection
             },
             {ok, Ret}
@@ -505,18 +506,18 @@ open_tx(ClientId, MaybeOldGuard) ->
 
 -spec new_pmap(atom()) -> emqx_ds_pmap:pmap(_, _).
 new_pmap(Pmap) ->
-    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap)).
+    emqx_ds_pmap:new_pmap(?MODULE, pmap_name(Pmap), pmap_kind(Pmap)).
 
-pmap_encode_key(?top_metadata, MetaKey, _Val) ->
+pmap_encode_key(?top_metadata, MetaKey) ->
     atom_to_binary(MetaKey, latin1);
-pmap_encode_key(?top_streams, Key, _Val) ->
+pmap_encode_key(?top_streams, Key) ->
     ser_stream_key(Key);
-pmap_encode_key(?top_subscriptions, Topic, _Val) ->
+pmap_encode_key(?top_subscriptions, Topic) ->
     'DurableSession':encode('TopicFilter', wrap_topic(Topic));
-pmap_encode_key(?top_seqnos, Track, _Val) ->
+pmap_encode_key(?top_seqnos, Track) ->
     ?assert(Track < 255),
     <<Track:8>>;
-pmap_encode_key(_, Key, _Val) ->
+pmap_encode_key(_, Key) ->
     term_to_binary(Key).
 
 pmap_decode_key(?top_metadata, Key) ->
@@ -757,3 +758,6 @@ pmap_name(Pmap) ->
         ?ranks -> ?top_ranks;
         ?awaiting_rel -> ?top_awaiting_rel
     end.
+
+pmap_kind(_Pmap) ->
+    dirty.
