@@ -541,9 +541,15 @@ assert_all_queries_triggered_fallbacks(Ctx) ->
     lists:foreach(
         fun(N) ->
             ?assertReceive(
-                {fallback_called, #{n := 1, request := #{ctx := #{req_n := N}}}}
+                {fallback_called, #{n := 1, request := #{ctx := #{req_n := N}}}},
+                1_000,
+                #{req_n => N}
             ),
-            ?assertReceive({fallback_called, #{n := 2, request := #{ctx := #{req_n := N}}}})
+            ?assertReceive(
+                {fallback_called, #{n := 2, request := #{ctx := #{req_n := N}}}},
+                1_000,
+                #{req_n => N}
+            )
         end,
         lists:seq(1, NReqs)
     ),
@@ -4604,8 +4610,7 @@ t_fallback_actions_late_reply(matrix) ->
         [no_batch]
     ];
 t_fallback_actions_late_reply(Config) when is_list(Config) ->
-    [ShouldBatch] =
-        group_path(Config, [batch]),
+    [ShouldBatch] = group_path(Config, [batch]),
     ChanQueryMode = async,
     CallbackMode = async_if_possible,
     ?check_trace(

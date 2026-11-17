@@ -1598,7 +1598,7 @@ apply_query_fun(
                 inflight_tid => InflightTID,
                 request_ref => Ref,
                 simple_query => IsSimpleQuery,
-                min_query => minimize(Query)
+                min_query => minimize(Query, IsSimpleQuery)
             },
             IsRetriable = false,
             AsyncWorkerMRef = undefined,
@@ -1692,7 +1692,7 @@ apply_query_fun(
                 inflight_tid => InflightTID,
                 request_ref => Ref,
                 simple_query => IsSimpleQuery,
-                min_batch => minimize(Batch)
+                min_batch => minimize(Batch, IsSimpleQuery)
             },
             Requests = lists:map(
                 fun(?QUERY(_ReplyTo, Request, _, _ExpireAt, _RequestContext0, _TraceCtx)) ->
@@ -1772,18 +1772,28 @@ handle_async_reply1(
         inflight_tid := InflightTID,
         resource_id := Id,
         buffer_worker := BufferWorkerPid,
-        min_query := ?QUERY(_ReplyTo, _, _, ExpireAt, _RequestContext, _TraceCtx) = Query
+        min_query := ?QUERY(_ReplyTo, _, _, ExpireAt, _RequestContext, _TraceCtx) = _MinimizedQuery
     } = ReplyContext,
     Result
 ) ->
-    ?tp(
+    ?tp_ignore_side_effects_in_prod(
         handle_async_reply_enter,
-        #{batch_or_query => [Query], ref => Ref, result => Result}
+        #{
+            is_batch => false,
+            batch_or_query => [
+                FullQuery
+             || InflightTID /= ?NO_INFLIGHT,
+                ?INFLIGHT_ITEM(_, FullQuery, _, _) <-
+                    ets:lookup(InflightTID, Ref)
+            ],
+            ref => Ref,
+            result => Result
+        }
     ),
     Now = now_(),
     case is_expired(ExpireAt, Now) of
         true ->
-            {IsAcked, _Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+            {IsAcked, FullQueries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
             %% evaluate metrics call here since we're not inside
             %% buffer worker
             IsAcked andalso
@@ -1799,9 +1809,10 @@ handle_async_reply1(
                         },
                         #{tag => ?TAG}
                     ),
+                    [Query] = FullQueries,
                     reply_dropped(Id, Query, {error, late_reply})
                 end,
-            ?tp(handle_async_reply_expired, #{expired => [Query]}),
+            ?tp(handle_async_reply_expired, #{expired => FullQueries}),
             ok;
         false ->
             do_handle_async_reply(ReplyContext, Result)
@@ -1814,7 +1825,7 @@ do_handle_async_reply(
         request_ref := Ref,
         buffer_worker := BufferWorkerPid,
         inflight_tid := InflightTID,
-        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt, RequestContext, TraceCtx) = Query
+        min_query := ?QUERY(ReplyTo, _, Sent, _ExpireAt, RequestContext, TraceCtx) = MinimizedQuery
     },
     Result
 ) ->
@@ -1824,9 +1835,15 @@ do_handle_async_reply(
     {Action, PostFn, DeltaCounters} = reply_caller_defer_metrics(
         Id, ?REPLY(ReplyTo, Sent, Result, RequestContext, TraceCtx), IsSimpleQuery
     ),
-    ?tp(handle_async_reply, #{
+    ?tp_ignore_side_effects_in_prod(handle_async_reply, #{
         action => Action,
-        batch_or_query => [Query],
+        is_batch => false,
+        batch_or_query => [
+            FullQuery
+         || InflightTID /= ?NO_INFLIGHT,
+            ?INFLIGHT_ITEM(_, FullQuery, _, _) <-
+                ets:lookup(InflightTID, Ref)
+        ],
         ref => Ref,
         result => Result
     }),
@@ -1844,7 +1861,7 @@ do_handle_async_reply(
                 PostFn,
                 BufferWorkerPid,
                 DeltaCounters,
-                [Query],
+                [MinimizedQuery],
                 IsSimpleQuery
             )
     end.
@@ -1868,26 +1885,46 @@ handle_async_batch_reply1(
     #{
         inflight_tid := InflightTID,
         request_ref := Ref,
-        min_batch := Batch
+        min_batch := MinimizedBatch
     } = ReplyContext,
     Result
 ) ->
-    ?tp(
+    ?tp_ignore_side_effects_in_prod(
         handle_async_reply_enter,
-        #{batch_or_query => Batch, ref => Ref, result => Result}
+        #{
+            is_batch => true,
+            batch_or_query => [
+                FullQuery
+             || InflightTID /= ?NO_INFLIGHT,
+                ?INFLIGHT_ITEM(_, FullBatch, _, _) <-
+                    ets:lookup(InflightTID, Ref),
+                FullQuery <- FullBatch
+            ],
+            ref => Ref,
+            result => Result
+        }
     ),
     Now = now_(),
-    case sieve_expired_requests(Batch, Now) of
-        {_NotExpired, []} ->
+    case sieve_expired_requests(MinimizedBatch, Now) of
+        {_NotExpiredMinimized, []} ->
             %% this is the critical code path,
             %% we try not to do ets:lookup in this case
             %% because the batch can be quite big
             do_handle_async_batch_reply(ReplyContext, Result);
-        {_NotExpired, _Expired} ->
+        {_NotExpiredMinimized, _ExpiredMinimized} ->
             %% at least one is expired
             %% the batch from reply context is minimized, so it cannot be used
             %% to update the inflight items, hence discard Batch and lookup the RealBatch
-            ?tp(handle_async_reply_expired, #{expired => _Expired}),
+            ?tp_ignore_side_effects_in_prod(handle_async_reply_expired, #{
+                expired => [
+                    FullQuery
+                 || InflightTID /= ?NO_INFLIGHT,
+                    ?INFLIGHT_ITEM(_, FullBatch, _, _) <-
+                        ets:lookup(InflightTID, Ref),
+                    FullQuery = ?QUERY(_, _, _, ExpireAt, _, _) <- FullBatch,
+                    is_expired(ExpireAt, Now)
+                ]
+            }),
             handle_async_batch_reply2(ets:lookup(InflightTID, Ref), ReplyContext, Result, Now)
     end.
 
@@ -1958,17 +1995,24 @@ do_handle_async_batch_reply(
         resource_id := Id,
         inflight_tid := InflightTID,
         request_ref := Ref,
-        min_batch := Batch,
+        min_batch := MinimizedBatch,
         simple_query := IsSimpleQuery
     },
     Result
 ) ->
     {Action, PostFn, DeltaCounters} = batch_reply_caller_defer_metrics(
-        Id, Result, Batch, IsSimpleQuery
+        Id, Result, MinimizedBatch, IsSimpleQuery
     ),
-    ?tp(handle_async_reply, #{
+    ?tp_ignore_side_effects_in_prod(handle_async_reply, #{
         action => Action,
-        batch_or_query => Batch,
+        is_batch => true,
+        batch_or_query => [
+            FullQuery
+         || InflightTID /= ?NO_INFLIGHT,
+            ?INFLIGHT_ITEM(_, FullBatch, _, _) <-
+                ets:lookup(InflightTID, Ref),
+            FullQuery <- FullBatch
+        ],
         ref => Ref,
         result => Result
     }),
@@ -1986,7 +2030,7 @@ do_handle_async_batch_reply(
                 PostFn,
                 BufferWorkerPid,
                 DeltaCounters,
-                Batch,
+                MinimizedBatch,
                 IsSimpleQuery
             )
     end.
@@ -2489,17 +2533,26 @@ ensure_expire_at(#{timeout := TimeoutMS} = Opts) ->
     Opts#{expire_at => ExpireAt}.
 
 %% no need to keep the request for async reply handler
-minimize(?QUERY(_, _, _, _, _, _) = Q) ->
+minimize(?QUERY(_, _, _, _, _, _) = Q, true = _IsSimpleQuery) ->
+    %% ... except for simple queries, which do not possess an inflight table.  if we
+    %% minimize queries here, it breaks fallback actions.
+    do_minimize_simple_query(Q);
+minimize(?QUERY(_, _, _, _, _, _) = Q, _IsSimpleQuery) ->
     do_minimize(Q);
-minimize(L) when is_list(L) ->
-    lists:map(fun do_minimize/1, L).
+minimize(L, true = _IsSimpleQuery) when is_list(L) ->
+    [do_minimize_simple_query(Q) || Q <- L];
+minimize(L, false = _IsSimpleQuery) when is_list(L) ->
+    [do_minimize(Q) || Q <- L].
 
--ifdef(TEST).
-do_minimize(?QUERY(_ReplyTo, _Req, _Sent, _ExpireAt, _RequestContext, _TraceCtx) = Query) -> Query.
--else.
+do_minimize_simple_query(?QUERY(_, _, _, _, #{?fallback_actions := [_ | _]}, _) = Q) ->
+    %% must not minimize if there are fallback actions; we need the original queries to
+    %% pass them down.
+    Q;
+do_minimize_simple_query(Q) ->
+    do_minimize(Q).
+
 do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt, RequestContext, TraceCtx)) ->
     ?QUERY(ReplyTo, [], Sent, ExpireAt, RequestContext, TraceCtx).
--endif.
 
 %% To avoid message loss due to misconfigurations, we adjust
 %% `batch_time' based on `request_ttl'.  If `batch_time' >
