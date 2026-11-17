@@ -6,7 +6,7 @@
 
 -behaviour(supervisor).
 
--export([start_link/0]).
+-export([start_link/0, ensure_helper/0]).
 
 -export([init/1]).
 
@@ -26,16 +26,28 @@ start_link() ->
             Err
     end.
 
+%% Start the router helper when it is not running. Does nothing when it is.
+%% A node that runs an older version of this module does not start the helper with
+%% routing schema v3. A hot patch calls this function after it loads the new modules.
+-spec ensure_helper() -> ok | {error, term()}.
+ensure_helper() ->
+    case supervisor:start_child(?MODULE, helper_spec()) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, already_present} ->
+            case supervisor:restart_child(?MODULE, helper) of
+                {ok, _Pid} -> ok;
+                {error, running} -> ok;
+                {error, Reason} -> {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
 init([]) ->
-    %% Router helper
-    Helper = #{
-        id => helper,
-        start => {emqx_router_helper, start_link, []},
-        restart => permanent,
-        shutdown => 5000,
-        type => worker,
-        modules => [emqx_router_helper]
-    },
+    Helper = helper_spec(),
     HelperPostStart = #{
         id => helper_post_start,
         start => {emqx_router_helper, post_start, []},
@@ -52,7 +64,7 @@ init([]) ->
     Children =
         case emqx_router:get_schema_vsn() of
             v3 ->
-                [RouterPool];
+                [Helper, RouterPool];
             v2 ->
                 [Helper, HelperPostStart, RouterPool]
         end,
@@ -62,3 +74,14 @@ init([]) ->
         period => 100
     },
     {ok, {SupFlags, Children}}.
+
+%% Router helper
+helper_spec() ->
+    #{
+        id => helper,
+        start => {emqx_router_helper, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_router_helper]
+    }.

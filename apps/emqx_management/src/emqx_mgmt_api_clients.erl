@@ -2017,6 +2017,7 @@ with_client_info_fields(ClientInfoMap, all) ->
     RemoveList =
         [
             auth_result,
+            auto_subscribe,
             peername,
             peerhost,
             sockname,

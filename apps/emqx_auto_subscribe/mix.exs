@@ -25,10 +25,20 @@ defmodule EMQXAutoSubscribe.MixProject do
   end
 
   def deps() do
-    UMP.deps([
-      {:emqx, in_umbrella: true},
-      {:emqx_utils, in_umbrella: true},
-      :minirest
-    ])
+    UMP.deps(
+      [
+        {:emqx, in_umbrella: true},
+        {:emqx_utils, in_umbrella: true},
+        :minirest
+      ] ++ test_deps()
+    )
+  end
+
+  defp test_deps() do
+    if UMP.test_env?() do
+      [{:emqx_auth_http, in_umbrella: true, runtime: false}]
+    else
+      []
+    end
   end
 end

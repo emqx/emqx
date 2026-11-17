@@ -9,4 +9,10 @@ emqx_bridge_emqx_tables_action_schema {
     label: "Action Parameters"
     desc: "Set of parameters for the action."
   }
+
+  field_types.desc:
+  """Explicit column types used when EMQX Tables auto-creates a target table. Only `json2` is supported. Field names must be static and correspond to fields declared in `write_syntax`; placeholders are not supported. The corresponding field must contain a JSON object or null; invalid JSON or unsupported JSON documents abort that table's insert batch as an unrecoverable error. Known limitation: if the first message that auto-creates a table omits a declared `json2` field, a later message cannot add that field because the table is not append-only. Pre-create the table with `append_mode = 'true'` for sparse `json2` fields."""
+
+  field_types.label:
+  """Field Types"""
 }
