@@ -104,7 +104,7 @@ Raise an error when the payload is not valid protobuf, or when it contains a gro
 """.
 -spec scan_aliases(binary()) -> #{non_neg_integer() => binary()}.
 scan_aliases(Payload) ->
-    scan_payload(Payload, #{}).
+    emqx_schema_registry_pb_wire:fold(fun scan_payload_field/3, #{}, Payload).
 
 do_register_aliases(BirthMsg, Mapping) ->
     Key = key(BirthMsg),
@@ -135,84 +135,34 @@ get_current_alias_mapping() ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-%% Field keys (field number bsl 3 bor wire type) in `priv/sparkplug_b.proto'.
-%% `Payload.metrics' (2, length-delimited).
--define(KEY_PAYLOAD_METRICS, ((2 bsl 3) bor ?WT_LEN)).
-%% `Payload.Metric.name' (1, length-delimited).
--define(KEY_METRIC_NAME, ((1 bsl 3) bor ?WT_LEN)).
-%% `Payload.Metric.alias' (2, varint).
--define(KEY_METRIC_ALIAS, ((2 bsl 3) bor ?WT_VARINT)).
--define(WT_VARINT, 0).
--define(WT_I64, 1).
--define(WT_LEN, 2).
--define(WT_I32, 5).
--define(UINT64_MAX, ((1 bsl 64) - 1)).
+%% Field numbers in `priv/sparkplug_b.proto'.
+%% `Payload.metrics' (length-delimited).
+-define(FIELD_PAYLOAD_METRICS, 2).
+%% `Payload.Metric.name' (length-delimited).
+-define(FIELD_METRIC_NAME, 1).
+%% `Payload.Metric.alias' (varint).
+-define(FIELD_METRIC_ALIAS, 2).
 
-scan_payload(<<>>, Acc) ->
-    Acc;
-scan_payload(Bin0, Acc) ->
-    case read_varint(Bin0) of
-        {?KEY_PAYLOAD_METRICS, Bin1} ->
-            {Metric, Bin} = read_len_delimited(Bin1),
-            scan_payload(Bin, add_alias(scan_metric(Metric, undefined, undefined), Acc));
-        {Key, Bin1} ->
-            scan_payload(skip_field(Key band 7, Bin1), Acc)
-    end.
+scan_payload_field(?FIELD_PAYLOAD_METRICS, {len, Metric}, Acc) ->
+    NameAlias = emqx_schema_registry_pb_wire:fold(
+        fun scan_metric_field/3, {undefined, undefined}, Metric
+    ),
+    add_alias(NameAlias, Acc);
+scan_payload_field(_Field, _Value, Acc) ->
+    Acc.
 
-scan_metric(<<>>, Name, Alias) ->
+scan_metric_field(?FIELD_METRIC_NAME, {len, Name}, {_, Alias}) ->
     {Name, Alias};
-scan_metric(Bin0, Name, Alias) ->
-    case read_varint(Bin0) of
-        {?KEY_METRIC_NAME, Bin1} ->
-            {NewName, Bin} = read_len_delimited(Bin1),
-            scan_metric(Bin, NewName, Alias);
-        {?KEY_METRIC_ALIAS, Bin1} ->
-            {NewAlias, Bin} = read_varint(Bin1),
-            scan_metric(Bin, Name, NewAlias band ?UINT64_MAX);
-        {Key, Bin1} ->
-            scan_metric(skip_field(Key band 7, Bin1), Name, Alias)
-    end.
+scan_metric_field(?FIELD_METRIC_ALIAS, {varint, Alias}, {Name, _}) ->
+    {Name, Alias};
+scan_metric_field(_Field, _Value, Acc) ->
+    Acc.
 
 add_alias({Name, Alias}, Acc) when is_binary(Name), is_integer(Alias) ->
     %% Copy the name so that the mapping does not keep the whole payload binary alive.
     Acc#{Alias => binary:copy(Name)};
 add_alias(_, Acc) ->
     Acc.
-
-skip_field(?WT_VARINT, Bin0) ->
-    {_, Bin} = read_varint(Bin0),
-    Bin;
-skip_field(?WT_LEN, Bin0) ->
-    {_, Bin} = read_len_delimited(Bin0),
-    Bin;
-skip_field(?WT_I64, <<_:64, Bin/binary>>) ->
-    Bin;
-skip_field(?WT_I32, <<_:32, Bin/binary>>) ->
-    Bin;
-skip_field(WireType, _Bin) when WireType =:= ?WT_I64; WireType =:= ?WT_I32 ->
-    error({bad_protobuf, truncated});
-skip_field(WireType, _Bin) ->
-    error({bad_protobuf, {wire_type, WireType}}).
-
-read_len_delimited(Bin0) ->
-    {Len, Bin1} = read_varint(Bin0),
-    case Bin1 of
-        <<Value:Len/binary, Bin/binary>> ->
-            {Value, Bin};
-        _ ->
-            error({bad_protobuf, truncated})
-    end.
-
-%% A varint has at most 10 bytes (64 bits in groups of 7 bits).
-read_varint(Bin) ->
-    read_varint(Bin, 0, 0).
-
-read_varint(<<1:1, X:7, Bin/binary>>, Shift, Acc) when Shift < 63 ->
-    read_varint(Bin, Shift + 7, Acc bor (X bsl Shift));
-read_varint(<<0:1, X:7, Bin/binary>>, Shift, Acc) ->
-    {Acc bor (X bsl Shift), Bin};
-read_varint(_Bin, _Shift, _Acc) ->
-    error({bad_protobuf, bad_varint}).
 
 %% Only reached from MQTT client channel processes; the hook callback enforces this
 %% (see `emqx_schema_registry_spb_hookcb:is_client_process/0').
