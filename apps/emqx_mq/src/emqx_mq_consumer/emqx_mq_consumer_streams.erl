@@ -297,7 +297,7 @@ on_new_iterator(
             } = ShardState
         } ->
             Progress = emqx_mq_consumer_stream_buffer:progress(SB0),
-            SB = emqx_mq_consumer_stream_buffer:restore(Progress#{it := It}, MQ),
+            SB = emqx_mq_consumer_stream_buffer:restore(Progress, It, MQ),
             {subscribe, State#{shards := Shards#{Shard := ShardState#{stream_buffer := SB}}}};
         #{Shard := #{status := finished, generation := OldGeneration}} when
             OldGeneration < Generation
@@ -373,16 +373,12 @@ save_progress_update(State, Shard) ->
     Progress = shard_progress(ShardState),
     State#{progress_updates => ProgressUpdates#{Shard => Progress}}.
 
-replay_start_time(#{last_message_id := undefined}) ->
-    0;
-replay_start_time(#{last_message_id := LastMessageId, unacked := Unacked}) ->
-    lists:foldl(
-        fun(IDs, Earliest) ->
-            maps:fold(fun(ID, _, Acc) -> min(ID, Acc) end, Earliest, IDs)
-        end,
-        LastMessageId + 1,
-        Unacked
-    ).
+%% Replay starts at the oldest record that is not acknowledged, or at 0 when nothing was read.
+replay_start_time(Progress) ->
+    case emqx_mq_consumer_stream_buffer:acked_boundary(Progress) of
+        undefined -> 0;
+        Boundary -> Boundary
+    end.
 
 shard_progress(#{
     status := active, generation := Generation, stream := Stream, stream_buffer := StreamBuffer

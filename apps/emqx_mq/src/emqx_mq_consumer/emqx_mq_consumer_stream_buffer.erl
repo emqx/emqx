@@ -15,6 +15,7 @@ The module represents a consumer of a single stream of the Message Queue data.
 -export([
     new/2,
     restore/2,
+    restore/3,
     acked_boundary/1,
     handle_ds_reply/3,
     handle_ack/2,
@@ -125,17 +126,26 @@ record, are acknowledged unless they are listed as unacknowledged.
 acked_boundary(#{last_message_id := undefined}) ->
     undefined;
 acked_boundary(#{last_message_id := LastMessageId, unacked := UnackedMaps}) ->
-    case maps:keys(emqx_utils_maps:merge(UnackedMaps)) of
-        [] -> LastMessageId + 1;
-        Unacked -> lists:min(Unacked)
+    case emqx_utils_maps:merge(UnackedMaps) of
+        Unacked when map_size(Unacked) == 0 -> LastMessageId + 1;
+        Unacked -> lists:min(maps:keys(Unacked))
     end.
 
+-doc "Restore a buffer from saved progress, reading from its saved iterator.".
 -spec restore(progress(), emqx_mq_types:mq()) -> t().
+restore(#{it := It} = Progress, MQ) ->
+    restore(Progress, It, MQ).
+
+-doc """
+Restore a buffer from saved progress, reading from the given iterator.
+The buffer keeps the acknowledgments of the saved progress.
+""".
+-spec restore(progress(), emqx_ds:iterator(), emqx_mq_types:mq()) -> t().
 %% The previous buffer did not see any messages, so we can just start a new buffer
-restore(#{last_message_id := undefined, it := It}, MQ) ->
+restore(#{last_message_id := undefined}, It, MQ) ->
     new(It, MQ);
 %% The previous buffer saw some messages, so we need to restore the buffer from the saved state
-restore(#{it := It, last_message_id := LastMessageId, unacked := UnackedMaps}, MQ) ->
+restore(#{last_message_id := LastMessageId, unacked := UnackedMaps}, It, MQ) ->
     #{
         status => restoring,
         mq => MQ,
