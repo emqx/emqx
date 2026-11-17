@@ -52,6 +52,12 @@ backend can reject flush request.
     loop/1
 ]).
 
+%% Debugging (dangerous!)
+-export([
+    conflict_stats/2,
+    dump_conflicts/4
+]).
+
 %% System exports
 -export([
     system_continue/3,
@@ -239,6 +245,8 @@ backend can reject flush request.
 -type del_batch() :: #ds_del_batch{}.
 
 -record(call_add_generation, {}).
+-record(call_conflict_stats, {}).
+-record(call_dump_conflicts, {gen :: emqx_ds:generation(), kind :: w | d}).
 
 %%================================================================================
 %% API functions
@@ -441,6 +449,42 @@ get_monotonic_timestamp() ->
     put(?ds_tx_monotonic_ts, TS),
     TS.
 
+-doc """
+Get the number of tracked conflicts per generation.
+
+This is an operator helper for interactive debugging: the call blocks
+until the shard's transaction manager replies, and the business code
+must never call it.
+""".
+-spec conflict_stats(emqx_ds:db(), emqx_ds:shard()) ->
+    #{emqx_ds:generation() => #{w := non_neg_integer(), d := non_neg_integer()}}.
+conflict_stats(DB, Shard) ->
+    call(
+        ?via(DB, Shard),
+        #call_conflict_stats{},
+        infinity
+    ).
+
+-doc """
+Dump conflict statistics for all generations.
+
+WARNING: This function may be extremely expensive if the conflict tree is large.
+
+This is an operator helper for interactive debugging: the call blocks
+until the shard's transaction manager replies, and the business code
+must never call it.
+""".
+-spec dump_conflicts(emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), w | d) ->
+    list() | undefined.
+dump_conflicts(DB, Shard, Generation, Kind) when
+    is_integer(Generation), Kind =:= d orelse Kind =:= w
+->
+    call(
+        ?via(DB, Shard),
+        #call_dump_conflicts{gen = Generation, kind = Kind},
+        infinity
+    ).
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
@@ -539,6 +583,12 @@ loop(D0) ->
 handle_call(From, #call_add_generation{}, D0) ->
     {Reply, D} = handle_add_generation(D0),
     gen:reply(From, Reply),
+    D;
+handle_call(From, #call_dump_conflicts{gen = Gen, kind = Kind}, D) ->
+    gen:reply(From, do_dump_conflicts(Gen, Kind, D)),
+    D;
+handle_call(From, #call_conflict_stats{}, D) ->
+    gen:reply(From, do_conflict_stats(D)),
     D;
 handle_call(From, Unknown, D) ->
     ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
@@ -672,7 +722,7 @@ handle_del_batch(
         true ?= is_integer(BatchSize) orelse ?err_unrec(bad_batch_size),
         true ?= is_boolean(DoItDirty) orelse ?err_unrec(bad_dirty),
         ok ?= check_olp(OLPMaxMQL),
-        TopicRange = preprocess_delete(MonotonicTS, TopicRange0),
+        TopicRange = preprocess_topic_range(MonotonicTS, TopicRange0),
         {ok, _PresumedCommitSerial, D} = with_time_and_generation(
             Gen,
             D0,
@@ -1107,9 +1157,9 @@ check_quota(false, Ops) ->
 
 -spec update_dirty_d(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
     emqx_ds_tx_conflict_trie:t().
-update_dirty_d(Serial, Ops, Dirty) ->
+update_dirty_d(Serial, Ops, Dirty0) ->
     %% Mark all deleted topics as dirty:
-    lists:foldl(
+    Dirty = lists:foldl(
         fun({TF, FromTime, ToTime}, Acc) ->
             emqx_ds_tx_conflict_trie:push_topic(
                 emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(TF),
@@ -1119,20 +1169,47 @@ update_dirty_d(Serial, Ops, Dirty) ->
                 Acc
             )
         end,
-        Dirty,
+        Dirty0,
         maps:get(?ds_tx_delete_topic, Ops, [])
+    ),
+    %% Add d-marks:
+    mark_tf_ranges_dirty(
+        Serial,
+        Dirty,
+        maps:get(?ds_tx_dmark, Ops, [])
     ).
 
 -spec update_dirty_w(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
     emqx_ds_tx_conflict_trie:t().
-update_dirty_w(Serial, Ops, Dirty) ->
+update_dirty_w(Serial, Ops, Dirty0) ->
     %% Mark written topics as dirty:
-    lists:foldl(
+    Dirty = lists:foldl(
         fun({TF, TS, _Val}, Acc) ->
             emqx_ds_tx_conflict_trie:push_topic(TF, TS, TS, Serial, Acc)
         end,
-        Dirty,
+        Dirty0,
         maps:get(?ds_tx_write, Ops, [])
+    ),
+    %% Add w-marks:
+    mark_tf_ranges_dirty(
+        Serial,
+        Dirty,
+        maps:get(?ds_tx_wmark, Ops, [])
+    ).
+
+mark_tf_ranges_dirty(Serial, Dirty, TopicRanges) ->
+    lists:foldl(
+        fun({TF, From, To}, Acc) ->
+            emqx_ds_tx_conflict_trie:push_topic(
+                emqx_ds_tx_conflict_trie:topic_filter_to_conflict_domain(TF),
+                From,
+                To,
+                Serial,
+                Acc
+            )
+        end,
+        Dirty,
+        TopicRanges
     ).
 
 -spec do_flush(d()) -> d().
@@ -1281,19 +1358,23 @@ preprocess_ops(_PresumedCommitSerial, Tx) ->
     MonotonicTS = get_monotonic_timestamp(),
     maps:map(
         fun
-            (?ds_tx_delete_topic, Ops) ->
-                [preprocess_delete(MonotonicTS, I) || I <- Ops];
-            (_Key, Ops) ->
+            (K, Ops) when
+                K =:= ?ds_tx_delete_topic;
+                K =:= ?ds_tx_wmark;
+                K =:= ?ds_tx_dmark
+            ->
+                [preprocess_topic_range(MonotonicTS, I) || I <- Ops];
+            (_K, Ops) ->
                 Ops
         end,
         Tx
     ).
 
--spec preprocess_delete(emqx_ds:time(), emqx_ds:topic_range()) ->
+-spec preprocess_topic_range(emqx_ds:time(), emqx_ds:topic_range()) ->
     {emqx_ds:topic(), emqx_ds:time(), emqx_ds:time() | infinity}.
-preprocess_delete(MonotonicTS, {TopicFilter, From, ?ds_tx_ts_monotonic}) ->
+preprocess_topic_range(MonotonicTS, {TopicFilter, From, ?ds_tx_ts_monotonic}) ->
     {TopicFilter, From, MonotonicTS};
-preprocess_delete(_MonotonicTS, A) ->
+preprocess_topic_range(_MonotonicTS, A) ->
     A.
 
 -spec check_conflicts(
@@ -1484,6 +1565,30 @@ prepare_del_batch(CBM, DB, Stream, TopicRange, CookOpts) ->
             ),
             {error, recoverable, otx_backend_error}
     end.
+
+-spec do_dump_conflicts(emqx_ds:generation(), w | d, d()) -> list() | undefined.
+do_dump_conflicts(Gen, Kind, #d{gens = Gens}) ->
+    maybe
+        #{Gen := #gen_data{dirty_w = DirtyW, dirty_d = DirtyD}} ?= Gens,
+        case Kind of
+            w -> emqx_ds_tx_conflict_trie:print(DirtyW);
+            d -> emqx_ds_tx_conflict_trie:print(DirtyD)
+        end
+    else
+        _ -> undefined
+    end.
+
+-spec do_conflict_stats(d()) -> map().
+do_conflict_stats(#d{gens = Gens}) ->
+    maps:map(
+        fun(_, #gen_data{dirty_w = DirtyW, dirty_d = DirtyD}) ->
+            #{
+                w => emqx_ds_tx_conflict_trie:get_size(DirtyW),
+                d => emqx_ds_tx_conflict_trie:get_size(DirtyD)
+            }
+        end,
+        Gens
+    ).
 
 cast(Server, Message) ->
     try erlang:send(Server, {'$gen_cast', Message}) of

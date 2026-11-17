@@ -73,6 +73,7 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_del_topic/1,
     tx_ttv_assert_present/3,
     tx_ttv_assert_absent/2,
+    tx_mark_dirty/4,
     tx_on_success/1
 ]).
 
@@ -389,7 +390,10 @@ Options for the `subscribe` API.
     %%   List of objects that should be present in the database.
     ?ds_tx_expected => [{topic(), time(), binary() | '_'}],
     %%   List of objects that should NOT be present in the database.
-    ?ds_tx_unexpected => [{topic(), time()}]
+    ?ds_tx_unexpected => [{topic(), time()}],
+    %% Explicit dirty marks (see `tx_mark_dirty/4`):
+    ?ds_tx_wmark => [topic_range()],
+    ?ds_tx_dmark => [topic_range()]
 }.
 
 -doc "Options for `trans/2` function.".
@@ -1386,6 +1390,8 @@ tx_commit_outcome(DB, Ref, ?ds_tx_commit_reply(Ref, Reply)) ->
 -define(tx_ops_del_topic, emqx_ds_tx_ctx_del_topic).
 -define(tx_ops_assert_present, emqx_ds_tx_ctx_assert_present).
 -define(tx_ops_assert_absent, emqx_ds_tx_ctx_assert_absent).
+-define(tx_ops_wmark, emqx_ds_tx_ctx_wmark).
+-define(tx_ops_dmark, emqx_ds_tx_ctx_dmark).
 -define(tx_ops_side_effect, emqx_ds_tx_ctx_side_effect).
 
 %% Transaction throws:
@@ -1575,6 +1581,41 @@ tx_write({Topic, Time, Value}) ->
             error(badarg)
     end.
 
+-doc """
+
+Mark the region of the storage matching the topic filter and the time range as dirty,
+without writing or deleting anything.
+
+The mark affects only the conflict tracking of the optimistic transaction manager:
+the marked region is tracked as a single unit,
+so the transactions that READ or verify preconditions
+on the overlapping range after this transaction commits are aborted,
+as they would be if the individual keys were updated.
+The transaction that creates the mark is not conflict-checked against the region,
+and a transaction that only WRITES into the region
+is not aborted by the marks of the other transactions:
+concurrent writers are ordered by their commit serials.
+
+In builtin backends this function can be used to optimize memory usage:
+if a transaction updates multiple keys matching a common topic filter,
+it may be wise to mark the entire topic filter as dirty
+to avoid tracking conflicts for the individual keys.
+
+""".
+-doc #{title => <<"Transactions">>, since => <<"6.0.5">>}.
+-spec tx_mark_dirty(topic_filter(), time(), time() | ?ds_tx_ts_monotonic | infinity, w | d) -> ok.
+tx_mark_dirty(TopicFilter, From, To, Kind) ->
+    case is_topic_filter(TopicFilter) of
+        true when ?is_time_range(From, To) ->
+            case Kind of
+                w -> tx_push_op(?tx_ops_wmark, {TopicFilter, From, To});
+                d -> tx_push_op(?tx_ops_dmark, {TopicFilter, From, To});
+                _ -> error({badkind, Kind})
+            end;
+        _ ->
+            error(badarg)
+    end.
+
 -doc "Equivalent to `tx_del_topic(TopicFilter, 0, infinity)`.".
 -doc #{title => <<"Transactions">>, since => <<"5.10.0">>}.
 -spec tx_del_topic(topic_filter()) -> ok.
@@ -1597,7 +1638,7 @@ tx_del_topic(TopicFilter, From, To) ->
     case is_topic_filter(TopicFilter) of
         true when ?is_time_range(From, To) ->
             tx_push_op(?tx_ops_del_topic, {TopicFilter, From, To});
-        false ->
+        _ ->
             error(badarg)
     end.
 
@@ -2259,6 +2300,8 @@ trans_inner(DB, Fun, Opts) ->
                 _ = put(?tx_ops_del_topic, []),
                 _ = put(?tx_ops_assert_present, []),
                 _ = put(?tx_ops_assert_absent, []),
+                _ = put(?tx_ops_wmark, []),
+                _ = put(?tx_ops_dmark, []),
                 _ = put(?tx_ops_side_effect, []),
                 Ret = Fun(),
                 Tx = #{
@@ -2266,7 +2309,9 @@ trans_inner(DB, Fun, Opts) ->
                     ?ds_tx_read => erase(?tx_ops_read),
                     ?ds_tx_delete_topic => erase(?tx_ops_del_topic),
                     ?ds_tx_expected => erase(?tx_ops_assert_present),
-                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent)
+                    ?ds_tx_unexpected => erase(?tx_ops_assert_absent),
+                    ?ds_tx_wmark => erase(?tx_ops_wmark),
+                    ?ds_tx_dmark => erase(?tx_ops_dmark)
                 },
                 case Tx of
                     #{
@@ -2274,9 +2319,11 @@ trans_inner(DB, Fun, Opts) ->
                         ?ds_tx_read := [],
                         ?ds_tx_delete_topic := [],
                         ?ds_tx_expected := [],
-                        ?ds_tx_unexpected := []
+                        ?ds_tx_unexpected := [],
+                        ?ds_tx_wmark := [],
+                        ?ds_tx_dmark := []
                     } ->
-                        %% Nothing to commit, apply side effects now:
+                        %% Nothing to commit. Apply side effects now:
                         tx_eval_side_effects(erase(?tx_ops_side_effect)),
                         {nop, Ret};
                     _ ->
@@ -2299,6 +2346,8 @@ trans_inner(DB, Fun, Opts) ->
         _ = erase(?tx_ops_del_topic),
         _ = erase(?tx_ops_assert_present),
         _ = erase(?tx_ops_assert_absent),
+        _ = erase(?tx_ops_wmark),
+        _ = erase(?tx_ops_dmark),
         _ = erase(?tx_ops_side_effect)
     end.
 

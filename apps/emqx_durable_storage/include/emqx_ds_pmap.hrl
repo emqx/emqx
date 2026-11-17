@@ -4,6 +4,14 @@
 -ifndef(EMQX_DS_PMAP_HRL).
 -define(EMQX_DS_PMAP_HRL, true).
 
+%% Dirty marker for #pmap
+-record(pmap_dirty, {
+    up_ctr,
+    comm_ctr,
+    was,
+    live
+}).
+
 %% Persistent map.
 %%
 %% Pmap accumulates the updates in a term stored in the heap of a
@@ -26,6 +34,16 @@
     cache = #{},
     dirty = #{},
     tx_counter = 0
+}).
+
+%% A pmap that serves as a set. It can only store atom `true'. Its
+%% at-rest representation is the same as pmap, so the implementations
+%% are interchangable.
+-record(pset, {
+    name,
+    module,
+    data = #{},
+    size = 0
 }).
 
 -define(top_data, <<"d">>).

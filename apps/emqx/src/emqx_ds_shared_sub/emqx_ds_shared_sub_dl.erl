@@ -51,7 +51,7 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 ]).
 
 %% behavior callbacks:
--export([pmap_encode_key/3, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
+-export([pmap_encode_key/2, pmap_decode_key/2, pmap_encode_val/3, pmap_decode_val/3]).
 
 %% internal exports:
 -export([]).
@@ -348,11 +348,11 @@ iterator_next(Cursor, Limit) ->
 %% behavior callbacks
 %%================================================================================
 
-pmap_encode_key(?top_properties, Key, _Val) ->
+pmap_encode_key(?top_properties, Key) ->
     Key;
-pmap_encode_key(?top_generations, Key, _Val) ->
+pmap_encode_key(?top_generations, Key) ->
     Key;
-pmap_encode_key(?top_iterators, Key, _Val) ->
+pmap_encode_key(?top_iterators, Key) ->
     {{Shard, Gen}, Stream} = Key,
     {ok, StreamBin} = emqx_ds:stream_to_binary(messages, Stream),
     'DSSharedSub':encode('StreamId', #'StreamId'{
@@ -360,7 +360,7 @@ pmap_encode_key(?top_iterators, Key, _Val) ->
         generation = Gen,
         stream = StreamBin
     });
-pmap_encode_key(_, Key, _Val) ->
+pmap_encode_key(_, Key) ->
     term_to_binary(Key).
 
 pmap_decode_key(?top_properties, Key) ->
