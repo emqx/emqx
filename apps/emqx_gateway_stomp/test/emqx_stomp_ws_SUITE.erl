@@ -98,6 +98,34 @@ t_traffic_keepalive(_) ->
         )
     end).
 
+-doc """
+A STOMP WebSocket upgrade gets HTTP 503 when the process count is close to
+the process limit, and succeeds once it drops.
+""".
+t_process_limit_refusal(_) ->
+    ok = meck:new(emqx_node_readiness, [passthrough, no_history, no_link]),
+    try
+        ok = meck:expect(emqx_node_readiness, process_usage, 0, {95, 100}),
+        {ok, ConnPid} = gun:open("127.0.0.1", 61614, #{retry => 0, protocols => [http]}),
+        try
+            {ok, http} = gun:await_up(ConnPid),
+            StreamRef = gun:ws_upgrade(
+                ConnPid, "/stomp", [], #{protocols => [{<<"stomp">>, gun_ws_h}]}
+            ),
+            receive
+                {gun_response, ConnPid, StreamRef, _, Status, _Headers} ->
+                    ?assertEqual(503, Status)
+            after 5000 ->
+                ct:fail(no_http_response)
+            end
+        after
+            gun:close(ConnPid)
+        end
+    after
+        meck:unload(emqx_node_readiness)
+    end,
+    with_connection(fun(_ConnPid, _StreamRef) -> ok end).
+
 with_connection(Fun) ->
     {ok, ConnPid} = gun:open("127.0.0.1", 61614, #{retry => 0, protocols => [http]}),
     try

@@ -59,6 +59,7 @@ init_per_testcase(_Case, Config) ->
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    _ = meck:unload(),
     ok = emqx_node_readiness:mark_ready().
 
 -doc "The readiness flag defaults to true and toggles with mark_not_ready/mark_ready.".
@@ -132,6 +133,64 @@ t_gate_quic_connection(_Config) ->
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, try_connect(fun emqtt:quic_connect/1, QuicOpts)).
 
+-doc """
+New connections are refused at 90% of the process limit and above, and the
+readiness flag is checked first.
+""".
+t_check_new_connection(_Config) ->
+    ok = mock_process_usage(89, 100),
+    ?assertEqual(ok, emqx_node_readiness:check_new_connection()),
+    ok = mock_process_usage(90, 100),
+    ?assertEqual({error, too_many_processes}, emqx_node_readiness:check_new_connection()),
+    ok = emqx_node_readiness:mark_not_ready(),
+    ?assertEqual({error, node_not_ready}, emqx_node_readiness:check_new_connection()),
+    ok = emqx_node_readiness:mark_ready(),
+    ok = meck:unload(emqx_node_readiness),
+    {Count, Limit} = emqx_node_readiness:process_usage(),
+    ?assertEqual(erlang:system_info(process_limit), Limit),
+    ?assert(Count > 0 andalso Count < Limit).
+
+-doc """
+A TCP MQTT connection is refused when the process count is close to the
+process limit, accepted once it drops.  The refusal is recorded in the
+listener's shutdown counter.
+""".
+t_process_limit_tcp_connection(_Config) ->
+    assert_process_limit_refusal(<<"tcp:default">>, [listeners, tcp, default, bind], ?TCP_PORT).
+
+-doc """
+A TCP MQTT connection on a listener with `tcp_backend = socket` is refused
+when the process count is close to the process limit, accepted once it
+drops.  The refusal is recorded in the listener's shutdown counter.
+""".
+t_process_limit_tcp_socket_backend_connection(_Config) ->
+    assert_process_limit_refusal(<<"tcp:sock">>, [listeners, tcp, sock, bind], ?TCP_SOCKET_PORT).
+
+-doc """
+A WebSocket MQTT connection is refused when the process count is close to
+the process limit, accepted once it drops.
+""".
+t_process_limit_ws_connection(_Config) ->
+    ok = mock_process_usage(95, 100),
+    ?assertMatch({error, _}, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})),
+    ok = meck:unload(emqx_node_readiness),
+    ?assertEqual(ok, try_connect(fun emqtt:ws_connect/1, #{port => ?WS_PORT})).
+
+-doc """
+A QUIC MQTT connection is refused when the process count is close to the
+process limit, accepted once it drops.
+""".
+t_process_limit_quic_connection(_Config) ->
+    QuicOpts = #{
+        port => ?QUIC_PORT,
+        ssl => true,
+        ssl_opts => [{verify, verify_none}]
+    },
+    ok = mock_process_usage(95, 100),
+    ?assertMatch({error, _}, try_connect(fun emqtt:quic_connect/1, QuicOpts)),
+    ok = meck:unload(emqx_node_readiness),
+    ?assertEqual(ok, try_connect(fun emqtt:quic_connect/1, QuicOpts)).
+
 -doc "A cluster join is refused on both the joining and the target node while not ready.".
 t_gate_cluster_join(_Config) ->
     ok = emqx_node_readiness:mark_not_ready(),
@@ -142,6 +201,30 @@ t_gate_cluster_join(_Config) ->
     ),
     ok = emqx_node_readiness:mark_ready(),
     ?assertEqual(ok, emqx_cluster:can_i_join(node())).
+
+assert_process_limit_refusal(ListenerId, BindPath, Port) ->
+    ok = mock_process_usage(95, 100),
+    ?assertMatch({error, _}, try_connect(fun emqtt:connect/1, #{port => Port})),
+    Bind = emqx_config:get(BindPath),
+    ?retry(
+        100,
+        10,
+        ?assertMatch(
+            {too_many_processes, _},
+            lists:keyfind(
+                too_many_processes, 1, emqx_listeners:shutdown_count(ListenerId, Bind)
+            )
+        )
+    ),
+    ok = meck:unload(emqx_node_readiness),
+    ?assertEqual(ok, try_connect(fun emqtt:connect/1, #{port => Port})).
+
+mock_process_usage(Count, Limit) ->
+    case lists:member(emqx_node_readiness, meck:mocked()) of
+        true -> ok;
+        false -> ok = meck:new(emqx_node_readiness, [passthrough, no_history, no_link])
+    end,
+    ok = meck:expect(emqx_node_readiness, process_usage, 0, {Count, Limit}).
 
 try_connect(ConnFun, Opts0) ->
     Opts = maps:merge(#{host => "127.0.0.1", connect_timeout => 5}, Opts0),

@@ -197,6 +197,20 @@ init(Req, Opts) ->
         max_frame_size => emqx_gateway_utils:ws_max_frame_size(Opts),
         idle_timeout => IdleTimeout
     },
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
+            check_origin_and_init(Req, Opts, WsOpts);
+        {error, too_many_processes} ->
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => ws, tag => ?TAG}),
+            {ok, cowboy_req:reply(503, Req), WsOpts};
+        {error, node_not_ready} ->
+            %% Refuse to serve before node boot completes: authn/authz
+            %% hooks (e.g. from plugins) may not be installed yet.
+            ?SLOG(info, #{tag => ?TAG, msg => ws_connection_refused_before_boot_complete}),
+            {ok, cowboy_req:reply(503, Req), WsOpts}
+    end.
+
+check_origin_and_init(Req, Opts, WsOpts) ->
     case check_origin_header(Req, Opts) of
         {error, Message} ->
             ?SLOG(error, #{tag => ?TAG, msg => "invaild_origin_header", reason => Message}),

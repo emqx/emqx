@@ -108,10 +108,18 @@ new_conn(
 ) ->
     process_flag(trap_exit, true),
     ?SLOG(debug, ConnInfo#{conn => Conn}),
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             do_new_conn(Conn, ConnInfo, S);
-        false ->
+        {error, too_many_processes} ->
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => quic}),
+            _ = quicer:async_shutdown_connection(
+                Conn,
+                ?QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
+                ?MQTT_QUIC_CONN_ERROR_OVERLOADED
+            ),
+            {stop, normal, S};
+        {error, node_not_ready} ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             ?SLOG(warning, #{msg => quic_connection_refused_before_boot_complete}),

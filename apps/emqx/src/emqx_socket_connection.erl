@@ -295,15 +295,20 @@ init(Parent, esockd_socket, RawSocket, Options) ->
     end.
 
 %% Refuse to serve before node boot completes: authn/authz hooks
-%% (e.g. from plugins) may not be installed yet. The exit reason feeds
+%% (e.g. from plugins) may not be installed yet. Refuse to serve also
+%% when the node is close to its process limit. The exit reason feeds
 %% the listener's shutdown counter. Same gate as `emqx_connection:init/4'.
 %% The socket has not completed wait/1 yet, so the peername lookup must
 %% not crash the refusal path, hence the catch-all.
 assert_node_ready(RawSocket) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             ok;
-        false ->
+        {error, too_many_processes} ->
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => esockd_socket}),
+            _ = esockd_socket:fast_close(RawSocket),
+            erlang:exit({shutdown, too_many_processes});
+        {error, node_not_ready} ->
             Peername =
                 try esockd_socket:peername(RawSocket) of
                     {ok, Peer} -> esockd:format(Peer);
