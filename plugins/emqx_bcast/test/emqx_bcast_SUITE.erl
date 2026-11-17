@@ -1449,6 +1449,55 @@ t_reporter_pending_pruned_when_delivery_is_deleted(_Config) ->
     ok = emqx_bcast_storage:delete_delivery(DeliveryId),
     ?assertNot(wait_until(fun() -> reporter_has_pending(ReporterName, DeliveryId) end, 20)).
 
+-doc "A counter projection racing with delivery deletion must not recreate the\n"
+"counter after the durable rows are gone. Rechecking metadata after the write\n"
+"closes the reporter-local check/write race without adding a transaction.".
+t_reporter_counter_write_does_not_survive_delete_race(_Config) ->
+    PK = <<"PREPORTERDELRACE">>,
+    {A, B} = two_different_shards(PK),
+    {_ApiMsgId, MsgGuid} = create_test_msg(<<"reporter delete race">>),
+    DeliveryId = emqx_bcast_utils:gen_guid(),
+    {ok, _} = emqx_bcast_storage:create_delivery(
+        DeliveryId, MsgGuid, PK, <<"tpl">>, [A, B], 2
+    ),
+    ReporterShard = erlang:phash2(DeliveryId, emqx_bcast_part_reporter:shard_count()),
+    Reporter = whereis(emqx_bcast_part_reporter:shard_name(ReporterShard)),
+    Parent = self(),
+    meck:new(mnesia, [passthrough, no_link]),
+    try
+        meck:expect(mnesia, dirty_write, fun
+            (Record = #bcast_msg_meta_counter{delivery_id = Did}) when
+                Did =:= DeliveryId
+            ->
+                case self() =:= Reporter of
+                    true ->
+                        Parent ! {counter_write_blocked, self()},
+                        receive
+                            continue_counter_write -> meck:passthrough([Record])
+                        after 10_000 ->
+                            error(counter_write_timeout)
+                        end;
+                    false ->
+                        meck:passthrough([Record])
+                end;
+            (Record) ->
+                meck:passthrough([Record])
+        end),
+        counted = emqx_bcast_storage:process_ack(PK, A, DeliveryId),
+        receive
+            {counter_write_blocked, Reporter} -> ok
+        after 5000 ->
+            ?assert(false)
+        end,
+        ok = emqx_bcast_storage:delete_delivery(DeliveryId),
+        Reporter ! continue_counter_write,
+        _ = sys:get_state(Reporter)
+    after
+        Reporter ! continue_counter_write,
+        meck:unload(mnesia)
+    end,
+    ?assertEqual([], mnesia:dirty_read(bcast_msg_meta_counter, DeliveryId)).
+
 -doc "A slow pending sweep is the backstop when a deletion notification is lost.\n"
 "It must eventually remove entries whose delivery rows no longer exist without\n"
 "requiring a reporter restart.".

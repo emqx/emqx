@@ -282,7 +282,17 @@ sync_counter(Did, Remaining) ->
                             delivery_id = Did,
                             counter = Remaining
                         }),
-                        ok
+                        %% A concurrent delivery deletion can commit after the
+                        %% metadata check above and before this write. Recheck
+                        %% before reporting success; the delete transaction
+                        %% removes the counter when it wins after this point.
+                        case ets:member(?TAB_MSG_META, Did) of
+                            true ->
+                                ok;
+                            false ->
+                                _ = mnesia:dirty_delete(?TAB_MSG_META_CNT, Did),
+                                error
+                        end
                 end
         end
     catch
