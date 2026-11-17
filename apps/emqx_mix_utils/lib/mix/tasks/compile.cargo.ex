@@ -6,7 +6,9 @@ defmodule Mix.Tasks.Compile.Cargo do
   Each entry is a map:
 
     * `:path` - crate directory, relative to the application root;
-    * `:lib` - library name from the crate `[lib]` section (`lib<name>.so` is copied).
+    * `:lib` - library name from the crate `[lib]` section. Cargo writes `lib<name>.so`, or
+      `lib<name>.dylib` on macOS. It is copied to `priv/lib<name>.so`, the name that
+      `erlang:load_nif/2` looks for on both systems.
 
   Cargo writes its target directory under the build path, so the source tree stays clean.
   Cargo decides itself whether the crate is stale. `Cargo.lock` must be committed, because
@@ -57,7 +59,7 @@ defmodule Mix.Tasks.Compile.Cargo do
   end
 
   defp copy_lib(lib, target_root, app_path) do
-    src = Path.join([target_root, "release", "lib#{lib}.so"])
+    src = Path.join([target_root, "release", "lib#{lib}#{cargo_lib_ext()}"])
     dest = Path.join([app_path, "priv", "lib#{lib}.so"])
     File.mkdir_p!(Path.dirname(dest))
 
@@ -66,6 +68,13 @@ defmodule Mix.Tasks.Compile.Cargo do
     else
       File.cp!(src, dest)
       :ok
+    end
+  end
+
+  defp cargo_lib_ext do
+    case :os.type() do
+      {:unix, :darwin} -> ".dylib"
+      _ -> ".so"
     end
   end
 end
