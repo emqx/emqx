@@ -21,7 +21,7 @@ jobs:
     uses: ./.github/workflows/verify_release_tag.yaml
     with:
       ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
-      require_ga: ${{ (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts }}
+      require_ga: ${{ !contains(github.event.release.tag_name || inputs.tag, '-cloud.') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts) }}
 
   upload:
     needs: verify-release-tag
