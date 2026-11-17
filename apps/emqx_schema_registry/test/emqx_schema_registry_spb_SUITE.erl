@@ -6,6 +6,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -1230,16 +1231,316 @@ large_metric(I, WithAlias, Props) ->
 large_metric_name(I) ->
     <<"device/metric/", (integer_to_binary(I))/binary>>.
 
-%% Alias mapping from a full decode, in a process with no current alias mapping.
+%% Alias mapping from a full decode. Call it only in a process that has no current alias
+%% mapping, such as the test case process: the decode adds names from that mapping.
 full_decode_aliases(Payload) ->
-    run_in_process(_Label = undefined, fun() ->
-        Decoded = emqx_schema_registry_serde:rsf_spb_decode([Payload]),
-        lists:foldl(
-            fun
-                (#{<<"alias">> := Alias, <<"name">> := Name}, Acc) -> Acc#{Alias => Name};
-                (_, Acc) -> Acc
-            end,
-            #{},
-            maps:get(<<"metrics">>, Decoded, [])
+    ?assertEqual(#{}, emqx_schema_registry_spb_state:get_current_alias_mapping()),
+    Decoded = emqx_schema_registry_serde:rsf_spb_decode([Payload]),
+    lists:foldl(
+        fun
+            (#{<<"alias">> := Alias, <<"name">> := Name}, Acc) -> Acc#{Alias => Name};
+            (_, Acc) -> Acc
+        end,
+        #{},
+        maps:get(<<"metrics">>, Decoded, [])
+    ).
+
+%% Like `full_decode_aliases/1', but return `error' when the decode fails.
+try_full_decode_aliases(Payload) ->
+    try
+        {ok, full_decode_aliases(Payload)}
+    catch
+        _:_ -> error
+    end.
+
+try_scan_aliases(Payload) ->
+    try
+        {ok, emqx_schema_registry_spb_state:scan_aliases(Payload)}
+    catch
+        error:{bad_protobuf, _} -> bad_protobuf
+    end.
+
+%%------------------------------------------------------------------------------
+%% Property tests
+%%------------------------------------------------------------------------------
+
+%% The properties run with `noshrink'. Shrinking a nested payload tries a very large
+%% number of candidates and can run for many minutes. The generated payloads are small,
+%% and `?WHENFAIL' prints the failing one.
+
+-doc """
+Property: for any Sparkplug B payload, the alias scan returns the same mapping as the
+full protobuf decode.
+
+The generated payloads have metrics with and without names and aliases, small aliases
+that repeat, the largest alias value, all metric value types except `float_value`,
+nested property sets, and templates whose metrics have their own aliases.
+""".
+t_prop_scan_aliases_matches_full_decode(_TCConfig) ->
+    ?assert(
+        proper:quickcheck(
+            prop_scan_aliases_matches_full_decode(),
+            [{numtests, 500}, noshrink, {to_file, user}]
         )
-    end).
+    ).
+
+prop_scan_aliases_matches_full_decode() ->
+    ?FORALL(
+        Payload0,
+        spb_payload_gen(),
+        begin
+            Payload = spb_encode(Payload0),
+            Expected = full_decode_aliases(Payload),
+            Scanned = emqx_schema_registry_spb_state:scan_aliases(Payload),
+            ?WHENFAIL(
+                ct:pal("payload: ~p~nexpected: ~p~nscanned: ~p", [Payload0, Expected, Scanned]),
+                aggregate([map_size(Expected) > 0], Expected =:= Scanned)
+            )
+        end
+    ).
+
+-doc """
+Property: for a valid payload with a random change, the alias scan returns a mapping or
+raises a `bad_protobuf` error, and raises no other exception. When both the scan and the
+full decode accept the bytes, they return the same mapping.
+
+The change is one of: truncate, change one byte, insert random bytes. It applies to the
+whole payload, or to the bytes of one metric inside a valid length prefix. The second
+form reaches the fields inside a metric: a change to the whole payload usually breaks
+the length prefix of a metric first.
+
+Both can disagree on whether the bytes are valid: the scan does not check the fields
+that it skips, and it rejects protobuf groups.
+""".
+t_prop_scan_aliases_bad_input(_TCConfig) ->
+    ?assert(
+        proper:quickcheck(
+            prop_scan_aliases_bad_input(),
+            [{numtests, 1000}, noshrink, {to_file, user}]
+        )
+    ).
+
+prop_scan_aliases_bad_input() ->
+    ?FORALL(
+        {Payload0, Target, Mutation},
+        {spb_payload_gen(), oneof([payload, {metric, non_neg_integer()}]), mutation_gen()},
+        begin
+            Payload = mutated_payload(Target, Mutation, Payload0),
+            Scanned = try_scan_aliases(Payload),
+            Full = try_full_decode_aliases(Payload),
+            ?WHENFAIL(
+                ct:pal("payload: ~0p~nscanned: ~p~nfull decode: ~p", [Payload, Scanned, Full]),
+                aggregate(
+                    [{scan, outcome(Scanned), full, outcome(Full)}],
+                    case {Scanned, Full} of
+                        {{ok, Mapping1}, {ok, Mapping2}} -> Mapping1 =:= Mapping2;
+                        _ -> true
+                    end
+                )
+            )
+        end
+    ).
+
+outcome({ok, _}) -> ok;
+outcome(Other) -> Other.
+
+mutated_payload({metric, Index0}, Mutation, #{<<"metrics">> := [_ | _] = Metrics} = Payload0) ->
+    Index = Index0 rem length(Metrics),
+    MetricFields = [
+        metric_field(maybe_mutate(I =:= Index, Mutation, encode_metric(Metric)))
+     || {I, Metric} <- lists:enumerate(0, Metrics)
+    ],
+    iolist_to_binary([spb_encode(maps:remove(<<"metrics">>, Payload0)) | MetricFields]);
+mutated_payload(_Target, Mutation, Payload0) ->
+    mutate(Mutation, spb_encode(Payload0)).
+
+maybe_mutate(true, Mutation, Bin) -> mutate(Mutation, Bin);
+maybe_mutate(false, _Mutation, Bin) -> Bin.
+
+%% `Payload.metrics' is field 2 with wire type 2 (length-delimited).
+metric_field(Bin) ->
+    <<((2 bsl 3) bor 2), (encode_varint(byte_size(Bin)))/binary, Bin/binary>>.
+
+%% Same as `spb_encode/1' for a single metric: `bytes_value' is base64 in the term.
+encode_metric(Metric0) ->
+    Metric =
+        case Metric0 of
+            #{<<"bytes_value">> := Bytes64} ->
+                Metric0#{<<"bytes_value">> := base64:decode(Bytes64)};
+            _ ->
+                Metric0
+        end,
+    emqx_schema_registry_serde:rsf_sparkplug_encode([Metric, <<"Payload.Metric">>]).
+
+encode_varint(N) when N < 128 -> <<N>>;
+encode_varint(N) -> <<1:1, (N band 127):7, (encode_varint(N bsr 7))/binary>>.
+
+mutation_gen() ->
+    oneof([
+        {truncate, non_neg_integer()},
+        {change, non_neg_integer(), range(1, 255)},
+        {insert, non_neg_integer(), binary()}
+    ]).
+
+mutate({truncate, Pos}, Bin) ->
+    binary:part(Bin, 0, Pos rem (byte_size(Bin) + 1));
+mutate({change, _Pos, _Xor}, <<>>) ->
+    <<>>;
+mutate({change, Pos0, Xor}, Bin) ->
+    Pos = Pos0 rem byte_size(Bin),
+    <<Before:Pos/binary, Byte, After/binary>> = Bin,
+    <<Before/binary, (Byte bxor Xor), After/binary>>;
+mutate({insert, Pos0, Extra}, Bin) ->
+    Pos = Pos0 rem (byte_size(Bin) + 1),
+    <<Before:Pos/binary, After/binary>> = Bin,
+    <<Before/binary, Extra/binary, After/binary>>.
+
+spb_payload_gen() ->
+    ?LET(
+        {Timestamp, Seq, Uuid, Body, Metrics},
+        {
+            option(uint64_gen()),
+            option(uint64_gen()),
+            option(utf8()),
+            option(binary()),
+            short_list(metric_gen(_Depth = 1))
+        },
+        compact(#{
+            <<"timestamp">> => Timestamp,
+            <<"seq">> => Seq,
+            <<"uuid">> => Uuid,
+            <<"body">> => Body,
+            <<"metrics">> => Metrics
+        })
+    ).
+
+metric_gen(Depth) ->
+    ?LET(
+        {Name, Alias, Timestamp, Datatype, IsNull, Properties, Value},
+        {
+            option(name_gen()),
+            option(alias_gen()),
+            option(uint64_gen()),
+            option(range(0, 34)),
+            option(boolean()),
+            option(property_set_gen(Depth)),
+            option(metric_value_gen(Depth))
+        },
+        maps:merge(
+            compact(#{
+                <<"name">> => Name,
+                <<"alias">> => Alias,
+                <<"timestamp">> => Timestamp,
+                <<"datatype">> => Datatype,
+                <<"is_null">> => IsNull,
+                <<"properties">> => Properties
+            }),
+            value_map(Value)
+        )
+    ).
+
+name_gen() ->
+    oneof([
+        utf8(),
+        ?LET(I, range(0, 3), <<"metric", (integer_to_binary(I))/binary>>)
+    ]).
+
+%% Small aliases repeat often across the metrics of one payload.
+alias_gen() ->
+    frequency([
+        {5, range(0, 5)},
+        {2, uint64_gen()},
+        {1, exactly((1 bsl 64) - 1)}
+    ]).
+
+metric_value_gen(Depth) ->
+    oneof(
+        [
+            {<<"int_value">>, uint32_gen()},
+            {<<"long_value">>, uint64_gen()},
+            {<<"double_value">>, float()},
+            {<<"boolean_value">>, boolean()},
+            {<<"string_value">>, utf8()},
+            {<<"bytes_value">>, ?LET(Bytes, binary(), base64:encode(Bytes))}
+        ] ++
+            [
+                {<<"template_value">>, template_gen(Depth - 1)}
+             || Depth > 0
+            ]
+    ).
+
+%% The metrics of a template have names and aliases. They must not go into the
+%% mapping: only top-level metrics do.
+template_gen(Depth) ->
+    ?LET(
+        {Version, Metrics, IsDefinition},
+        {option(utf8()), short_list(metric_gen(Depth)), option(boolean())},
+        compact(#{
+            <<"version">> => Version,
+            <<"metrics">> => Metrics,
+            <<"is_definition">> => IsDefinition
+        })
+    ).
+
+property_set_gen(Depth) ->
+    ?LET(
+        KVs,
+        short_list({utf8(), property_value_gen(Depth)}),
+        #{
+            <<"keys">> => [K || {K, _} <- KVs],
+            <<"values">> => [V || {_, V} <- KVs]
+        }
+    ).
+
+property_value_gen(Depth) ->
+    ?LET(
+        {Type, IsNull, Value},
+        {option(range(0, 34)), option(boolean()), option(property_value_value_gen(Depth))},
+        maps:merge(
+            compact(#{<<"type">> => Type, <<"is_null">> => IsNull}),
+            value_map(Value)
+        )
+    ).
+
+property_value_value_gen(Depth) ->
+    oneof(
+        [
+            {<<"int_value">>, uint32_gen()},
+            {<<"long_value">>, uint64_gen()},
+            {<<"double_value">>, float()},
+            {<<"boolean_value">>, boolean()},
+            {<<"string_value">>, utf8()}
+        ] ++
+            [
+                {<<"propertyset_value">>, property_set_gen(Depth - 1)}
+             || Depth > 0
+            ] ++
+            [
+                {<<"propertysets_value">>,
+                    ?LET(
+                        Sets,
+                        short_list(property_set_gen(Depth - 1)),
+                        #{<<"propertyset">> => Sets}
+                    )}
+             || Depth > 0
+            ]
+    ).
+
+option(Gen) ->
+    oneof([undefined, Gen]).
+
+short_list(Gen) ->
+    ?LET(N, range(0, 6), vector(N, Gen)).
+
+uint32_gen() ->
+    range(0, (1 bsl 32) - 1).
+
+uint64_gen() ->
+    range(0, (1 bsl 64) - 1).
+
+value_map(undefined) -> #{};
+value_map({Key, Value}) -> #{Key => Value}.
+
+%% Remove the keys whose value is `undefined'.
+compact(Map) ->
+    maps:filter(fun(_K, V) -> V =/= undefined end, Map).
