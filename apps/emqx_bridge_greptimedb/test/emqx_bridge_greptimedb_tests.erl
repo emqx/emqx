@@ -114,7 +114,20 @@ partial_batch_success_prevents_retrying_the_whole_batch_test() ->
     ]),
     [First, Second] = Results,
     ?assertEqual({ok, 1}, First),
-    assert_unrecoverable(Second, partial_batch_write).
+    ?assertMatch(
+        {error,
+            {unrecoverable_error, #{
+                reason := partial_batch_write,
+                result := Transient,
+                batch_summary := #{
+                    total := 2,
+                    successful := 1,
+                    recoverable := 1,
+                    unrecoverable := 0
+                }
+            }}},
+        Second
+    ).
 
 mixed_batch_without_success_promotes_only_recoverable_results_test() ->
     Transient = {error, {recoverable_error, transient}},
@@ -123,8 +136,49 @@ mixed_batch_without_success_promotes_only_recoverable_results_test() ->
         Transient,
         Permanent
     ]),
-    assert_unrecoverable(First, batch_contains_unrecoverable),
+    ?assertMatch(
+        {error,
+            {unrecoverable_error, #{
+                reason := batch_contains_unrecoverable,
+                result := Transient,
+                batch_summary := #{
+                    total := 2,
+                    successful := 0,
+                    recoverable := 1,
+                    unrecoverable := 1
+                }
+            }}},
+        First
+    ),
     ?assertEqual(Permanent, Second).
+
+large_mixed_batch_uses_bounded_error_summary_test() ->
+    Transient = {error, {recoverable_error, transient}},
+    Results = emqx_bridge_greptimedb_rs_impl:coalesce_mixed_batch_results([
+        {ok, 1}
+        | lists:duplicate(999, Transient)
+    ]),
+    [First | Promoted] = Results,
+    ?assertEqual({ok, 1}, First),
+    lists:foreach(
+        fun(PromotedResult) ->
+            {error, {unrecoverable_error, Details}} = PromotedResult,
+            ?assertEqual(partial_batch_write, maps:get(reason, Details)),
+            ?assertEqual(Transient, maps:get(result, Details)),
+            ?assertEqual(
+                #{
+                    total => 1000,
+                    successful => 1,
+                    recoverable => 999,
+                    unrecoverable => 0
+                },
+                maps:get(batch_summary, Details)
+            ),
+            ?assertNot(maps:is_key(batch_results, Details))
+        end,
+        Promoted
+    ),
+    ?assert(byte_size(term_to_binary(Results)) < 1_000_000).
 
 success_and_permanent_error_keep_per_message_results_test() ->
     Permanent = {error, {unrecoverable_error, permanent}},
@@ -377,50 +431,6 @@ async_closed_callback_result_is_recoverable_test() ->
             error(async_closed_callback_result_timeout)
         end
     end).
-
-legacy_async_reply_context_is_normalized_test() ->
-    Self = self(),
-    FinalReply = {
-        fun(Result) -> Self ! {legacy_async_result, Result} end,
-        []
-    },
-    Context = #{
-        iter => maps:iterator(#{}),
-        last_indices => [1],
-        final_cont => FinalReply,
-        final_res => [],
-        client => test_client,
-        is_batch => false
-    },
-    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
-    receive
-        {legacy_async_result, Result} ->
-            ?assertEqual({ok, 1}, Result)
-    after 1_000 ->
-        error(legacy_async_result_timeout)
-    end.
-
-legacy_batch_async_reply_context_is_normalized_test() ->
-    Self = self(),
-    FinalReply = {
-        fun(Result) -> Self ! {legacy_batch_async_result, Result} end,
-        []
-    },
-    Context = #{
-        iter => maps:iterator(#{}),
-        last_indices => [2],
-        final_cont => FinalReply,
-        final_res => [{1, {ok, 1}}],
-        client => test_client,
-        is_batch => true
-    },
-    emqx_bridge_greptimedb_rs_impl:reply_callback(Context, {ok, 1}),
-    receive
-        {legacy_batch_async_result, Result} ->
-            ?assertEqual([{ok, 1}, {ok, 1}], Result)
-    after 1_000 ->
-        error(legacy_batch_async_result_timeout)
-    end.
 
 native_transport_error() ->
     #{

@@ -318,17 +318,16 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 
 reply_callback(Context0, Result0) ->
     Result = normalize_insert_result(Result0),
-    Context = normalize_async_reply_context(Context0),
-    case should_stop_async_batch(Context, Result) of
+    case should_stop_async_batch(Context0, Result) of
         true ->
-            handle_stopped_async_batch(Context, Result);
+            handle_stopped_async_batch(Context0, Result);
         false ->
-            #{iter := Iter0} = Context,
+            #{iter := Iter0} = Context0,
             case maps:next(Iter0) of
                 none ->
-                    handle_last_async_result(Context, Result);
+                    handle_last_async_result(Context0, Result);
                 {NextTable, PointsWithIndices, Iter} ->
-                    Context1 = Context#{iter := Iter},
+                    Context1 = Context0#{iter := Iter},
                     handle_async_result_continuation(
                         Context1, Result, NextTable, PointsWithIndices
                     )
@@ -340,55 +339,6 @@ reply_callback(Context0, Result0) ->
 %%------------------------------------------------------------------------------
 
 bin(X) -> emqx_utils_conv:bin(X).
-
-%% A callback scheduled before a hot upgrade runs this module with the previous
-%% context shape. Normalize it before the current continuation reads the state.
-normalize_async_reply_context(#{last_points_by_index := _} = Context) ->
-    Context;
-normalize_async_reply_context(Context0) ->
-    Iter = maps:get(iter, Context0),
-    LastIndices = maps:get(last_indices, Context0, []),
-    LastPointsByIndex = count_points_by_index([{Index, undefined} || Index <- LastIndices]),
-    ResultAcc = normalize_legacy_result_acc(maps:get(final_res, Context0, [])),
-    BatchSize = legacy_batch_size(
-        maps:get(is_batch, Context0, true),
-        LastPointsByIndex,
-        ResultAcc,
-        Iter
-    ),
-    Context0#{
-        last_points_by_index => LastPointsByIndex,
-        result_acc => ResultAcc,
-        batch_size => BatchSize
-    }.
-
-normalize_legacy_result_acc(Results) ->
-    [normalize_legacy_result(Result) || Result <- Results].
-
-normalize_legacy_result({Index, PointCount, Result}) when
-    is_integer(Index), is_integer(PointCount)
-->
-    {Index, PointCount, Result};
-normalize_legacy_result({Index, Result}) ->
-    {Index, 1, Result}.
-
-legacy_batch_size(false, _LastPointsByIndex, _ResultAcc, _Iter) ->
-    1;
-legacy_batch_size(true, LastPointsByIndex, ResultAcc, Iter) ->
-    Indices =
-        [Index || {Index, _PointCount} <- LastPointsByIndex] ++
-            [Index || {Index, _PointCount, _Result} <- ResultAcc] ++
-            remaining_indices(Iter),
-    lists:max([1 | Indices]).
-
-remaining_indices(Iter) ->
-    remaining_indices(maps:next(Iter), []).
-
-remaining_indices(none, Acc) ->
-    Acc;
-remaining_indices({_Table, PointsWithIndices, Iter}, Acc) ->
-    Indices = [Index || {Index, _Point} <- PointsWithIndices],
-    remaining_indices(maps:next(Iter), Indices ++ Acc).
 
 %% `Failed' carries the messages whose points did not transform, each keyed by
 %% its position in the batch. The points keep their own positions too, so the
@@ -720,21 +670,42 @@ coalesce_mixed_batch_results(Results) ->
     end.
 
 make_recoverable_members_unrecoverable(Reason, Results) ->
-    [make_result_unrecoverable(Reason, Results, Result) || Result <- Results].
+    BatchSummary = summarize_batch_results(Results),
+    [make_result_unrecoverable(Reason, BatchSummary, Result) || Result <- Results].
 
 make_result_unrecoverable(
     Reason,
-    BatchResults,
+    BatchSummary,
     {error, {recoverable_error, _Error}} = Result
 ) ->
     {error,
         {unrecoverable_error, #{
             reason => Reason,
             result => Result,
-            batch_results => BatchResults
+            batch_summary => BatchSummary
         }}};
-make_result_unrecoverable(_Reason, _BatchResults, Result) ->
+make_result_unrecoverable(_Reason, _BatchSummary, Result) ->
     Result.
+
+summarize_batch_results(Results) ->
+    lists:foldl(
+        fun summarize_batch_result/2,
+        #{total => 0, successful => 0, recoverable => 0, unrecoverable => 0},
+        Results
+    ).
+
+summarize_batch_result(Result, Acc0) ->
+    Acc = Acc0#{total := maps:get(total, Acc0) + 1},
+    case Result of
+        {ok, _} ->
+            Acc#{successful := maps:get(successful, Acc) + 1};
+        {error, {recoverable_error, _}} ->
+            Acc#{recoverable := maps:get(recoverable, Acc) + 1};
+        {error, {unrecoverable_error, _}} ->
+            Acc#{unrecoverable := maps:get(unrecoverable, Acc) + 1};
+        _ ->
+            Acc
+    end.
 
 is_recoverable_result({error, {recoverable_error, _}}) ->
     true;
