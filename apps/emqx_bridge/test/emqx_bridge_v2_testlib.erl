@@ -849,6 +849,17 @@ delete_kind_api2(TCConfig) ->
     #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
     delete_kind_api(Kind, Type, Name).
 
+reset_kind_metrics_api(TCConfig, Opts) ->
+    #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
+    BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
+    PathRoot = api_path_root(Kind),
+    Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId, ~"metrics", ~"reset"]),
+    simple_request(#{
+        auth_header => auth_header_lazy(Opts),
+        method => put,
+        url => Path
+    }).
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
 
@@ -1075,7 +1086,10 @@ create_rule_and_action_http(BridgeType, RuleTopic, Config, Opts) ->
             AuthHeaderGetter = get_auth_header_getter(),
             on_exit(fun() ->
                 set_auth_header_getter(AuthHeaderGetter),
-                {204, _} = delete_rule_api(RuleId)
+                case delete_rule_api(RuleId) of
+                    {204, _} -> ok;
+                    {404, _} -> ok
+                end
             end),
             {ok, Res};
         Error ->
@@ -3072,19 +3086,27 @@ is_connector_aggregator_delivery_ongoing(SupRef) ->
 
 print_tree(SupRef) ->
     Res = do_print_tree(SupRef, 0),
-    ct:pal("~s", [Res]).
+    ct:pal("~p's children:\n~s", [SupRef, Res]).
 
-do_print_child({Id, _Pid, worker, Mod}, Level) ->
-    io_lib:format("~s* [w] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]);
-do_print_child({Id, Pid, supervisor, Mod}, Level) ->
+do_print_child({Id, Pid, worker, Mods}, Level) ->
+    io_lib:format("~s* [w] ~p (pid: ~p)\n", [
+        binary:copy(<<" ">>, Level * 2),
+        do_format_child_id(Id, Mods),
+        Pid
+    ]);
+do_print_child({Id, Pid, supervisor, Mods}, Level) ->
     [
-        io_lib:format("~s* [s] ~p\n", [binary:copy(<<" ">>, Level * 2), do_format_child_id(Id, Mod)]),
+        io_lib:format("~s* [s] ~p (pid: ~p)\n", [
+            binary:copy(<<" ">>, Level * 2),
+            do_format_child_id(Id, Mods),
+            Pid
+        ]),
         do_print_tree(Pid, Level + 1)
     ].
 
-do_format_child_id(undefined, Mod) ->
-    {undefined, Mod};
-do_format_child_id(Id, _Mod) ->
+do_format_child_id(undefined, Mods) ->
+    {undefined, Mods};
+do_format_child_id(Id, _Mods) ->
     Id.
 
 do_print_tree(SupRef, Level) ->

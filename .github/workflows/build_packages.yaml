@@ -75,7 +75,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '6.3-1'
+        default: '6.3-2'
 
 permissions:
   contents: read
