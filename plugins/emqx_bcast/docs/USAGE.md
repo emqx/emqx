@@ -212,14 +212,16 @@ pipeline (pull pools, index owner) is not draining - check node health
 rather than `msg_ttl`.
 
 
-## Cluster-wide upgrades
+## Cluster-wide upgrades and operations
 
 Different versions of the `emqx_bcast` plugin must never run in one cluster.
 
 - To upgrade the plugin, stop and uninstall the old version on every node,
   then install the new version on every node.
-- Before a rolling upgrade of EMQX itself, stop the plugin on every node.
-  Upgrade all EMQX nodes, then enable the plugin again cluster-wide.
+- For an EMQX rolling upgrade, a recommended procedure is to stop the plugin on
+  every node before the upgrade and enable it again after every node has been
+  upgraded. This is operational guidance, not a plugin compatibility
+  requirement.
 
-The plugin API is unavailable while the plugin is stopped. Persisted delivery,
-ACK and message rows are recovered when the new plugin starts.
+If the plugin is stopped, the plugin API is unavailable. Persisted delivery, ACK
+and message rows are recovered when the plugin starts again.

@@ -296,10 +296,14 @@ completion counter. A completed index-shard part is represented by its durable
 watermark and counter decrement, so it does not retain a full device-list
 marker. Partial markers are coalesced and flushed at 500 ms intervals; the
 count can therefore lag a new partial ACK by one flush interval, or longer when
-the scheduler delays the shard. `MessageId` is `null` when the message record
-the delivery belongs to has already been removed (deleted through the
-management API, or reclaimed when it expired): the delivery row outlives it
-until its own cleanup. 404 `DeliveryNotFound` if unknown.
+the scheduler delays the shard. Completed-part accounting and unfinished-part
+partial ACKs are projected separately, so devices from a completed part are not
+reported pending when another part has a partial ACK. Deliveries committed by
+older plugin versions without part-accounting rows retain the conservative
+projection. `MessageId` is `null` when the message record the delivery belongs
+to has already been removed (deleted through the management API, or reclaimed
+when it expired): the delivery row outlives it until its own cleanup. 404
+`DeliveryNotFound` if unknown.
 
 ### Query Deliveries by Device
 
