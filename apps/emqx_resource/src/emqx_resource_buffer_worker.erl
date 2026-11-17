@@ -2433,12 +2433,8 @@ minimize(?QUERY(_, _, _, _, _, _) = Q) ->
 minimize(L) when is_list(L) ->
     lists:map(fun do_minimize/1, L).
 
--ifdef(TEST).
-do_minimize(?QUERY(_ReplyTo, _Req, _Sent, _ExpireAt, _RequestContext, _TraceCtx) = Query) -> Query.
--else.
 do_minimize(?QUERY(ReplyTo, _Req, Sent, ExpireAt, RequestContext, TraceCtx)) ->
     ?QUERY(ReplyTo, [], Sent, ExpireAt, RequestContext, TraceCtx).
--endif.
 
 %% To avoid message loss due to misconfigurations, we adjust
 %% `batch_time' based on `request_ttl'.  If `batch_time' >
