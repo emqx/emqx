@@ -83,6 +83,17 @@ pool_and_timeout_errors_are_recoverable_test() ->
         [ecpool_empty, not_connected, disconnected, timeout]
     ).
 
+connection_lifecycle_errors_are_recoverable_test() ->
+    lists:foreach(
+        fun(Reason) ->
+            ?assertEqual(
+                {error, {recoverable_error, Reason}},
+                emqx_bridge_greptimedb_rs_impl:normalize_insert_result({error, Reason})
+            )
+        end,
+        [closed, cancelled]
+    ).
+
 already_classified_error_is_not_rewrapped_test() ->
     Recoverable = {error, {recoverable_error, disconnected}},
     Unrecoverable = {error, {unrecoverable_error, bad_schema}},
@@ -172,6 +183,35 @@ sync_batch_keeps_success_and_marks_recoverable_result_unrecoverable_test() ->
         assert_unrecoverable(Second, partial_batch_write)
     end).
 
+sync_batch_stops_after_recoverable_failure_test() ->
+    WriteSyntax = native_table_write_syntax(),
+    State = native_rs_state(WriteSyntax),
+    Batch = [
+        {channel, native_table_data(<<"first">>)},
+        {channel, native_table_data(<<"second">>)}
+    ],
+    CallsRef = make_ref(),
+    Insert = fun(_Client, _Table, _Points) ->
+        Calls = next_call(CallsRef),
+        case Calls of
+            1 -> {error, disconnected};
+            2 -> {ok, 1}
+        end
+    end,
+    with_rs_insert_mock(Insert, fun() ->
+        Expected = {error, {recoverable_error, disconnected}},
+        ?assertEqual(
+            [Expected, Expected],
+            emqx_bridge_greptimedb_rs_impl:on_batch_query(
+                connector,
+                Batch,
+                State
+            )
+        ),
+        ?assertEqual(1, get(CallsRef))
+    end),
+    erase(CallsRef).
+
 async_submission_error_replies_and_returns_ok_test() ->
     Self = self(),
     FinalReply = {
@@ -198,6 +238,48 @@ async_submission_error_replies_and_returns_ok_test() ->
             error(async_submission_result_timeout)
         end
     end).
+
+async_batch_stops_after_recoverable_callback_error_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {async_batch_stopped_result, Result} end,
+        []
+    },
+    Batch = [
+        {channel, native_table_data(<<"first">>)},
+        {channel, native_table_data(<<"second">>)}
+    ],
+    CallsRef = make_ref(),
+    InsertAsync = fun(_Client, _Table, _Points, Callback) ->
+        case next_call(CallsRef) of
+            1 ->
+                ok = invoke_rs_callback(Callback, {error, disconnected}),
+                {ok, self()};
+            2 ->
+                ok = invoke_rs_callback(Callback, {ok, 1}),
+                {ok, self()}
+        end
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
+                connector,
+                Batch,
+                FinalReply,
+                native_rs_state(native_table_write_syntax())
+            )
+        ),
+        Expected = {error, {recoverable_error, disconnected}},
+        receive
+            {async_batch_stopped_result, Result} ->
+                ?assertEqual([Expected, Expected], Result)
+        after 1_000 ->
+            error(async_batch_stopped_result_timeout)
+        end,
+        ?assertEqual(1, get(CallsRef))
+    end),
+    erase(CallsRef).
 
 async_batch_submission_error_replies_for_every_message_test() ->
     Self = self(),
@@ -265,6 +347,34 @@ async_transport_callback_result_is_recoverable_test() ->
                 ?assertEqual({error, {recoverable_error, {greptimedb_error, Details}}}, Result)
         after 1_000 ->
             error(async_callback_result_timeout)
+        end
+    end).
+
+async_closed_callback_result_is_recoverable_test() ->
+    Self = self(),
+    FinalReply = {
+        fun(Result) -> Self ! {async_closed_callback_result, Result} end,
+        []
+    },
+    InsertAsync = fun(_Client, <<"mqtt">>, _Points, Callback) ->
+        ok = invoke_rs_callback(Callback, {error, closed}),
+        {ok, self()}
+    end,
+    with_rs_insert_async_mock(InsertAsync, fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx_bridge_greptimedb_rs_impl:on_query_async(
+                connector,
+                {channel, native_data(1)},
+                FinalReply,
+                native_rs_state(native_write_syntax())
+            )
+        ),
+        receive
+            {async_closed_callback_result, Result} ->
+                ?assertEqual({error, {recoverable_error, closed}}, Result)
+        after 1_000 ->
+            error(async_closed_callback_result_timeout)
         end
     end).
 
@@ -394,6 +504,15 @@ with_rs_insert_async_mock(InsertAsync, TestFun) ->
 
 invoke_rs_callback({ReplyFun, Args}, Result) ->
     apply(ReplyFun, Args ++ [Result]).
+
+next_call(Ref) ->
+    Calls =
+        case get(Ref) of
+            undefined -> 1;
+            Value -> Value + 1
+        end,
+    put(Ref, Calls),
+    Calls.
 
 assert_unrecoverable(Result, Reason) ->
     ?assertMatch(

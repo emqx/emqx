@@ -319,13 +319,20 @@ on_batch_query_async(_ConnResId, Queries, _ReplyFnAndArgs, _ConnectorState) ->
 reply_callback(Context0, Result0) ->
     Result = normalize_insert_result(Result0),
     Context = normalize_async_reply_context(Context0),
-    #{iter := Iter0} = Context,
-    case maps:next(Iter0) of
-        none ->
-            handle_last_async_result(Context, Result);
-        {NextTable, PointsWithIndices, Iter} ->
-            Context1 = Context#{iter := Iter},
-            handle_async_result_continuation(Context1, Result, NextTable, PointsWithIndices)
+    case should_stop_async_batch(Context, Result) of
+        true ->
+            handle_stopped_async_batch(Context, Result);
+        false ->
+            #{iter := Iter0} = Context,
+            case maps:next(Iter0) of
+                none ->
+                    handle_last_async_result(Context, Result);
+                {NextTable, PointsWithIndices, Iter} ->
+                    Context1 = Context#{iter := Iter},
+                    handle_async_result_continuation(
+                        Context1, Result, NextTable, PointsWithIndices
+                    )
+            end
     end.
 
 %%------------------------------------------------------------------------------
@@ -428,25 +435,29 @@ group_points_by_table(IndexedPoints) ->
 
 do_insert_sync(TablesToPoints, ConnState, Failed, BatchSize) ->
     #{?client := Client} = ConnState,
-    TableResults =
-        maps:fold(
-            fun(Table, PointsWithIndices, Acc) ->
-                PointsByIndex = count_points_by_index(PointsWithIndices),
-                Points = [Point || {_, Point} <- PointsWithIndices],
-                Res0 = normalize_insert_result(greptimedb_rs:insert(Client, Table, Points)),
-                [
-                    {Index, PointCount, Res0}
-                 || {Index, PointCount} <- PointsByIndex
-                ] ++ Acc
-            end,
-            [],
-            TablesToPoints
-        ),
+    TableResults = insert_sync_tables(maps:iterator(TablesToPoints), Client, []),
     Results = coalesce_mixed_batch_results(
         aggregate_message_results(BatchSize, TableResults, Failed)
     ),
     ?tp("greptime_rs_sync_batch_reply", #{results => Results}),
     Results.
+
+insert_sync_tables(Iter0, Client, Acc) ->
+    case maps:next(Iter0) of
+        none ->
+            Acc;
+        {Table, PointsWithIndices, Iter} ->
+            PointsByIndex = count_points_by_index(PointsWithIndices),
+            Points = [Point || {_, Point} <- PointsWithIndices],
+            Result = normalize_insert_result(greptimedb_rs:insert(Client, Table, Points)),
+            TableResults = table_results(PointsByIndex, Result),
+            case should_stop_sync_batch(Result, Acc) of
+                true ->
+                    TableResults ++ unsubmitted_table_results(Iter, Result) ++ Acc;
+                false ->
+                    insert_sync_tables(Iter, Client, TableResults ++ Acc)
+            end
+    end.
 
 do_insert_async(
     _ChanResId, TablesToPoints, _ConnState, ReplyFnAndArgs, Failed, BatchSize
@@ -484,6 +495,33 @@ do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0, Failed, B
         Iter,
         ReplyFnAndArgs
     ).
+
+should_stop_sync_batch(Result, Results) ->
+    is_recoverable_result(Result) andalso not has_successful_table_result(Results).
+
+should_stop_async_batch(#{result_acc := Results}, Result) ->
+    is_recoverable_result(Result) andalso not has_successful_table_result(Results).
+
+has_successful_table_result(Results) ->
+    lists:any(
+        fun({_Index, _PointCount, Result}) -> is_successful_result(Result) end,
+        Results
+    ).
+
+handle_stopped_async_batch(Context, Result) ->
+    #{
+        iter := Iter,
+        last_points_by_index := LastPointsByIndex,
+        final_cont := ReplyFnAndArgs,
+        result_acc := ResAcc0,
+        batch_size := BatchSize
+    } = Context,
+    ResAcc =
+        table_results(LastPointsByIndex, Result) ++
+            unsubmitted_table_results(Iter, Result) ++
+            ResAcc0,
+    FinalResults = aggregate_indexed_results(BatchSize, ResAcc),
+    reply_async_result(ReplyFnAndArgs, BatchSize, FinalResults).
 
 handle_last_async_result(Context, Result) ->
     #{
@@ -588,7 +626,7 @@ normalize_insert_result({error, {nif_exit, Reason}}) ->
 normalize_insert_result({error, {unauth, _, _}}) ->
     {error, {unrecoverable_error, <<"authorization failure">>}};
 normalize_insert_result({error, Reason}) ->
-    case is_transient_pool_error(Reason) of
+    case is_transient_error(Reason) of
         true -> {error, {recoverable_error, Reason}};
         false -> {error, {unrecoverable_error, Reason}}
     end;
@@ -633,28 +671,32 @@ classify_insert_error({error, {unrecoverable_error, Reason}}) ->
 classify_insert_error({error, {recoverable_error, Reason}}) ->
     {recoverable, Reason};
 classify_insert_error({error, Reason}) ->
-    case is_transient_pool_error(Reason) of
+    case is_transient_error(Reason) of
         true -> {recoverable, Reason};
         false -> {unrecoverable, Reason}
     end.
 
-is_transient_pool_error(disconnected) ->
+is_transient_error(closed) ->
     true;
-is_transient_pool_error({disconnected, _Reason}) ->
+is_transient_error(cancelled) ->
     true;
-is_transient_pool_error(ecpool_empty) ->
+is_transient_error(disconnected) ->
     true;
-is_transient_pool_error(no_such_pool) ->
+is_transient_error({disconnected, _Reason}) ->
     true;
-is_transient_pool_error(ecpool_disconnected) ->
+is_transient_error(ecpool_empty) ->
     true;
-is_transient_pool_error(ecpool_client_disconnected) ->
+is_transient_error(no_such_pool) ->
     true;
-is_transient_pool_error(not_connected) ->
+is_transient_error(ecpool_disconnected) ->
     true;
-is_transient_pool_error(timeout) ->
+is_transient_error(ecpool_client_disconnected) ->
     true;
-is_transient_pool_error(_Reason) ->
+is_transient_error(not_connected) ->
+    true;
+is_transient_error(timeout) ->
+    true;
+is_transient_error(_Reason) ->
     false.
 
 coalesce_mixed_batch_results(Results) ->
