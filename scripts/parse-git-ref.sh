@@ -78,9 +78,9 @@ fi
 
 PROFILE=emqx-enterprise
 OFFICIAL_RELEASE=false
-# A preview tag (X.Y.Z-preview.N, cut on a preview-* branch) builds and
+# A Cloud tag (X.Y.Z-cloud.N, cut on a cloud-* branch) builds and
 # uploads packages, but must not reach GA channels or the release docs.
-PREVIEW=false
+CLOUD=false
 # Only a stable X.Y.Z tag can be the latest of its major version.
 LATEST_MAJOR=false
 
@@ -102,10 +102,10 @@ elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-patch\.[0-9]+$ ]]; then
     RELEASE=true
     OFFICIAL_RELEASE=true
     LATEST=false
-elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-preview\.[0-9]+$ ]]; then
+elif [[ $1 =~ ^refs/tags/[6-9]\.[0-9]+\.[0-9]+-cloud\.[0-9]+$ ]]; then
     RELEASE=true
     LATEST=false
-    PREVIEW=true
+    CLOUD=true
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
     echo "Unrecognized tag: $1" 1>&2
     exit 1
@@ -124,5 +124,5 @@ else
 fi
 
 cat <<EOF
-{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "latest_major": $LATEST_MAJOR, "official_release": $OFFICIAL_RELEASE, "preview": $PREVIEW}
+{"profile": "$PROFILE", "release": $RELEASE, "latest": $LATEST, "latest_major": $LATEST_MAJOR, "official_release": $OFFICIAL_RELEASE, "cloud": $CLOUD}
 EOF

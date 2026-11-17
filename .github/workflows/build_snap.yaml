@@ -50,7 +50,7 @@ jobs:
     needs: verify-release-tag
     if: >-
       github.event_name != 'release' ||
-      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-preview.'))
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.'))
     runs-on: ubuntu-latest
     outputs:
       ref: ${{ needs.verify-release-tag.outputs.ref }}
