@@ -24,6 +24,7 @@
     deferred_depth/0,
     admission_depth/0,
     mark_promoted/1,
+    queue_limit/0,
     reset/0
 ]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -115,7 +116,7 @@ init([]) ->
 %% queue anyway (a bounded batch per worker per round).
 -spec enqueue(entry()) -> {ok, non_neg_integer()} | full.
 enqueue(Entry) ->
-    MaxDepth = ?INTAKE_QUEUE_DEPTH,
+    MaxDepth = queue_limit(),
     case admission_depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
@@ -138,6 +139,16 @@ enqueue(Entry) ->
 -spec admission_depth() -> non_neg_integer().
 admission_depth() ->
     queue_size() + deferred_depth().
+
+%% Production keeps the fixed macro limit. Tests may lower it through the
+%% application environment to exercise backpressure without creating 20,000
+%% queued requests.
+-spec queue_limit() -> pos_integer().
+queue_limit() ->
+    case application:get_env(?APP, intake_queue_depth) of
+        {ok, Limit} when is_integer(Limit), Limit > 0 -> Limit;
+        _ -> ?INTAKE_QUEUE_DEPTH
+    end.
 
 %% Put a batch that the promoter already took (and already committed in mria)
 %% back for a later retry, delaying each entry by a doubling backoff. The

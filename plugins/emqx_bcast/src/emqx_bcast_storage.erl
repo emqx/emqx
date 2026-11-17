@@ -54,7 +54,8 @@
     get_delivery/1,
     deliveries_for_device/2,
     delete_delivery/1,
-    cleanup_expired/0
+    cleanup_expired/0,
+    cleanup_expired/1
 ]).
 
 -include("emqx_bcast.hrl").
@@ -65,6 +66,8 @@
 -type delivery_id() :: binary().
 -type product_key() :: binary().
 -type device_name() :: binary().
+
+-define(PART_ACCOUNTING_SCAN_BUDGET, 1000).
 
 %%--------------------------------------------------------------------
 %% Message create / lookup (unchanged: authoritative mria state)
@@ -143,9 +146,11 @@ refresh_message_ttl(MsgId) ->
     Now = emqx_bcast_utils:now_sec(),
     TTL = emqx_bcast_utils:ttl(),
     transaction(fun() ->
-        case mnesia:read(?TAB_MSG, MsgId, read) of
+        case mnesia:read(?TAB_MSG, MsgId, write) of
             [#bcast_message{} = Msg] ->
-                mnesia:write(Msg#bcast_message{expires_at = Now + TTL}),
+                mnesia:write(Msg#bcast_message{
+                    expires_at = max(Msg#bcast_message.expires_at, Now + TTL)
+                }),
                 ok;
             [] ->
                 {error, not_found}
@@ -322,7 +327,13 @@ dropped_results(Entries) ->
 %% entry. The message rows are keyed by the content hash, so a single
 %% create/refresh covers the whole group.
 promote_entries([First | _] = Entries) ->
-    {_Status, ResolvedApiMsgId, ResolvedMsgId} = write_message_group_tx(First),
+    %% A deferred entry can rejoin the ready queue behind a newer request for
+    %% the same content. The shared payload must therefore live until the last
+    %% delivery in this batch, not just until the entry chosen as the group
+    %% representative expires.
+    ExpiresAt = lists:max([maps:get(expires_at, Entry) || Entry <- Entries]),
+    {_Status, ResolvedApiMsgId, ResolvedMsgId} =
+        write_message_group_tx(First, ExpiresAt),
     [
         {delivery_id(Entry), promote_entry_delivery_tx(Entry, ResolvedApiMsgId, ResolvedMsgId)}
      || Entry <- Entries
@@ -344,16 +355,15 @@ delivery_id(Entry) ->
 %%
 %% Only entries allowed to create reach this with a missing row, so creating
 %% it here is the intended new publish, not a resurrection.
-write_message_group_tx(Entry) ->
+write_message_group_tx(Entry, ExpiresAt) ->
     Payload = maps:get(payload, Entry),
     Hash = maps:get(hash, Entry),
     ApiMsgId = maps:get(api_msg_id, Entry),
     MsgId = maps:get(msg_id, Entry),
     Now = maps:get(created_at, Entry),
-    TTL = maps:get(expires_at, Entry) - Now,
     case mnesia:wread({?TAB_MSG_HASH, Hash}) of
         [] ->
-            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+            write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt),
             {created, ApiMsgId, MsgId};
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
@@ -361,23 +371,25 @@ write_message_group_tx(Entry) ->
                     %% Refresh: bump the expiry AND rewrite the index rows (see
                     %% write_message_tx/7) so a TTL reap that already removed
                     %% them cannot leave the live message unfindable.
-                    mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
+                    mnesia:write(Existing#bcast_message{
+                        expires_at = max(Existing#bcast_message.expires_at, ExpiresAt)
+                    }),
                     write_message_index_rows(Existing),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
-                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL),
+                    write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt),
                     {created, ApiMsgId, MsgId}
             end
     end.
 
-write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, TTL) ->
+write_new_message_group_tx(MsgId, ApiMsgId, Hash, Payload, Now, ExpiresAt) ->
     write_message_rows_tx(#bcast_message{
         msg_id = MsgId,
         api_msg_id = ApiMsgId,
         content_hash = Hash,
         payload = Payload,
         created_at = Now,
-        expires_at = Now + TTL
+        expires_at = ExpiresAt
     }).
 
 %% Delivery + meta rows for one entry, using the group-resolved message.
@@ -410,6 +422,11 @@ promote_entry_delivery_tx(Entry, _ResolvedApiMsgId, ResolvedMsgId) ->
             mnesia:write(#bcast_msg_meta_counter{
                 delivery_id = DeliveryId,
                 counter = length(maps:get(devices, Entry))
+            }),
+            mnesia:write(#bcast_msg_part_accounted{
+                delivery_id = DeliveryId,
+                shard = delivery,
+                acked = 0
             }),
             mnesia:write(Delivery),
             ok
@@ -467,6 +484,11 @@ promote_entry_tx_new(Entry, DeliveryId) ->
     mnesia:write(#bcast_msg_meta_counter{
         delivery_id = DeliveryId,
         counter = length(Devices)
+    }),
+    mnesia:write(#bcast_msg_part_accounted{
+        delivery_id = DeliveryId,
+        shard = delivery,
+        acked = 0
     }),
     mnesia:write(Delivery),
     {ok, ResolvedApiMsgId, Delivery}.
@@ -610,12 +632,24 @@ normalize_ack_result({counted, _RemQueued}) -> counted;
 normalize_ack_result(Other) -> Other.
 
 -spec claim_want_next_batch([map()]) ->
-    [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
+    [
+        {
+            binary(),
+            map() | {no_more, non_neg_integer()} | {no_more, non_neg_integer(), restage_acked}
+        }
+    ]
+    | {error, term()}.
 claim_want_next_batch(Entries) ->
     claim_want_next_batch(Entries, node()).
 
 -spec claim_want_next_batch([map()], node()) ->
-    [{binary(), map() | {no_more, non_neg_integer()}}] | {error, term()}.
+    [
+        {
+            binary(),
+            map() | {no_more, non_neg_integer()} | {no_more, non_neg_integer(), restage_acked}
+        }
+    ]
+    | {error, term()}.
 claim_want_next_batch(Entries, Origin) ->
     try emqx_bcast_index_owner:claim(Entries, Origin) of
         Results -> downgrade_unless_residual_capable(Results, Entries)
@@ -629,11 +663,9 @@ claim_want_next_batch(Entries, Origin) ->
             {error, Reason}
     end.
 
-%% The {no_more, Residual} answer only exists for a shard that announced it
-%% understands it in its claim request. A shard from an earlier build has no
-%% clause for that shape and crashes on it, so answer it with the bare no_more
-%% it expects; it then loses the residual-driven re-arm and behaves exactly as
-%% it did before the upgrade.
+%% The extended no_more answers only exist for a shard that announced the
+%% matching capability in its claim request. A shard from an earlier build has
+%% no clause for those shapes, so answer it with the bare no_more it expects.
 downgrade_unless_residual_capable(Results, Entries) ->
     Capable = maps:from_keys(
         [maps:get(clientid, E) || E <- Entries, maps:get(residual, E, false)],
@@ -642,6 +674,7 @@ downgrade_unless_residual_capable(Results, Entries) ->
     [
         case {maps:is_key(DN, Capable), Result} of
             {false, {no_more, _}} -> {DN, no_more};
+            {false, {no_more, _, _}} -> {DN, no_more};
             _ -> {DN, Result}
         end
      || {DN, Result} <- Results
@@ -789,10 +822,107 @@ get_delivery(DeliveryId) ->
                     {ok, M} -> M#bcast_message.api_msg_id;
                     _ -> undefined
                 end,
-            {ok, D#bcast_msg{counter = Counter}, ApiMsgId};
+            {ok, D#bcast_msg{counter = projected_pending_count(D, Counter)}, ApiMsgId};
         [] ->
             {error, not_found}
     end.
+
+%% The durable counter is decremented once per completed shard-part. A part
+%% with several devices therefore leaves the counter above the exact
+%% unacknowledged count until its last device ACKs. Device ACK markers are
+%% persisted for unfinished parts, so project them here instead of paying a
+%% counter write on every hot-path ACK.
+%%
+%% A new delivery has a `{shard = delivery, acked = 0}` sentinel. Its completed
+%% parts are represented by part-accounting rows and have no full marker. Count
+%% partial markers only for shards not in that completed set: the counter
+%% already excludes completed parts, and subtracting those same devices from
+%% the full target would report them as pending again.
+%%
+%% Deliveries committed by an older build have no sentinel and may retain
+%% full-part or per-device markers from completed parts. Their marker history
+%% cannot be classified safely, so keep the previous conservative upper-bound
+%% projection for them.
+projected_pending_count(
+    #bcast_msg{
+        delivery_id = DeliveryId,
+        product_key = ProductKey,
+        target_ack_count = Target,
+        device_names = DeviceNames
+    },
+    Counter
+) ->
+    AckedDevices = acked_device_set(DeliveryId),
+    Accounts = part_accounts(DeliveryId),
+    case has_delivery_account(Accounts) of
+        true ->
+            CompletedShards = maps:from_keys(
+                [Shard || #bcast_msg_part_accounted{shard = Shard} <- Accounts, is_integer(Shard)],
+                true
+            ),
+            CompletedAcked = lists:sum([
+                Acked
+             || #bcast_msg_part_accounted{shard = Shard, acked = Acked} <- Accounts,
+                is_integer(Shard)
+            ]),
+            PartialAcked = count_unfinished_partial_acks(
+                ProductKey, DeviceNames, AckedDevices, CompletedShards
+            ),
+            FromCounter = max(0, Counter - PartialAcked),
+            FromAccounts = max(0, Target - CompletedAcked - PartialAcked),
+            min(FromCounter, FromAccounts);
+        false ->
+            AckedInTarget = count_acked_in_target(DeviceNames, AckedDevices),
+            min(Counter, max(0, Target - AckedInTarget))
+    end.
+
+acked_device_set(DeliveryId) ->
+    try
+        maps:from_keys(
+            lists:append([
+                DNs
+             || #bcast_msg_acked{device_names = DNs} <-
+                    mnesia:dirty_read(?TAB_MSG_ACKED, DeliveryId)
+            ]),
+            true
+        )
+    catch
+        _:_ -> #{}
+    end.
+
+part_accounts(DeliveryId) ->
+    try mnesia:dirty_read(?TAB_MSG_PART_ACCOUNTED, DeliveryId) of
+        Accounts -> Accounts
+    catch
+        _:_ -> []
+    end.
+
+has_delivery_account(Accounts) ->
+    lists:any(
+        fun
+            (#bcast_msg_part_accounted{shard = delivery}) -> true;
+            (_) -> false
+        end,
+        Accounts
+    ).
+
+count_unfinished_partial_acks(ProductKey, DeviceNames, AckedDevices, CompletedShards) ->
+    length([
+        DN
+     || DN <- lists:usort(DeviceNames),
+        maps:is_key(DN, AckedDevices),
+        not maps:is_key(
+            emqx_bcast_index_owner:shard_of({ProductKey, DN}),
+            CompletedShards
+        )
+    ]).
+
+count_acked_in_target(DeviceNames, AckedDevices) ->
+    length([
+        DN
+     || DN <- lists:usort(DeviceNames),
+        maps:is_key(DN, AckedDevices)
+    ]).
 
 -spec deliveries_for_device(product_key(), device_name()) ->
     {ok, [{#bcast_msg{}, api_msg_id() | undefined}]}.
@@ -815,7 +945,114 @@ delete_delivery(DeliveryId) ->
 
 -spec cleanup_expired() -> ok.
 cleanup_expired() ->
-    emqx_bcast_index_owner:cleanup_expired().
+    {ok, _Continuation} = cleanup_expired(undefined),
+    ok.
+
+-spec cleanup_expired(term()) -> {ok, term()}.
+cleanup_expired(PartAccountingContinuation) ->
+    ok = emqx_bcast_index_owner:cleanup_expired(),
+    {ok, cleanup_orphan_part_accounting(PartAccountingContinuation)}.
+
+%% Older plugin nodes do not know the watermark table, so completing or
+%% deleting a delivery on such a node leaves its rows behind. Scan a bounded
+%% slice per cleanup tick with a persisted ETS continuation; only rows whose
+%% delivery and meta are both gone are deleted.
+cleanup_orphan_part_accounting({retry_orphans, Dids, Next}) ->
+    retry_orphan_part_accounting(Dids, Next);
+cleanup_orphan_part_accounting(Continuation) ->
+    MatchSpec = [
+        {
+            #bcast_msg_part_accounted{delivery_id = '$1', _ = '_'},
+            [],
+            ['$1']
+        }
+    ],
+    try
+        Selection =
+            case Continuation of
+                undefined ->
+                    ets:select(?TAB_MSG_PART_ACCOUNTED, MatchSpec, ?PART_ACCOUNTING_SCAN_BUDGET);
+                '$end_of_table' ->
+                    ets:select(?TAB_MSG_PART_ACCOUNTED, MatchSpec, ?PART_ACCOUNTING_SCAN_BUDGET);
+                Cont ->
+                    ets:select(Cont)
+            end,
+        case Selection of
+            '$end_of_table' ->
+                undefined;
+            {Dids, Next} ->
+                Orphans = [
+                    Did
+                 || Did <- lists:usort(Dids),
+                    not ets:member(?TAB_MSG_REC, Did),
+                    not ets:member(?TAB_MSG_META, Did)
+                ],
+                case delete_orphan_part_accounting(Orphans) of
+                    ok -> Next;
+                    {error, _} -> {retry_orphans, Orphans, Next}
+                end
+        end
+    catch
+        error:badarg ->
+            %% Table recreation invalidates the opaque continuation.
+            undefined
+    end.
+
+retry_orphan_part_accounting(Dids, Next) ->
+    try
+        StillOrphans = [
+            Did
+         || Did <- Dids,
+            not ets:member(?TAB_MSG_REC, Did),
+            not ets:member(?TAB_MSG_META, Did)
+        ],
+        case delete_orphan_part_accounting(StillOrphans) of
+            ok -> Next;
+            {error, _} -> {retry_orphans, StillOrphans, Next}
+        end
+    catch
+        error:badarg -> undefined
+    end.
+
+delete_orphan_part_accounting([]) ->
+    ok;
+delete_orphan_part_accounting(Dids) ->
+    try
+        mnesia:transaction(
+            fun() ->
+                lists:foreach(
+                    fun(Did) -> mnesia:delete({?TAB_MSG_PART_ACCOUNTED, Did}) end,
+                    Dids
+                )
+            end,
+            20
+        )
+    of
+        {atomic, _} ->
+            ?SLOG(warning, #{
+                msg => "bcast_orphan_part_accounting_reclaimed",
+                count => length(Dids),
+                node => node()
+            }),
+            ok;
+        {aborted, Reason} ->
+            ?SLOG(warning, #{
+                msg => "bcast_orphan_part_accounting_reclaim_failed",
+                count => length(Dids),
+                reason => Reason
+            }),
+            {error, Reason}
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(warning, #{
+                msg => "bcast_orphan_part_accounting_reclaim_failed",
+                count => length(Dids),
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {error, {Class, Reason}}
+    end.
 
 %%--------------------------------------------------------------------
 %% Message tx internals
@@ -846,7 +1083,9 @@ write_message_inc_tx(Payload, Hash, ApiMsgId, MsgId, Now, TTL) ->
         [#bcast_message_hash{msg_id = ExistingMsgId}] ->
             case mnesia:wread({?TAB_MSG, ExistingMsgId}) of
                 [#bcast_message{} = Existing] ->
-                    mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
+                    mnesia:write(Existing#bcast_message{
+                        expires_at = max(Existing#bcast_message.expires_at, Now + TTL)
+                    }),
                     {existing, Existing#bcast_message.api_msg_id, ExistingMsgId};
                 [] ->
                     %% The hash points at a message record that is already
@@ -912,7 +1151,9 @@ write_message_tx(false, _Payload, _Hash, _ApiMsgId, MsgId, Now, TTL) ->
             %% the body: a refresh that wrote the body alone would leave a live
             %% message with no content index, and the next registration of the
             %% same content would resolve to a different MessageId.
-            mnesia:write(Existing#bcast_message{expires_at = Now + TTL}),
+            mnesia:write(Existing#bcast_message{
+                expires_at = max(Existing#bcast_message.expires_at, Now + TTL)
+            }),
             write_message_index_rows(Existing);
         [] ->
             ok
