@@ -770,9 +770,8 @@ prepare_sql_to_conn(
 ) when is_pid(Conn) ->
     LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
-    case epgsql:parse2(Conn, Key, SQL, []) of
+    case do_parse(Conn, Key, SQL) of
         {ok, Statement} ->
-            _ = epgsql:sync(Conn),
             prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
         {error, #error{severity = error, codename = undefined_table} = Error} ->
             %% Target table is not created
@@ -817,6 +816,13 @@ prepare_sql_to_conn(
                 ),
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
+    end.
+
+do_parse(Conn, Key, SQL) ->
+    try
+        epgsql:parse2(Conn, Key, SQL, [])
+    after
+        _ = epgsql:sync(Conn)
     end.
 
 failed_to_remove_prev_prepared_statement_error() ->
