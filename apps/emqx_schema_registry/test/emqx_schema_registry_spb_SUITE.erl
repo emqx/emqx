@@ -1178,7 +1178,14 @@ t_bad_birth_message(_TCConfig) ->
         %% Length larger than the rest of the payload.
         <<((2 bsl 3) bor 2), 100, 0>>,
         %% Truncated fixed64 field.
-        <<((1 bsl 3) bor 1), 0, 0>>
+        <<((1 bsl 3) bor 1), 0, 0>>,
+        %% Metric length larger than 64 bits. Its low 64 bits are the real length of the
+        %% metric, so a reader that truncates lengths to 64 bits accepts it.
+        begin
+            Metric = <<((1 bsl 3) bor 2), 4, "name", ((2 bsl 3) bor 0), 1>>,
+            Len = encode_varint((1 bsl 64) + byte_size(Metric)),
+            <<((2 bsl 3) bor 2), Len/binary, Metric/binary>>
+        end
     ],
     lists:foreach(
         fun(Bad) ->

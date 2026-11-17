@@ -48,7 +48,10 @@ fold(Fun, Acc, Bin0) ->
 
 read_value(?WT_VARINT, Bin0) ->
     {Value, Bin} = read_varint(Bin0),
-    {{varint, Value}, Bin};
+    %% The 10th byte of a varint can carry more than 64 bits. Protobuf decoders drop
+    %% the extra bits of a field value. Keys and lengths keep them, so that an
+    %% oversized length is rejected instead of wrapping to a small one.
+    {{varint, Value band ?UINT64_MAX}, Bin};
 read_value(?WT_LEN, Bin0) ->
     {Len, Bin1} = read_varint(Bin0),
     case Bin1 of
@@ -66,14 +69,13 @@ read_value(WireType, _Bin) when WireType =:= ?WT_I64; WireType =:= ?WT_I32 ->
 read_value(WireType, _Bin) ->
     error({bad_protobuf, {wire_type, WireType}}).
 
-%% A varint has at most 10 bytes (64 bits in groups of 7 bits). The 10th byte can carry
-%% more than the 64th bit; protobuf decoders drop the extra bits.
+%% A varint has at most 10 bytes (64 bits in groups of 7 bits).
 read_varint(Bin) ->
     read_varint(Bin, 0, 0).
 
 read_varint(<<1:1, X:7, Bin/binary>>, Shift, Acc) when Shift < 63 ->
     read_varint(Bin, Shift + 7, Acc bor (X bsl Shift));
 read_varint(<<0:1, X:7, Bin/binary>>, Shift, Acc) ->
-    {(Acc bor (X bsl Shift)) band ?UINT64_MAX, Bin};
+    {Acc bor (X bsl Shift), Bin};
 read_varint(_Bin, _Shift, _Acc) ->
     error({bad_protobuf, bad_varint}).
