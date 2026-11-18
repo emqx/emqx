@@ -196,13 +196,12 @@ t_stale_otx_started(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            [ok = ?ON(N, emqx_ds:open_db(DB, DBOpts)) || N <- Nodes],
-            %% Wait until OTX is running and use its node as the leader.
-            {ok, #{?snk_meta := #{node := LeaderNode}}} = ?block_until(#{
-                ?snk_kind := ds_otx_up, db := DB, shard := Shard
-            }),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, DB, DBOpts),
+            %% Wait until OTX is running, and select the current leader.
+            {ok, #{}} = ?block_until(#{?snk_kind := ds_otx_up, db := DB, shard := Shard}),
             [Leader = {Name, LeaderNode}, Next | _] = ?ON(
-                LeaderNode, emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)
+                hd(Nodes),
+                emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)
             ),
             RaPid = ?ON(LeaderNode, whereis(Name)),
 
