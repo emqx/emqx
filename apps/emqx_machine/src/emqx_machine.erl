@@ -12,13 +12,12 @@
 
     register_system_hooks/0,
     register_business_hooks/0,
-    set_readiness/2,
+    on_run_level/2,
     maybe_migrate_cluster/0,
     manage_business_apps/2,
 
     node_status/0,
 
-    add_emqx_vsn/1,
     on_node_classify/1,
 
     is_cluster_ready/0,
@@ -35,6 +34,7 @@
 -include_lib("kernel/include/inet.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("classy/include/classy.hrl").
 -include("emqx_machine_rl.hrl").
 
 -define(cluster_ready, emqx_machine_cluster).
@@ -95,11 +95,10 @@ register_system_hooks() ->
     %% Cluster:
     _ = classy:pre_join(fun emqx_cluster:pre_join/4, 50),
     _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
-    _ = classy:enrich_site_info(fun ?MODULE:add_emqx_vsn/1, 50),
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
     %% Staged application start:
-    _ = classy:on_run_level(fun ?MODULE:set_readiness/2, 0),
+    _ = classy:on_run_level(fun ?MODULE:on_run_level/2, 0),
     %% Fallback, allows to connect to legacy nodes:
     _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
     _ = classy:fallback_get_meta(fun mria_classy_migration:fallback_get_meta/2, 0),
@@ -125,16 +124,22 @@ register_business_hooks() ->
     ok.
 
 -doc false.
-set_readiness(enter, ?emqx_rl_ready) ->
+on_run_level(enter, ?classy_rl_single) ->
+    %% Set site metadata:
+    classy_site_metadata:c_set(
+        emqx,
+        #{vsn => get_emqx_vsn()}
+    );
+on_run_level(enter, ?emqx_rl_ready) ->
     optvar:set(?cluster_ready, true);
-set_readiness(leave, ?emqx_rl_ready) ->
+on_run_level(leave, ?emqx_rl_ready) ->
     %% This will be the first hook to fire when decreasing the run
     %% level. It may so happen that certain applications wait for the
     %% optvar. Here we notify them so they can stop waiting and
     %% trigger stop.
     optvar:set(?cluster_ready, false),
     optvar:unset(?cluster_ready);
-set_readiness(_, _) ->
+on_run_level(_, _) ->
     ok.
 
 manage_business_apps(enter, ?emqx_rl_boot) ->
@@ -336,10 +341,7 @@ mria_lb_custom_info_check(OtherVsn) ->
 mria_lb_discover() ->
     classy:nodes(connected).
 
-add_emqx_vsn(Acc) ->
-    Acc#{emqx => get_emqx_vsn()}.
-
-on_node_classify(#{emqx := Vsn}) ->
+on_node_classify(#{emqx := #{vsn := Vsn}}) ->
     MyVsn = get_emqx_vsn(),
     [
         {emqx_vsn, Vsn},
