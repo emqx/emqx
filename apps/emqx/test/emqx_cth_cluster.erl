@@ -550,7 +550,7 @@ join_cluster(Node, JoinTo) ->
         notice,
         test_cluster_join,
         #{node => Node, join_to => JoinTo},
-        do_join_cluster(Node, JoinTo, 100)
+        do_join_cluster(Node, JoinTo, 600)
     ),
     case Result of
         ok ->
