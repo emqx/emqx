@@ -172,6 +172,17 @@ core_children(true) ->
     ] ++
         [
             #{
+                id => {emqx_bcast_part_reporter, Shard},
+                start => {emqx_bcast_part_reporter, start_link, [Shard]},
+                restart => permanent,
+                shutdown => 5000,
+                type => worker,
+                modules => [emqx_bcast_part_reporter]
+            }
+         || Shard <- lists:seq(0, emqx_bcast_part_reporter:shard_count() - 1)
+        ] ++
+        [
+            #{
                 id => {emqx_bcast_index_owner, Shard},
                 start => {emqx_bcast_index_owner, start_link, [Shard]},
                 restart => permanent,

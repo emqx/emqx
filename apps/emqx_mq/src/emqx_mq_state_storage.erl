@@ -55,7 +55,7 @@ Persistence of Message queue state:
 ]).
 
 -export([
-    pmap_encode_key/3,
+    pmap_encode_key/2,
     pmap_decode_key/2,
     pmap_encode_val/3,
     pmap_decode_val/3
@@ -413,11 +413,11 @@ mq_ids() ->
 %% emqx_ds_pmap behaviour
 %%------------------------------------------------------------------------------
 
-pmap_encode_key(?pn_shard_progress, Shard = _Key, _Val) when is_binary(Shard) ->
+pmap_encode_key(?pn_shard_progress, Shard = _Key) when is_binary(Shard) ->
     Shard;
-pmap_encode_key(?pn_mq, ?mq_key, _Val) ->
+pmap_encode_key(?pn_mq, ?mq_key) ->
     ?mq_key_bin;
-pmap_encode_key(?pn_id, ?id_key, _Val) ->
+pmap_encode_key(?pn_id, ?id_key) ->
     ?id_key_bin.
 
 pmap_decode_key(?pn_shard_progress, Shard = _KeyBin) ->

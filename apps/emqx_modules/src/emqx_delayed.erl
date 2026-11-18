@@ -515,7 +515,7 @@ do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
         [] ->
             ok;
         [#delayed_message{msg = Msg}] ->
-            emqx_pool:async_submit(fun publish_delayed_message/1, [Msg])
+            emqx_pool:async_submit(fun publish_delayed_message/1, [Msg#message{timestamp = Now}])
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
 

@@ -17,10 +17,6 @@
 ## Set via `node.max_ports` in `emqx.conf`.
 #+Q 1048576
 
-## Sets the maximum number of ETS tables
-## Set via `node.max_ets_tables` in `emqx.conf`.
-#+e 262144
-
 ## Sets the maximum number of atoms the virtual machine can handle.
 #+t 1048576
 
