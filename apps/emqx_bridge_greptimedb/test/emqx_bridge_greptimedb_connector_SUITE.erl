@@ -120,27 +120,13 @@ t_async_write_after_health_check(Config) ->
     end.
 
 async_write_after_health_check(Config) ->
-    Host = ?config(greptimedb_host, Config),
-    Port = ?config(greptimedb_port, Config),
-    Pool = iolist_to_binary([
-        "greptimedb_health_check_", integer_to_binary(erlang:unique_integer([positive]))
-    ]),
-    Options = [
-        {endpoints, [{http, Host, Port}]},
-        {pool, Pool},
-        {pool_size, 1},
-        {pool_type, random},
-        {auth, {basic, #{username => <<"greptime_user">>, password => <<"greptime_pwd">>}}}
-    ],
-    {ok, Client} = greptimedb:start_client(Options),
+    {Client, Worker} = start_single_client(Config),
     try
         %% grpcbox adds the channel's subchannel after start_client returns.
         %% Until then, a health check fails with no_endpoints.
         ?retry(100, 50, true = greptimedb:is_alive(Client)),
         Ref = make_ref(),
         TestPid = self(),
-        [{_, PoolWorker}] = ecpool:workers(Pool),
-        {ok, Worker} = ecpool_worker:client(PoolWorker),
         ResultCallback = {fun(Reply) -> TestPid ! {Ref, Reply} end, []},
         Points = [
             #{
@@ -180,6 +166,67 @@ async_write_after_health_check(Config) ->
         end
     after
         greptimedb:stop_client(Client)
+    end.
+
+-doc "A gRPC stream rejection leaves both requests eligible for individual retries.".
+t_stream_error_retries_each_request(Config) ->
+    {Client, Worker} = start_single_client(Config),
+    try
+        ?retry(100, 50, true = greptimedb:is_alive(Client)),
+        Table = <<"stream_rejection_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>,
+        Query = fun(Id, Payload) ->
+            {test_channel, #{
+                <<"topic">> => Table,
+                <<"clientid">> => Id,
+                <<"timestamp">> => erlang:system_time(millisecond),
+                <<"payload">> => Payload
+            }}
+        end,
+        {ok, State} = ?GREPTIMEDB_RESOURCE_MOD:on_add_channel(
+            test_instance,
+            #{channels => #{}, client => Client, dbname => <<"public">>},
+            test_channel,
+            greptimedb_action_config()
+        ),
+        {ok, {affected_rows, 1}} = ?GREPTIMEDB_RESOURCE_MOD:on_query(
+            test_instance, Query(<<"baseline">>, 15.5), State
+        ),
+        Rejected = Query(<<"rejected">>, <<"wrong-type">>),
+        Valid = Query(<<"valid">>, 42.5),
+        Caller = self(),
+        Reply = fun(Id, Result) -> Caller ! {Id, Result} end,
+        %% Queue both requests before the driver starts the stream's batch timer.
+        ok = sys:suspend(Worker),
+        try
+            ok = ?GREPTIMEDB_RESOURCE_MOD:on_query_async(
+                test_instance, Rejected, {Reply, [rejected]}, State
+            ),
+            ok = ?GREPTIMEDB_RESOURCE_MOD:on_query_async(
+                test_instance, Valid, {Reply, [valid]}, State
+            )
+        after
+            ok = sys:resume(Worker)
+        end,
+        StreamError = receive_stream_reply(rejected),
+        ?assertMatch({error, {recoverable_error, {<<"3">>, _, _}}}, StreamError),
+        ?assertEqual(StreamError, receive_stream_reply(valid)),
+        ?assertMatch(
+            {error, {unrecoverable_error, {<<"3">>, _, _}}},
+            ?GREPTIMEDB_RESOURCE_MOD:on_query(test_instance, Rejected, State)
+        ),
+        ?assertEqual(
+            {ok, {affected_rows, 1}},
+            ?GREPTIMEDB_RESOURCE_MOD:on_query(test_instance, Valid, State)
+        )
+    after
+        greptimedb:stop_client(Client)
+    end.
+
+receive_stream_reply(Id) ->
+    receive
+        {Id, Result} -> Result
+    after 5_000 ->
+        ct:fail({missing_stream_reply, Id})
     end.
 
 perform_lifecycle_check(PoolName, InitialConfig) ->
@@ -247,6 +294,28 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
 % %%------------------------------------------------------------------------------
 % %% Helpers
 % %%------------------------------------------------------------------------------
+
+start_single_client(Config) ->
+    Host = ?config(greptimedb_host, Config),
+    Port = ?config(greptimedb_port, Config),
+    Scheme =
+        case ?config(enable_tls, Config) of
+            true -> https;
+            false -> http
+        end,
+    Pool = <<"greptimedb_test_", (emqx_guid:to_hexstr(emqx_guid:gen()))/binary>>,
+    Options = [
+        {endpoints, [{Scheme, Host, Port}]},
+        {pool, Pool},
+        {pool_size, 1},
+        {pool_type, random},
+        {ssl_opts, [{verify, verify_none}]},
+        {auth, {basic, #{username => <<"greptime_user">>, password => <<"greptime_pwd">>}}}
+    ],
+    {ok, Client} = greptimedb:start_client(Options),
+    [{_, PoolWorker}] = ecpool:workers(Pool),
+    {ok, Worker} = ecpool_worker:client(PoolWorker),
+    {Client, Worker}.
 
 greptimedb_connector_config(Host, Port, EnableTLS) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
