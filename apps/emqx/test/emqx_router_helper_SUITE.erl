@@ -118,13 +118,16 @@ t_replicant_down(Config) ->
         1,
         ?PURGE_WAIT_TIMEOUT
     ),
-    ok = emqx_cth_peer:kill(Replicant),
-    ?retry(100, 50, ?assertEqual(down, node_status(Replicant))),
-    %% Down for less than the timeout: the members stay.
-    ?assertMatch([_], emqx_shared_sub:subscribers(?GROUP, Topic)),
-    {ok, [Event]} = snabbkaffe:receive_events(SRef),
-    ?assertMatch(#{reason := {replicant_down_for, _}}, Event),
-    ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)).
+    with_reconcile_paused(fun() ->
+        ok = emqx_cth_peer:kill(Replicant),
+        ?retry(100, 50, ?assertEqual(down, node_status(Replicant))),
+        %% Advance the purge deadline only after checking the grace period.
+        ?assertMatch([_], emqx_shared_sub:subscribers(?GROUP, Topic)),
+        scheduled = ?HELPER:schedule_force_purge(),
+        {ok, [Event]} = snabbkaffe:receive_events(SRef),
+        ?assertMatch(#{reason := {replicant_down_for, _}}, Event),
+        ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic))
+    end).
 
 t_orphan_members('init', Config) ->
     start_replicant(?FUNCTION_NAME, Config);
@@ -159,7 +162,7 @@ t_replicant_restart('end', Config) ->
     stop_replicant(Config).
 
 -doc """
-A replicant goes down and comes back with the same node name before the timeout.
+A replicant goes down and comes back with the same node name before core cleanup.
 It removes the members of its previous incarnation itself, and the core node does
 not purge the members of the new incarnation.
 """.
@@ -168,11 +171,13 @@ t_replicant_restart(Config) ->
     Spec = ?config(replicant_spec, Config),
     Topic = <<"t/restart/#">>,
     OldSubPid = start_shared_sub(Replicant, ?GROUP, Topic),
-    ok = emqx_cth_peer:kill(Replicant),
-    ?retry(100, 50, ?assertEqual(down, node_status(Replicant))),
-    [Replicant] = emqx_cth_cluster:restart(Spec),
-    ?retry(100, 50, ?assertEqual(notfound, node_status(Replicant))),
-    ?retry(100, 50, ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic))),
+    with_reconcile_paused(fun() ->
+        ok = emqx_cth_peer:kill(Replicant),
+        ?retry(100, 50, ?assertEqual(down, node_status(Replicant))),
+        [Replicant] = emqx_cth_cluster:restart(Spec),
+        ?retry(100, 50, ?assertEqual(notfound, node_status(Replicant))),
+        ?retry(100, 50, ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)))
+    end),
     NewSubPid = start_shared_sub(Replicant, ?GROUP, Topic),
     ?assertNotEqual(OldSubPid, NewSubPid),
     %% Purge every node that is known to be down, regardless of the timeout.
@@ -294,6 +299,27 @@ t_replicant_to_replicant_dispatch(Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+%% Keep membership events active while the test controls when purging can run.
+with_reconcile_paused(Fun) ->
+    ok = meck:new(?HELPER, [passthrough, no_link]),
+    try
+        ok = meck:expect(?HELPER, handle_info, fun
+            ({timeout, _TRef, {start, reconcile}}, State) ->
+                {noreply, State};
+            (Info, State) ->
+                meck:passthrough([Info, State])
+        end),
+        Fun()
+    after
+        %% Cancel in the timer owner so an expired timeout is flushed before resuming.
+        _ = sys:replace_state(?HELPER, fun(State = #{timer_reconcile := TRef}) ->
+            ok = emqx_utils:cancel_timer(TRef),
+            State
+        end),
+        ok = meck:unload(?HELPER),
+        ?HELPER ! {timeout, make_ref(), {start, reconcile}}
+    end.
 
 start_replicant(Name, Config) ->
     Config1 = start_replicants([Name], Config),
