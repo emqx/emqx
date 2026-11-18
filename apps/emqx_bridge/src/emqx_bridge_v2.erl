@@ -15,6 +15,9 @@
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% For the existing `binary_to_atom/2` call in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% Note: this is strange right now, because it lives in `emqx_bridge_v2', but it shall be
 %% refactored into a new module/application with appropriate name.
 -define(ROOT_KEY_ACTIONS, actions).
@@ -512,8 +515,10 @@ augment_channel_config(
     ConfigRoot,
     BridgeV2Type,
     BridgeName,
-    Config
+    Config0
 ) ->
+    LogMeta = #{config_root => ConfigRoot, type => bin(BridgeV2Type), name => bin(BridgeName)},
+    Config = emqx_connector_resource:deny_secret_files(Namespace, LogMeta, Config0),
     AugmentedConf = Config#{
         bridge_namespace => Namespace,
         config_root => ConfigRoot,
@@ -875,7 +880,9 @@ create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, Br
                     end
             end
         end,
-    emqx_connector_resource:create_dry_run(ConnectorType, ConnectorRawConf, OnReadyCallback).
+    emqx_connector_resource:create_dry_run(
+        Namespace, ConnectorType, ConnectorRawConf, OnReadyCallback
+    ).
 
 get_metrics(Namespace, ConfRootKey, Type, Name) ->
     ChanResId = lookup_chan_id_in_conf(Namespace, ConfRootKey, Type, Name),

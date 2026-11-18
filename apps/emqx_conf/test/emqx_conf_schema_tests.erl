@@ -947,6 +947,54 @@ node_role_conf(Role0) ->
     {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
     ConfMap.
 
+secret_file_allow_list_test_() ->
+    Check = fun(Patterns) ->
+        Conf = iolist_to_binary(
+            io_lib:format(
+                "node {cookie = \"cookie\", data_dir = \".\", secret_file_allow_list = ~s}",
+                [Patterns]
+            )
+        ),
+        {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+        hocon_tconf:generate(emqx_conf_schema, ConfMap)
+    end,
+    AppEnv = fun(ConfList) ->
+        proplists:get_value(
+            secret_file_allow_list, proplists:get_value(emqx_utils, ConfList, [])
+        )
+    end,
+    [
+        {"every path is allowed by default", fun() ->
+            {ok, ConfMap} = hocon:binary(
+                <<"node {cookie = \"cookie\", data_dir = \".\"}">>, #{format => richmap}
+            ),
+            ?assertEqual(
+                [<<"**">>], AppEnv(hocon_tconf:generate(emqx_conf_schema, ConfMap))
+            )
+        end},
+        {"patterns", fun() ->
+            ?assertEqual(
+                [<<"/run/secrets/**">>, <<"**/*.pw">>, <<"**">>],
+                AppEnv(Check("[\"/run/secrets/**\", \"**/*.pw\", \"**\"]"))
+            )
+        end},
+        {"an empty list", fun() ->
+            ?assertEqual([], AppEnv(Check("[]")))
+        end},
+        {"a pattern that is not an absolute path", fun() ->
+            ?assertThrow(
+                {emqx_conf_schema, [
+                    #{
+                        kind := validation_error,
+                        path := "node.secret_file_allow_list",
+                        reason := #{invalid_patterns := [<<"secrets/*">>, <<"*">>]}
+                    }
+                ]},
+                Check("[\"/run/secrets/*\", \"secrets/*\", \"*\"]")
+            )
+        end}
+    ].
+
 validate_cookie_test_() ->
     [
         {"empty cookie", fun() ->

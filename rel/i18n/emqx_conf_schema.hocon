@@ -524,6 +524,28 @@ the old dir should be deleted first.<br/>
 node_data_dir.label:
 """Node Data Dir"""
 
+node_secret_file_allow_list.desc:
+"""The files that a secret can read its value from.
+A secret field, for example a password, accepts the form `file://<path>`. EMQX then reads the value from that file each time it needs the secret.
+This setting is a list of path patterns. A secret can read a file only when its path matches one of the patterns.
+
+In a pattern:
+- `*` matches any number of characters inside one path component.
+- `?` matches one character inside one path component.
+- `**`, as a whole path component, matches any number of components. For example, `/run/secrets/**` matches every file below `/run/secrets`.
+
+A pattern must be an absolute path, or start with `**`. The pattern `**` on its own allows every path. An empty list allows no file.
+Path separators are `/`. EMQX makes the path of the file absolute before it compares it, and it does not follow symbolic links. A path that has a `..` component matches only the pattern `**`.
+
+When the path matches no pattern, EMQX does not read the file. The secret is then empty, and an error log names the path.
+
+Two more rules do not depend on this setting:
+- A connector, an action or a source in a namespace does not read `file://` secrets.
+- The file that `node.cookie` points to is never read as a secret."""
+
+node_secret_file_allow_list.label:
+"""Secret File Allow List"""
+
 node_pinned_plugins.desc:
 """Plugins that this node runs independently of the cluster plugin config.
 Set a comma-separated string, for example `"my_plugin-1.0.0,other_plugin-2.1.0"`, or an array of name-vsn strings.

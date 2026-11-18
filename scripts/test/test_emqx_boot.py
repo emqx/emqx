@@ -240,6 +240,22 @@ def test_node_cookie_from_fifo_read_once(emqx_bin_path, tmp_path):
         assert cookie in got.stdout, (
             f"node cookie mismatch: {got.stdout + got.stderr}"
         )
+        # The node knows the path of the cookie file and never reads it as a
+        # secret: the value is empty, and the call does not wait on the FIFO.
+        secret = subprocess.run(
+            [
+                str(emqx_bin_path),
+                "eval",
+                f'emqx_secret_loader:file(<<"{fifo}">>).',
+            ],
+            env=plain_env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert "<<>>" in secret.stdout, (
+            f"cookie file read as a secret: {secret.stdout + secret.stderr}"
+        )
     finally:
         subprocess.run(
             [str(emqx_bin_path), "stop"],

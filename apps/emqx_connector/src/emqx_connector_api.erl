@@ -442,7 +442,9 @@ schema("/connectors_probe") ->
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
             Params1 = maybe_deobfuscate_connector_probe(Namespace, Params),
             case
-                emqx_connector_resource:create_dry_run(ConnType, maps:remove(<<"type">>, Params1))
+                emqx_connector_resource:create_dry_run(
+                    Namespace, ConnType, maps:remove(<<"type">>, Params1)
+                )
             of
                 ok ->
                     ?NO_CONTENT;

@@ -726,6 +726,18 @@ fields("node") ->
                     desc => ?DESC(node_data_dir)
                 }
             )},
+        {"secret_file_allow_list",
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    mapping => "emqx_utils.secret_file_allow_list",
+                    default => [<<"**">>],
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
+                    validator => fun validate_secret_file_allow_list/1,
+                    desc => ?DESC(node_secret_file_allow_list)
+                }
+            )},
         {"pinned_plugins",
             sc(
                 hoconsc:array(binary()),
@@ -2315,6 +2327,22 @@ validate_tls_stateless_tickets_seed(Seed) when is_binary(Seed) ->
     end;
 validate_tls_stateless_tickets_seed(_) ->
     {error, "tls_stateless_tickets_seed must be a string value"}.
+
+validate_secret_file_allow_list(Patterns) ->
+    case [P || P <- Patterns, not is_secret_file_pattern(P)] of
+        [] ->
+            ok;
+        Invalid ->
+            {error, #{
+                reason => <<"Each pattern must be an absolute path, or start with '**'.">>,
+                invalid_patterns => Invalid
+            }}
+    end.
+
+is_secret_file_pattern(<<"/", _/binary>>) -> true;
+is_secret_file_pattern(<<"**">>) -> true;
+is_secret_file_pattern(<<"**/", _/binary>>) -> true;
+is_secret_file_pattern(_) -> false.
 
 validate_cookie("") ->
     throw("Cookie must be non-empty string");

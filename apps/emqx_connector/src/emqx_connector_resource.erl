@@ -10,6 +10,9 @@
 -include("emqx_connector.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% For the existing `binary_to_atom/2` call in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     connector_to_resource_type/1,
     resource_id/3,
@@ -22,8 +25,9 @@
 
 -export([
     create/5,
-    create_dry_run/2,
     create_dry_run/3,
+    create_dry_run/4,
+    deny_secret_files/3,
     recreate/5,
     remove/3,
     restart/3,
@@ -142,7 +146,8 @@ create(Namespace, Type, Name, Conf0, Opts) ->
     }),
     TypeBin = bin(Type),
     ResourceId = resource_id(Namespace, Type, Name),
-    Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
+    Conf1 = deny_secret_files(Namespace, log_meta(TypeBin, Name), Conf0),
+    Conf = Conf1#{connector_type => TypeBin, connector_name => Name},
     _ = emqx_alarm:ensure_deactivated(ResourceId),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
@@ -204,8 +209,9 @@ get_channels(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:get_channels(ConnResId).
 
-recreate(Namespace, Type, Name, Conf, Opts) ->
+recreate(Namespace, Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
+    Conf = deny_secret_files(Namespace, log_meta(TypeBin, Name), Conf0),
     emqx_resource:recreate_local(
         resource_id(Namespace, Type, Name),
         ?MODULE:connector_to_resource_type(Type),
@@ -213,10 +219,10 @@ recreate(Namespace, Type, Name, Conf, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type, Conf) ->
-    create_dry_run(Type, Conf, fun(_) -> ok end).
+create_dry_run(Namespace, Type, Conf) ->
+    create_dry_run(Namespace, Type, Conf, fun(_) -> ok end).
 
-create_dry_run(Type, Conf0, Callback) ->
+create_dry_run(Namespace, Type, Conf0, Callback) ->
     %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
@@ -235,7 +241,8 @@ create_dry_run(Type, Conf0, Callback) ->
                 #{atom_key => true, required => false}
             ),
         CheckedConf2 = get_temp_conf(TypeAtom, CheckedConf1),
-        CheckedConf = CheckedConf2#{connector_type => TypeBin, connector_name => TmpName},
+        CheckedConf3 = deny_secret_files(Namespace, log_meta(TypeBin, TmpName), CheckedConf2),
+        CheckedConf = CheckedConf3#{connector_type => TypeBin, connector_name => TmpName},
         case emqx_connector_ssl:convert_certs(TmpPath, CheckedConf) of
             {error, Reason} ->
                 {error, Reason};
@@ -251,6 +258,36 @@ create_dry_run(Type, Conf0, Callback) ->
             {error, Reason1}
     after
         _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
+    end.
+
+log_meta(Type, Name) ->
+    #{config_root => connectors, type => Type, name => Name}.
+
+-doc """
+Make a connector, an action or a source of a namespace load no secret from a file.
+
+Each `file://` secret in `Conf` is replaced with an empty secret, and an error log
+names the files. `Conf` of the global namespace is returned as it is: for it, the
+secret loader decides which files can be read.
+""".
+-spec deny_secret_files(?global_ns | binary(), map(), Conf) -> Conf when Conf :: map().
+deny_secret_files(?global_ns, _LogMeta, Conf) ->
+    Conf;
+deny_secret_files(Namespace, LogMeta, Conf0) when is_binary(Namespace) ->
+    case emqx_schema_secret:deny_file_sources(Conf0) of
+        {Conf, []} ->
+            Conf;
+        {Conf, Sources} ->
+            ?SLOG(error, LogMeta#{
+                msg => "namespaced_secret_file_read_denied",
+                namespace => Namespace,
+                paths => [Path || <<"file://", Path/binary>> <- Sources],
+                hint => <<
+                    "A connector, an action or a source in a namespace cannot use "
+                    "a 'file://' secret. Set the value directly."
+                >>
+            }),
+            Conf
     end.
 
 get_temp_conf(TypeAtom, CheckedConf) ->
