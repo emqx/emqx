@@ -71,6 +71,7 @@
 
 -define(DEFAULT_MQ_LIMITS,
     (#{
+        on_full => evict,
         max_shard_message_count => infinity,
         max_shard_message_bytes => infinity
     })
@@ -86,5 +87,15 @@
 -define(MQ_METRICS_WORKER, mq_metrics).
 
 -define(LEGACY_QUEUE_NAME(TF), <<"/", (TF)/binary>>).
+
+%% Acknowledgment progress that a consumer stream buffer reports when its completely
+%% acknowledged lower buffers retire.
+-record(progress, {
+    %% Exclusive DS timestamp boundary. Every record of the stream below it is acknowledged.
+    boundary :: non_neg_integer(),
+    %% Count and serialized bytes of the retired records, or `undefined` when a retired
+    %% buffer was rebuilt by restoration, which does not count records.
+    totals :: #{count := non_neg_integer(), bytes := non_neg_integer()} | undefined
+}).
 
 -endif.

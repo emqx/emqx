@@ -12,6 +12,9 @@ A failed request is sent again after `?RETRY_INTERVAL`. A queue is given up afte
 `?QUEUE_FAILURE_LIMIT` failures. Recoverable errors and stream lookup errors report that
 the shard is unavailable. After `?SHARD_FAILURE_LIMIT` such failures in one run, the
 worker stops. Successes and queue-specific errors do not reset this count.
+
+When the expired data of a queue that rejects messages when full is deleted, and whole quota
+buckets expired, the worker reports the cutoff to the cleanup pool. The pool releases their quota.
 """.
 -behaviour(gen_server).
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
@@ -32,6 +35,7 @@ worker stops. Successes and queue-specific errors do not reset this count.
     failures := non_neg_integer(),
     topic => emqx_ds:topic_filter(),
     cutoff => emqx_ds:time(),
+    release => boolean(),
     stream => emqx_ds:stream()
 }.
 
@@ -159,6 +163,7 @@ prepare(#{queue := MQ} = Entry, Slab) ->
 outcome(Id, {ok, true}, State) ->
     send_batch(Id, State);
 outcome(Id, {ok, false}, State) ->
+    ok = release_expired(Id, State),
     done(Id, State);
 outcome(Id, {error, unrecoverable, {storage_not_found, _}}, State) ->
     done(Id, State);
@@ -191,6 +196,16 @@ count_shard_failure(Error, #st{shard_failures = N} = State) ->
 is_shard_failure({error, recoverable, _}) -> true;
 is_shard_failure({stream_lookup, _}) -> true;
 is_shard_failure(_) -> false.
+
+%% The expired data is deleted. A missing cleanup pool drops the report, and the next run sends it again.
+release_expired(Id, #st{slab = {Shard, _}, queues = Queues}) ->
+    case Queues of
+        #{Id := #{release := true, queue := MQ, cutoff := Cutoff}} ->
+            _ = emqx_mq_cleanup_worker:report_expired(MQ, Shard, Cutoff),
+            ok;
+        #{} ->
+            ok
+    end.
 
 done(Id, #st{queues = Queues} = State) ->
     {noreply, State#st{queues = maps:remove(Id, Queues)}, {continue, refill}}.

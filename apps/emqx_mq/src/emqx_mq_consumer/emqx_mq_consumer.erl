@@ -59,10 +59,12 @@ Consumer's responsibilities:
     global_name/1
 ]).
 
--export_type([supported/0]).
+-export_type([supported_v2/0]).
 
 %% The MQ features that a node supports.
--type supported() :: #{purge := boolean(), serial_index := boolean()}.
+-type supported_v2() :: #{
+    purge := boolean(), serial_index := boolean(), reject_queues := boolean()
+}.
 
 -record(state, {
     mq :: emqx_mq_types:mq(),
@@ -206,9 +208,9 @@ ack_v1(Pid, SubscriberRef, MessageId, Ack) ->
 ping_v1(Pid, SubscriberRef) ->
     send_to_consumer_server(Pid, #mq_server_ping{subscriber_ref = SubscriberRef}).
 
--spec supported_v2() -> supported().
+-spec supported_v2() -> supported_v2().
 supported_v2() ->
-    #{purge => true, serial_index => true}.
+    #{purge => true, serial_index => true, reject_queues => true}.
 
 -spec stop_v1(emqx_mq_types:consumer_ref()) -> ok.
 stop_v1(Pid) ->
@@ -333,9 +335,13 @@ handle_ds_info(
     end.
 
 handle_persist_consumer_data(
-    #state{mq = #{consumer_persistence_interval := PersistenceInterval}} = State0
+    #state{
+        mq = #{consumer_persistence_interval := PersistenceInterval}, streams = Streams0
+    } = State0
 ) ->
-    case persist_consumer_data(_ClaimLeadership = true, State0) of
+    %% Report progress to the cleanup workers
+    State1 = State0#state{streams = emqx_mq_consumer_streams:flush_progress_reporters(Streams0)},
+    case persist_consumer_data(_ClaimLeadership = true, State1) of
         {ok, State} ->
             erlang:send_after(
                 PersistenceInterval, self(), #persist_consumer_data{}
@@ -368,7 +374,10 @@ handle_shutdown(
     } = State0
 ) ->
     ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
-    Streams1 = emqx_mq_consumer_streams:destroy(Streams0),
+    %% Report the last consumption progress, so a stopped consumer does not keep quota charged
+    Streams1 = emqx_mq_consumer_streams:destroy(
+        emqx_mq_consumer_streams:flush_progress_reporters(Streams0)
+    ),
     {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
     ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
     State = State0#state{streams = Streams, consumer_state = ConsumerState},

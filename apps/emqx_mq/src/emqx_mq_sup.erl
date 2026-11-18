@@ -18,6 +18,7 @@ The structure of the supervisor is as follows:
     - ?SERVICES_SUP supervisor
       - emqx_mq_gc - scheduler for garbage collection tasks
       - emqx_mq_delete_pool_sup - queue deletion workers
+      - emqx_mq_cleanup_pool_sup - quota release workers of reject queues
   - emqx_mq_controller (starts and stops services under ?MQ_SUP supervisor)
 """.
 
@@ -51,6 +52,7 @@ The structure of the supervisor is as follows:
 -define(MQ_SUP, emqx_mq_enabled_sup).
 -define(SERVICES_SUP, emqx_mq_services_sup).
 -define(DELETE_POOL_SIZE, 5).
+-define(CLEANUP_POOL_SIZE, 5).
 
 start_link() ->
     supervisor:start_link({local, ?ROOT_SUP}, ?MODULE, ?ROOT_SUP).
@@ -138,6 +140,12 @@ init(?SERVICES_SUP) ->
     ChildSpecs = [
         emqx_pool_sup:spec(emqx_mq_delete_pool_sup, permanent, [
             emqx_mq_delete_worker, hash, ?DELETE_POOL_SIZE, {emqx_mq_delete_worker, start_link, []}
+        ]),
+        emqx_pool_sup:spec(emqx_mq_cleanup_pool_sup, permanent, [
+            emqx_mq_cleanup_worker,
+            hash,
+            ?CLEANUP_POOL_SIZE,
+            {emqx_mq_cleanup_worker, start_link, []}
         ]),
         emqx_mq_gc:child_spec()
     ],

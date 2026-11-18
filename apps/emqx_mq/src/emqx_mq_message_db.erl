@@ -4,9 +4,7 @@
 
 -module(emqx_mq_message_db).
 
--moduledoc """
-Facade for all operations with the message database.
-""".
+-moduledoc "Facade for all operations with the message database".
 
 -behaviour(emqx_mq_quota_buffer).
 
@@ -32,7 +30,9 @@ Facade for all operations with the message database.
     rotate_quota_indexes/1,
     truncate_quota_indexes/2,
     calc_constant_bounds/2,
-    delete_before/2
+    delete_before/2,
+    release_before/3,
+    occupancy/2
 ]).
 -export_type([bounds/0]).
 
@@ -176,8 +176,12 @@ insert(#{is_lastvalue := true} = MQHandle, IsLimited, Message) ->
                 emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin}),
                 MaybeOldMessage
             end,
-            {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
+            {Time, Result} = timer:tc(fun() ->
+                admit_and_insert(MQHandle, Shard, MessageBin, TxOpts, TxFun)
+            end),
             case Result of
+                {error, queue_full} ->
+                    {error, queue_full};
                 {atomic, Serial, MaybeOldMessage} ->
                     emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
                     IsLimited andalso
@@ -220,8 +224,12 @@ insert(#{is_lastvalue := false} = MQHandle, true = _IsLimited, Message) ->
     TxFun = fun() ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin})
     end,
-    {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
+    {Time, Result} = timer:tc(fun() ->
+        admit_and_insert(MQHandle, Shard, MessageBin, TxOpts, TxFun)
+    end),
     case Result of
+        {error, queue_full} ->
+            {error, queue_full};
         {atomic, Serial, ok} ->
             emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
             ok = update_quota(
@@ -319,6 +327,56 @@ delete_all() ->
     ok = delete(?MQ_MESSAGE_LASTVALUE_DB, [['#']]),
     ok = delete(?MQ_MESSAGE_REGULAR_DB, [['#']]).
 
+-spec occupancy(emqx_mq_types:mq_handle(), emqx_ds:shard()) ->
+    {ok, #{
+        bytes := integer(),
+        count := integer(),
+        buckets := non_neg_integer(),
+        head_empty := boolean()
+    }}
+    | {error, term()}.
+occupancy(MQ, Shard) ->
+    try dirty_index(MQ, Shard) of
+        undefined -> {ok, #{bytes => 0, count => 0, buckets => 0, head_empty => true}};
+        Index -> {ok, emqx_mq_quota_index:occupancy(Index)}
+    catch
+        Class:Reason -> {error, {quota_index_read_failed, Class, Reason}}
+    end.
+
+-doc """
+Release the quota of the records of a reject queue shard stored before `Boundary`.
+Every such record must be consumed or expired.
+
+1. Delete the records stored before `Boundary`, from the released boundary of the index on.
+2. Raise the released boundary of the index to `Boundary`.
+
+The index drops the buckets that end at or before the released boundary,
+in step 2 and on every later quota flush. So quota is released only after the records are deleted.
+Do nothing while the shard has no index yet.
+""".
+-spec release_before(emqx_mq_types:mq(), emqx_ds:shard(), emqx_ds:time()) -> ok | {error, term()}.
+release_before(MQ, Shard, Boundary) ->
+    DB = db(MQ),
+    Slab = {Shard, insert_generation(DB)},
+    try dirty_index(MQ, Shard) of
+        undefined ->
+            ok;
+        Index ->
+            case emqx_mq_quota_index:released_before(Index) of
+                Released when is_integer(Released), Released >= Boundary ->
+                    ok;
+                Released ->
+                    From =
+                        case Released of
+                            undefined -> 0;
+                            _ -> Released
+                        end,
+                    release(MQ, Slab, index_tx_opts(DB, Slab), From, Boundary)
+            end
+    catch
+        Class:Reason -> {error, {quota_index_read_failed, Class, Reason}}
+    end.
+
 -spec create_client(module()) -> emqx_ds_client:t().
 create_client(Module) ->
     emqx_ds_client:new(Module, #{}).
@@ -369,20 +427,44 @@ Compute this queue's retention cutoff for one last-value slab.
 The cutoff is the latest of the retention start, the delivery cutoff,
 and, for limited queues, the quota index deadline.
 Messages before the retention start or the delivery cutoff are never delivered.
+
+`release` is true when the queue rejects new messages when full, and the cutoff reaches
+the end of its oldest quota bucket. The quota of the deleted messages can then be released
+with `release_before/3`. Expired messages in a bucket that has not fully expired keep their quota.
 """.
 -spec gc_info(emqx_mq_types:mq(), emqx_ds:slab()) ->
-    skip | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time()}.
+    skip
+    | #{topic := emqx_ds:topic_filter(), cutoff := emqx_ds:time(), release := boolean()}.
 gc_info(MQ, {Shard, _}) ->
+    Index = limited_index(MQ, Shard),
     DeleteTill = lists:max([
         emqx_mq_prop:retention_start_time(MQ),
         emqx_mq_prop:deliver_cutoff_time(MQ),
-        limits_deadline(MQ, Shard)
+        index_deadline(Index)
     ]),
     Topic = mq_message_topic(MQ, '#'),
     %% Dirty GC assumes this past cutoff precedes leader-assigned monotonic insert timestamps.
     case DeleteTill of
-        0 -> skip;
-        _ -> #{topic => Topic, cutoff => DeleteTill}
+        0 ->
+            skip;
+        _ ->
+            #{
+                topic => Topic,
+                cutoff => DeleteTill,
+                release =>
+                    emqx_mq_prop:on_full(MQ) =:= reject andalso
+                    has_expired_buckets(Index, DeleteTill)
+            }
+    end.
+
+%% Whether some quota bucket holds only expired messages: it ends at or before the cutoff.
+%% Only the oldest bucket needs a check. An index with one bucket has no end yet.
+has_expired_buckets(undefined, _Cutoff) ->
+    false;
+has_expired_buckets(Index, Cutoff) ->
+    case emqx_mq_quota_index:next_boundary(Index) of
+        Next when is_integer(Next) -> Next =< Cutoff;
+        undefined -> false
     end.
 
 -spec regular_db_slab_info() ->
@@ -451,22 +533,22 @@ quota_buffer_flush_transaction({DB, {Shard, Generation}} = _TxKey, TxFun) ->
 quota_buffer_flush_tx_update(
     _TxKey, {IndexTopic, FenceTopic} = _Key, QuotaIndexOpts, Updates, NeedLegacy
 ) ->
+    ?tp(mq_quota_index_flush, #{index_topic => IndexTopic, updates => length(Updates)}),
     emqx_mq_quota_index_tx:update_tx(IndexTopic, FenceTopic, QuotaIndexOpts, Updates, NeedLegacy).
 
 %%--------------------------------------------------------------------
 %% Quota index utilities
 %%--------------------------------------------------------------------
 
-limits_deadline(MQ, Shard) ->
+%% The quota index of a limited queue in the shard, or `undefined`.
+limited_index(MQ, Shard) ->
     case emqx_mq_prop:is_limited(MQ) of
-        true ->
-            case dirty_index(MQ, Shard) of
-                undefined -> 0;
-                Index -> emqx_mq_quota_index:deadline(Index)
-            end;
-        false ->
-            0
+        true -> dirty_index(MQ, Shard);
+        false -> undefined
     end.
+
+index_deadline(undefined) -> 0;
+index_deadline(Index) -> emqx_mq_quota_index:deadline(Index).
 
 dirty_index(MQHandle, Shard) ->
     DB = db(MQHandle),
@@ -504,6 +586,73 @@ mq_index_topic(#{topic_filter := TopicFilter, id := Id} = _MQ) ->
 
 mq_fence_topic(#{topic_filter := TopicFilter, id := Id} = _MQ) ->
     ?MQ_FENCE_TOPIC(TopicFilter, Id).
+
+%%--------------------------------------------------------------------
+%% Admission and cleanup
+%%--------------------------------------------------------------------
+
+admit_and_insert(MQ, Shard, MessageBin, TxOpts, TxFun) ->
+    case admit(MQ, Shard, byte_size(MessageBin)) of
+        ok ->
+            emqx_ds:trans(TxOpts, TxFun);
+        {error, queue_full} = Error ->
+            emqx_mq_metrics:inc_mq(MQ, queue_full),
+            Error;
+        {error, Reason} ->
+            {error, recoverable, Reason}
+    end.
+
+admit(MQ, Shard, Size) ->
+    case emqx_mq_prop:on_full(MQ) of
+        evict ->
+            ok;
+        reject ->
+            #{limits := #{max_shard_message_count := MaxCount, max_shard_message_bytes := MaxBytes}} =
+                MQ,
+            case ?MODULE:occupancy(MQ, Shard) of
+                %% Cleanup releases a bucket only after the consumer passes a record stored after it.
+                %% Admit writes while no such record can exist: into a single bucket, or into
+                %% an empty head after one closed bucket. Older buckets of a consumed queue are
+                %% already released, and a closed bucket is never empty.
+                {ok, #{buckets := 1}} ->
+                    ok;
+                {ok, #{buckets := 2, head_empty := true}} ->
+                    ok;
+                {ok, #{count := Count, bytes := Bytes}} ->
+                    case max(0, Count) + 1 > MaxCount orelse max(0, Bytes) + Size > MaxBytes of
+                        true -> {error, queue_full};
+                        false -> ok
+                    end;
+                {error, _} = Error ->
+                    Error
+            end
+    end.
+
+release(MQ, Slab, TxOpts, From, Boundary) ->
+    Id = emqx_mq_prop:id(MQ),
+    ?tp(mq_cleanup_delete, #{id => Id, slab => Slab, from => From, boundary => Boundary}),
+    maybe
+        ok ?=
+            emqx_mq_ds_queue_deleter:delete(
+                db(MQ), [mq_message_topic(MQ, '#')], #{Slab => {From, Boundary}}
+            ),
+        ok ?= release_quota_index(TxOpts, MQ, Boundary),
+        ?tp(mq_cleanup_released, #{id => Id, slab => Slab, boundary => Boundary}),
+        ok
+    end.
+
+release_quota_index(TxOpts, MQ, Boundary) ->
+    IndexTopic = mq_index_topic(MQ),
+    Opts = emqx_mq_prop:quota_index_opts(MQ),
+    case
+        emqx_ds:trans(TxOpts, fun() ->
+            emqx_mq_quota_index_tx:release_tx(IndexTopic, Opts, Boundary)
+        end)
+    of
+        {atomic, _Serial, ok} -> ok;
+        {nop, ok} -> ok;
+        {error, IsRecoverable, Reason} -> {error, {IsRecoverable, Reason}}
+    end.
 
 %%--------------------------------------------------------------------
 %% Purge

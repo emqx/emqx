@@ -508,7 +508,8 @@ pmap_encode_val(
         keyExpression = key_expression_to_asn1(KeyExpression),
         limits = limits_to_asn1(Limits),
         name = name_to_asn1(Name),
-        deliverCutoffDate = to_asn1_optional_integer(maps:get(deliver_cutoff_date, MQ, undefined))
+        deliverCutoffDate = to_asn1_optional_integer(maps:get(deliver_cutoff_date, MQ, undefined)),
+        onFull = on_full_to_asn1(Limits)
     });
 pmap_encode_val(?pn_id, ?id_key, MQId) ->
     MQId.
@@ -562,7 +563,8 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         keyExpression = KeyExpression,
         limits = Limits,
         name = Name,
-        deliverCutoffDate = DeliverCutoffDate
+        deliverCutoffDate = DeliverCutoffDate,
+        onFull = OnFull
     } = 'MessageQueue':decode('MQ', ValBin),
     MQ0 = #{
         id => Id,
@@ -578,7 +580,7 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         stream_max_unacked => StreamMaxUnacked,
         consumer_persistence_interval => ConsumerPersistenceInterval,
         data_retention_period => DataRetentionPeriod,
-        limits => limits_from_asn1(Limits)
+        limits => limits_from_asn1(Limits, OnFull)
     },
     MQ1 = key_expression_from_asn1(MQ0, KeyExpression),
     MQ = name_from_asn1(MQ1, Name),
@@ -697,16 +699,21 @@ limit_to_asn1_optional_integer(infinity) ->
 limit_to_asn1_optional_integer(Integer) when is_integer(Integer) ->
     Integer.
 
-limits_from_asn1(asn1_NOVALUE) ->
+limits_from_asn1(asn1_NOVALUE, OnFull) ->
     #{
+        on_full => on_full_from_asn1(OnFull),
         max_shard_message_count => infinity,
         max_shard_message_bytes => infinity
     };
-limits_from_asn1(#'Limits'{
-    maxShardMessageCount = MaxShardMessageCount,
-    maxShardMessageBytes = MaxShardMessageBytes
-}) ->
+limits_from_asn1(
+    #'Limits'{
+        maxShardMessageCount = MaxShardMessageCount,
+        maxShardMessageBytes = MaxShardMessageBytes
+    },
+    OnFull
+) ->
     #{
+        on_full => on_full_from_asn1(OnFull),
         max_shard_message_count => limit_from_asn1_optional_integer(MaxShardMessageCount),
         max_shard_message_bytes => limit_from_asn1_optional_integer(MaxShardMessageBytes)
     }.
@@ -719,6 +726,13 @@ limits_to_asn1(#{
         maxShardMessageCount = limit_to_asn1_optional_integer(MaxShardMessageCount),
         maxShardMessageBytes = limit_to_asn1_optional_integer(MaxShardMessageBytes)
     }.
+
+on_full_from_asn1(asn1_NOVALUE) -> evict;
+on_full_from_asn1(<<"reject">>) -> reject;
+on_full_from_asn1(<<"evict">>) -> evict.
+
+on_full_to_asn1(#{on_full := reject}) -> <<"reject">>;
+on_full_to_asn1(_) -> asn1_NOVALUE.
 
 format_tx_result({atomic, _TXSerial, Res}, _ErrorLabel) ->
     Res;

@@ -33,13 +33,15 @@ A purge uses the other functions:
 * `write_fence_tx/1` writes a fresh fence.
 * `rotate_tx/3`, in the next transaction, drops the buckets before the fence stored in DS.
 * `truncate_tx/3` drops the buckets that end at or before a DS timestamp.
+
+Cleanup of reject queues uses `release_tx/3` to raise the released boundary.
 """.
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../emqx_mq_internal.hrl").
 -include("emqx_mq_quota.hrl").
 
--export([update_tx/5, write_fence_tx/1, rotate_tx/3, truncate_tx/3]).
+-export([update_tx/5, write_fence_tx/1, rotate_tx/3, truncate_tx/3, release_tx/3]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -112,6 +114,27 @@ truncate_tx(IndexTopic, QuotaIndexOpts, BeforeUs) ->
                 emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
             ),
             write_index_tx(IndexTopic, emqx_mq_quota_index:truncate(Index0, BeforeUs))
+    end.
+
+-doc """
+Raise the released boundary of a reject queue index to the DS timestamp.
+See `emqx_mq_quota_index:release/2`. The legacy index is dropped.
+Do nothing when there is no index.
+""".
+-spec release_tx(emqx_ds:topic(), emqx_mq_quota_index:opts(), non_neg_integer()) -> ok.
+release_tx(IndexTopic, QuotaIndexOpts, BeforeUs) ->
+    case emqx_ds:tx_read(IndexTopic) of
+        [] ->
+            ok;
+        [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
+            Index0 = emqx_mq_quota_index:drop_legacy(
+                emqx_mq_quota_index:decode(QuotaIndexOpts, IndexBin)
+            ),
+            Index = emqx_mq_quota_index:release(Index0, BeforeUs),
+            case Index =:= Index0 of
+                true -> ok;
+                false -> write_index_tx(IndexTopic, Index)
+            end
     end.
 
 %%------------------------------------------------------------------------------

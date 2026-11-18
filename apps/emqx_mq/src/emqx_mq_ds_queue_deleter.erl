@@ -13,13 +13,16 @@
 -type deletion_error() :: {emqx_ds:slab(), emqx_ds:topic_filter(), emqx_ds:error(term())}.
 %% `infinity`: delete all data. A map: delete data stored before the DS timestamp given for each slab,
 %% and keep the data of the slabs that are not in the map.
--type bounds() :: infinity | #{emqx_ds:slab() => emqx_ds:time()}.
+%% A `{From, Till}` range deletes only the data stored at or after `From` and before `Till`.
+-type bounds() ::
+    infinity | #{emqx_ds:slab() => emqx_ds:time() | {emqx_ds:time(), emqx_ds:time()}}.
 -export_type([bounds/0]).
 
 -record(entry, {
     slab :: emqx_ds:slab(),
     stream :: emqx_ds:stream(),
     topic :: emqx_ds:topic_filter(),
+    from = 0 :: emqx_ds:time(),
     till :: emqx_ds:time() | infinity,
     errors = 0 :: non_neg_integer()
 }).
@@ -48,45 +51,59 @@ delete(DB, Topics) ->
     ok
     | {error, [deletion_error()]}
     | {error, {stream_lookup, term()}}.
-delete(DB, Topics, Bounds) ->
-    case discover(DB, Topics, Bounds, []) of
-        {ok, Entries} ->
+delete(DB, Topics, infinity) ->
+    case discover(DB, Topics, infinity, #{}, [], []) of
+        {Entries, []} ->
             loop(lists:foldl(fun send/2, #st{db = DB}, Entries));
-        {error, _} = Error ->
-            Error
+        {_Entries, LookupErrors} ->
+            {error, {stream_lookup, LookupErrors}}
+    end;
+delete(DB, Topics, Bounds) ->
+    %% Look up streams only in the shards of the bounds. A shard that fails the lookup
+    %% does not stop the deletion in the other shards.
+    Shards = lists:usort([Shard || {Shard, _Generation} <- maps:keys(Bounds)]),
+    {Entries, LookupErrors} = lists:foldl(
+        fun(Shard, {EntriesAcc, ErrorsAcc}) ->
+            discover(DB, Topics, Bounds, #{shard => Shard}, EntriesAcc, ErrorsAcc)
+        end,
+        {[], []},
+        Shards
+    ),
+    case {loop(lists:foldl(fun send/2, #st{db = DB}, Entries)), LookupErrors} of
+        {ok, []} -> ok;
+        {ok, _} -> {error, {stream_lookup, LookupErrors}};
+        {{error, _} = Error, _} -> Error
     end.
 
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
 
-discover(_, [], _Bounds, Entries) ->
-    {ok, Entries};
-discover(DB, [Topic | Rest], Bounds, Entries) ->
-    case emqx_ds:get_streams(DB, Topic, 0, #{}) of
-        {Streams, []} ->
-            New = [
-                #entry{slab = Slab, stream = Stream, topic = Topic, till = Till}
-             || {Slab, Stream} <- Streams, {ok, Till} <- [till(Slab, Bounds)]
-            ],
-            discover(DB, Rest, Bounds, New ++ Entries);
-        {_, Errors} ->
-            {error, {stream_lookup, Errors}}
-    end.
+discover(_DB, [], _Bounds, _Opts, Entries, Errors) ->
+    {Entries, Errors};
+discover(DB, [Topic | Rest], Bounds, Opts, Entries, Errors) ->
+    {Streams, LookupErrors} = emqx_ds:get_streams(DB, Topic, 0, Opts),
+    New = [
+        #entry{slab = Slab, stream = Stream, topic = Topic, from = From, till = Till}
+     || {Slab, Stream} <- Streams, {ok, From, Till} <- [range(Slab, Bounds)]
+    ],
+    discover(DB, Rest, Bounds, Opts, New ++ Entries, LookupErrors ++ Errors).
 
-till(_Slab, infinity) ->
-    {ok, infinity};
-till(Slab, Bounds) ->
+range(_Slab, infinity) ->
+    {ok, 0, infinity};
+range(Slab, Bounds) ->
     case Bounds of
-        #{Slab := Till} -> {ok, Till};
+        #{Slab := {From, Till}} -> {ok, From, Till};
+        #{Slab := Till} -> {ok, 0, Till};
         #{} -> skip
     end.
 
 send(
-    #entry{stream = Stream, topic = Topic, till = Till} = Entry, #st{db = DB, refs = Refs} = State
+    #entry{stream = Stream, topic = Topic, from = From, till = Till} = Entry,
+    #st{db = DB, refs = Refs} = State
 ) ->
     Opts = #{sync => false, dirty => true},
-    case emqx_ds:del_batch(DB, Stream, Topic, 0, Till, Opts) of
+    case emqx_ds:del_batch(DB, Stream, Topic, From, Till, Opts) of
         {async, Ref} -> State#st{refs = Refs#{Ref => Entry}};
         Outcome -> outcome(Entry, Outcome, State)
     end.
