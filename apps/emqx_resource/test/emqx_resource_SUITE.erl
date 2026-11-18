@@ -65,7 +65,7 @@ init_per_testcase(TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     emqx_connector_demo:set_callback_mode(always_sync),
     snabbkaffe:start_trace(),
-    ct:print(asciiart:visible($%, "~s", [TestCase])),
+    ct:pal(asciiart:visible($%, "~s", [TestCase])),
     Config.
 
 end_per_testcase(_, _Config) ->
