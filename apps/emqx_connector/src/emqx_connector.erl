@@ -88,7 +88,7 @@ do_unload(Namespace, ConnectorsRoot) ->
         fun({Type, NamedConf}) ->
             emqx_utils:pforeach(
                 fun({Name, _Conf}) ->
-                    _ = emqx_connector_resource:stop(Namespace, Type, Name)
+                    _ = emqx_connector_resource:remove(Namespace, Type, Name)
                 end,
                 maps:to_list(NamedConf),
                 infinity
