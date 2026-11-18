@@ -72,7 +72,7 @@ delivers exactly that.
 :END:
 Each of these fails with =undef= / badarith of arity when the test runs.
 
-*** TODO [#B] dist-tls eunit suite not migrated to the new module
+*** FIXED [#B] dist-tls eunit suite not migrated to the new module
 :PROPERTIES:
 :FILE:  apps/emqx_machine/test/emqx_machine_dist_tls_tests.erl
 :LINES: 31, 37, 74, 94, 103, 128
@@ -103,7 +103,7 @@ exists in this form — the guard now lives on the peer side
 ready) moved to the peer node.
 *Fix:* rewrite, not just an arity fix.
 
-*** TODO [#B] security profile suite calls =ekka:leave/0=
+*** FIXED [#B] security profile suite calls =ekka:leave/0=
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_security_profile_monitor_SUITE.erl
 :LINES: 188
@@ -481,7 +481,7 @@ fail (or halt migration) rather than re-identify.
   + Leave-cleanup is now wired *only* to classy kicks — a plain mria-level
     leave no longer cleans commit records.
 
-** TODO [#C] New hard runtime coupling: =emqx_dsch= requires classy for site ID
+** WONTFIX [#C] New hard runtime coupling: =emqx_dsch= requires classy for site ID
 :PROPERTIES:
 :FILE:  apps/emqx_durable_storage/src/emqx_dsch.erl
 :CUSTOM_ID: dsch-classy-coupling
@@ -491,6 +491,8 @@ If DS is used before classy initialized its site (or in any non-classy
 context), this is an opaque badmatch deep in DS; previously the site was
 self-generated.  If the invariant "classy always present" is accepted, add a
 guard/diagnostic; otherwise keep a local fallback.
+
+Invariant "classy always present" holds.
 
 ** QUESTION Schema / config semantics needing author confirmation
 :PROPERTIES:

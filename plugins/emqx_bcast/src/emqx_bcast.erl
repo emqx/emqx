@@ -235,7 +235,7 @@ running_nodes_list() ->
     end.
 
 mria_core_nodes() ->
-    try mria_membership:running_core_nodelist() of
+    try emqx_cluster:running_core_nodelist() of
         [] -> fallback_core_nodes();
         Nodes -> Nodes
     catch
