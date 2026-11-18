@@ -188,7 +188,18 @@ publish_delayed(Topic, Payload) ->
 publish_delayed(Topic, Payload, Headers) ->
     Msg = emqx_message:make(?MODULE, 1, delayed_topic(Topic), Payload),
     PubMsg = Msg#message{headers = Headers},
-    emqx:publish(PubMsg),
+    %% $delayed topics are intercepted at 'message.ingress', not at
+    %% 'message.publish', so route the message through the ingress pipeline
+    %% the same way a real client publish would.
+    ClientInfo = #{
+        zone => default,
+        clientid => ?MODULE,
+        username => <<>>,
+        is_superuser => true,
+        mountpoint => undefined
+    },
+    {allow, Prepared} = emqx_message_ingress:ingress_and_authorize(ClientInfo, PubMsg),
+    {stop, _} = emqx_delayed:on_message_publish(Prepared),
     PubMsg.
 
 delayed_topic(Topic) ->
