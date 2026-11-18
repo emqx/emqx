@@ -955,31 +955,23 @@ secret_file_allow_list_test_() ->
                 [Patterns]
             )
         ),
-        {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
-        hocon_tconf:generate(emqx_conf_schema, ConfMap)
-    end,
-    AppEnv = fun(ConfList) ->
-        proplists:get_value(
-            secret_file_allow_list, proplists:get_value(emqx_utils, ConfList, [])
-        )
+        check_secret_file_allow_list(Conf)
     end,
     [
         {"every path is allowed by default", fun() ->
-            {ok, ConfMap} = hocon:binary(
-                <<"node {cookie = \"cookie\", data_dir = \".\"}">>, #{format => richmap}
-            ),
             ?assertEqual(
-                [<<"**">>], AppEnv(hocon_tconf:generate(emqx_conf_schema, ConfMap))
+                [<<"**">>],
+                check_secret_file_allow_list(<<"node {cookie = \"cookie\", data_dir = \".\"}">>)
             )
         end},
         {"patterns", fun() ->
             ?assertEqual(
                 [<<"/run/secrets/**">>, <<"**/*.pw">>, <<"**">>],
-                AppEnv(Check("[\"/run/secrets/**\", \"**/*.pw\", \"**\"]"))
+                Check("[\"/run/secrets/**\", \"**/*.pw\", \"**\"]")
             )
         end},
         {"an empty list", fun() ->
-            ?assertEqual([], AppEnv(Check("[]")))
+            ?assertEqual([], Check("[]"))
         end},
         {"a pattern that is not an absolute path", fun() ->
             ?assertThrow(
@@ -994,6 +986,12 @@ secret_file_allow_list_test_() ->
             )
         end}
     ].
+
+%% The checked value of `node.secret_file_allow_list' for the config `Conf'.
+check_secret_file_allow_list(Conf) ->
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    {_AppEnvs, Checked} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap, #{format => richmap}),
+    hocon_maps:get("node.secret_file_allow_list", hocon_maps:ensure_plain(Checked)).
 
 validate_cookie_test_() ->
     [

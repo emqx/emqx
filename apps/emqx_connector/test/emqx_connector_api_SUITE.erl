@@ -2176,12 +2176,14 @@ setup_secret_files(TestCase, TCConfig) ->
         content => Content
     }.
 
-%% `node.secret_file_allow_list' is read-only. It reaches the secret loader as an
-%% application environment variable.
+%% `node.secret_file_allow_list' is read-only, so the test puts the value in the
+%% config of the node directly.
 set_secret_file_allow_list(Patterns, TCConfig) ->
     Node = ?config(node, TCConfig),
-    ?ON(Node, application:set_env(emqx_utils, secret_file_allow_list, Patterns)),
-    on_exit(fun() -> ?ON(Node, application:unset_env(emqx_utils, secret_file_allow_list)) end),
+    KeyPath = [node, secret_file_allow_list],
+    Old = ?ON(Node, emqx_config:get(KeyPath)),
+    ?ON(Node, emqx_config:put(KeyPath, Patterns)),
+    on_exit(fun() -> ?ON(Node, emqx_config:put(KeyPath, Old)) end),
     ok.
 
 probe(Type, Config, TCConfig) ->

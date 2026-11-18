@@ -730,7 +730,6 @@ fields("node") ->
             sc(
                 hoconsc:array(binary()),
                 #{
-                    mapping => "emqx_utils.secret_file_allow_list",
                     default => [<<"**">>],
                     'readOnly' => true,
                     importance => ?IMPORTANCE_LOW,

@@ -123,14 +123,18 @@ check_secret_files_test_() ->
     PlainConf = Conf#{password := emqx_schema_secret:convert_secret(<<"plain">>, #{})},
     LogMeta = #{config_root => connectors, type => <<"mqtt">>, name => <<"c1">>},
     SetAllowList = fun(Patterns) ->
-        application:set_env(emqx_utils, secret_file_allow_list, Patterns)
+        emqx_config:put([node, secret_file_allow_list], Patterns)
     end,
     {setup, local,
         fun() ->
-            ok = logger:add_handler(?MODULE, ?MODULE, #{config => #{pid => self()}})
+            ok = logger:add_handler(?MODULE, ?MODULE, #{config => #{pid => self()}}),
+            NodeConf = emqx_config:get([node], undefined),
+            ok = emqx_config:erase(node),
+            NodeConf
         end,
-        fun(_) ->
-            application:unset_env(emqx_utils, secret_file_allow_list),
+        fun(NodeConf) ->
+            ok = emqx_config:erase(node),
+            NodeConf =:= undefined orelse emqx_config:put([node], NodeConf),
             logger:remove_handler(?MODULE)
         end,
         [

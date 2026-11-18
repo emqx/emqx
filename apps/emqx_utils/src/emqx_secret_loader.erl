@@ -24,8 +24,7 @@ from that file each time it is unwrapped. This module decides which files such a
 secret can read:
 
 - The path must match a pattern in `node.secret_file_allow_list`. The setting is
-  read-only at runtime. It reaches this module as the application environment
-  variable `secret_file_allow_list` of `emqx_utils`.
+  read-only at runtime. Every path is allowed until the node has loaded its config.
 - The file that `node.cookie` points to is never read. Only the boot script reads
   it, before the node starts. The script passes its path to the node in the
   environment variable `EMQX_NODE_COOKIE_FILE`.
@@ -136,8 +135,11 @@ hint(not_in_allow_list) ->
         "Move the file, or add a pattern for it in emqx.conf and restart the node."
     >>.
 
+%% The fallback applies until the node has loaded its config. The config check at
+%% boot is in that time: it reads a secret to validate it, for example the password
+%% of a private key.
 allow_list() ->
-    application:get_env(emqx_utils, secret_file_allow_list, [?ALLOW_ALL]).
+    emqx_config:get([node, secret_file_allow_list], [?ALLOW_ALL]).
 
 is_node_cookie_file(Filename) ->
     case os:getenv(?COOKIE_FILE_ENV) of

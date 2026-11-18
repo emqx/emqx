@@ -242,14 +242,15 @@ t_file_key_and_secret_file_allow_list(Config) ->
     File = filename:join(?config(priv_dir, Config), "license.lic"),
     ok = file:write_file(File, sample_license()),
     Key = iolist_to_binary(["file://", File]),
-    ok = application:set_env(emqx_utils, secret_file_allow_list, []),
+    AllowList = emqx_config:get([node, secret_file_allow_list]),
+    ok = emqx_config:put([node, secret_file_allow_list], []),
     try
         %% A secret cannot read the file.
         ?assertEqual(<<>>, emqx_secret_loader:file(File)),
         %% The license key still can.
         ?assertMatch({ok, #{source := Key}}, emqx_license_parser:parse(Key, public_key_pem()))
     after
-        application:unset_env(emqx_utils, secret_file_allow_list)
+        emqx_config:put([node, secret_file_allow_list], AllowList)
     end.
 
 t_dump(_Config) ->

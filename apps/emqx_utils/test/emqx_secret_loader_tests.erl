@@ -9,7 +9,7 @@
 %% Logger handler callback
 -export([log/2]).
 
--define(ALLOW_LIST, secret_file_allow_list).
+-define(ALLOW_LIST, [node, secret_file_allow_list]).
 -define(COOKIE_FILE_ENV, "EMQX_NODE_COOKIE_FILE").
 
 %%--------------------------------------------------------------------
@@ -120,7 +120,7 @@ load_test_() ->
     %% `local': the log handler sends the reports to the process that runs `setup/0'.
     {foreach, local, fun setup/0, fun teardown/1, [
         fun(#{file := File}) ->
-            {"every path is allowed when the setting is not set", fun() ->
+            {"every path is allowed before the config is loaded", fun() ->
                 ?assertEqual(<<"secret">>, load(File)),
                 ?assertEqual([], denied_logs())
             end}
@@ -232,7 +232,7 @@ check(Path) ->
     emqx_secret_loader:check({file, "file://" ++ Path}).
 
 set_allow_list(Patterns) ->
-    application:set_env(emqx_utils, ?ALLOW_LIST, Patterns).
+    emqx_config:put(?ALLOW_LIST, Patterns).
 
 setup() ->
     Unique = integer_to_list(erlang:unique_integer([positive])),
@@ -240,16 +240,19 @@ setup() ->
     File = filename:join(Dir, "secret"),
     ok = filelib:ensure_dir(File),
     ok = file:write_file(File, <<"secret\n">>),
-    application:unset_env(emqx_utils, ?ALLOW_LIST),
+    %% Start with no `node' config, as before the node loads its config.
+    NodeConf = emqx_config:get([node], undefined),
+    ok = emqx_config:erase(node),
     os:unsetenv(?COOKIE_FILE_ENV),
     ok = logger:add_handler(?MODULE, ?MODULE, #{config => #{pid => self()}}),
-    #{dir => Dir, file => File}.
+    #{dir => Dir, file => File, node_conf => NodeConf}.
 
-teardown(#{dir := Dir}) ->
+teardown(#{dir := Dir, node_conf := NodeConf}) ->
     ok = logger:remove_handler(?MODULE),
     %% Leave no report in the mailbox of the process that runs the tests.
     _ = denied_logs(),
-    application:unset_env(emqx_utils, ?ALLOW_LIST),
+    ok = emqx_config:erase(node),
+    NodeConf =:= undefined orelse emqx_config:put([node], NodeConf),
     os:unsetenv(?COOKIE_FILE_ENV),
     ok = file:del_dir_r(Dir).
 
