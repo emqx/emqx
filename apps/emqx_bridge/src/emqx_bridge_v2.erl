@@ -810,27 +810,38 @@ create_dry_run(Namespace, ConfRootKey, Type, Conf0) ->
     RawConf = #{ConfRootKeyBin => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     %% Check config
     try
-        _ =
+        CheckedConf =
             hocon_tconf:check_plain(
                 emqx_bridge_v2_schema,
                 RawConf,
                 #{atom_key => true, required => false}
             ),
         #{<<"connector">> := ConnectorName} = Conf1,
-        %% Check that the connector exists and do the dry run if it exists
-        ConnectorType = connector_type(Type),
-        case get_raw_config(Namespace, [connectors, ConnectorType, ConnectorName], not_found) of
-            not_found ->
-                {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
-            ConnectorRawConf ->
-                create_dry_run_helper(
-                    Namespace, ensure_atom_root_key(ConfRootKey), Type, ConnectorRawConf, Conf1
-                )
+        Name = maps:get(<<"name">>, Conf0, <<"dryrun">>),
+        LogMeta = #{config_root => ConfRootKey, type => TypeBin, name => Name},
+        maybe
+            %% Fail before the connector starts when a secret cannot read its file.
+            ok ?= emqx_connector_resource:check_secret_files(Namespace, LogMeta, CheckedConf),
+            %% Check that the connector exists and do the dry run if it exists
+            ConnectorType = connector_type(Type),
+            {ok, ConnectorRawConf} ?=
+                dry_run_connector_raw_config(Namespace, ConnectorType, ConnectorName),
+            create_dry_run_helper(
+                Namespace, ensure_atom_root_key(ConfRootKey), Type, ConnectorRawConf, Conf1
+            )
         end
     catch
         %% validation errors
         throw:Reason1 ->
             {error, Reason1}
+    end.
+
+dry_run_connector_raw_config(Namespace, ConnectorType, ConnectorName) ->
+    case get_raw_config(Namespace, [connectors, ConnectorType, ConnectorName], not_found) of
+        not_found ->
+            {error, iolist_to_binary(io_lib:format("Connector ~p not found", [ConnectorName]))};
+        ConnectorRawConf ->
+            {ok, ConnectorRawConf}
     end.
 
 create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, BridgeV2RawConf) ->

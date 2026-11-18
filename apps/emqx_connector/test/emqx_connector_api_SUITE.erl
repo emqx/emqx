@@ -1967,7 +1967,7 @@ t_namespaced_load_on_restart(TCConfig) ->
 -doc """
 A `file://` secret reads its file only when a pattern in `node.secret_file_allow_list`
 matches the path. Otherwise the connector starts with an empty secret. The config is
-saved in both cases. A probe follows the same rule.
+saved in both cases. A probe fails with an error instead, and starts nothing.
 """.
 t_secret_file_allow_list(TCConfig) ->
     #{dir := Dir, inside := Inside, outside := Outside, content := Content} =
@@ -1992,11 +1992,12 @@ t_secret_file_allow_list(TCConfig) ->
         )
     ),
     reset_start_history(TCConfig),
-    ?assertMatch(
-        {204, _}, probe(?CONNECTOR_TYPE, kafka_connector_with_password(Outside), TCConfig)
-    ),
-    ?assertEqual([<<>>], start_passwords(all, TCConfig)),
-    reset_start_history(TCConfig),
+    {400, #{<<"code">> := <<"TEST_FAILED">>, <<"message">> := Message}} =
+        probe(?CONNECTOR_TYPE, kafka_connector_with_password(Outside), TCConfig),
+    <<"file://", OutsidePath/binary>> = Outside,
+    ?assertMatch({_, _}, binary:match(Message, OutsidePath)),
+    ?assertMatch({_, _}, binary:match(Message, <<"node.secret_file_allow_list">>)),
+    ?assertEqual([], start_passwords(all, TCConfig)),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, kafka_connector_with_password(Inside), TCConfig)),
     ?assertEqual([Content], start_passwords(all, TCConfig)),
     ok.
@@ -2004,7 +2005,8 @@ t_secret_file_allow_list(TCConfig) ->
 -doc """
 A connector in a namespace does not read `file://` secrets. It starts with an empty
 secret, also when `node.secret_file_allow_list` allows the file. The same applies after
-an update, and to a probe. A connector in the global namespace reads the same file.
+an update. A probe fails with an error instead, and starts nothing. A connector in the
+global namespace reads the same file.
 """.
 t_namespaced_secret_file(TCConfig) ->
     #{inside := File, content := Content} = setup_secret_files(?FUNCTION_NAME, TCConfig),
@@ -2024,8 +2026,16 @@ t_namespaced_secret_file(TCConfig) ->
     ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
     %% Probe
     reset_start_history(TCConfig),
-    ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithFile, TCConfigNS1)),
-    ?assertEqual([<<>>], start_passwords(all, TCConfig)),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe(?CONNECTOR_TYPE, WithFile, TCConfigNS1)
+    ),
+    ?assertEqual([], start_passwords(all, TCConfig)),
+    ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithPlain, TCConfigNS1)),
+    ?assertEqual([<<"plain">>], start_passwords(all, TCConfig)),
     reset_start_history(TCConfig),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithFile, TCConfig)),
     ?assertEqual([Content], start_passwords(all, TCConfig)),
@@ -2034,6 +2044,7 @@ t_namespaced_secret_file(TCConfig) ->
 -doc """
 An action in a namespace does not read `file://` secrets either: its connector gets an
 empty secret in the action config. An action in the global namespace reads the file.
+A probe of an action fails with an error when the action cannot read the file.
 """.
 t_namespaced_action_secret_file(TCConfig) ->
     #{inside := File, content := Content} = setup_secret_files(?FUNCTION_NAME, TCConfig),
@@ -2075,6 +2086,25 @@ t_namespaced_action_secret_file(TCConfig) ->
     ),
     ?assertEqual([Content], channel_private_keys(<<"in_global">>, TCConfig)),
     ?assertEqual([<<>>], channel_private_keys(<<"in_ns1">>, TCConfig)),
+    %% Probe
+    reset_start_history(TCConfig),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe_action(ActionConfig, TCConfigNS1)
+    ),
+    ?assertEqual([], channel_private_keys(all, TCConfig)),
+    ?assertMatch({204, _}, probe_action(ActionConfig, TCConfig)),
+    ?assertEqual([Content], channel_private_keys(all, TCConfig)),
+    reset_start_history(TCConfig),
+    set_secret_file_allow_list([<<"/no/such/dir/*">>], TCConfig),
+    <<"file://", Path/binary>> = File,
+    {400, #{<<"code">> := <<"TEST_FAILED">>, <<"message">> := Message}} =
+        probe_action(ActionConfig, TCConfig),
+    ?assertMatch({_, _}, binary:match(Message, Path)),
+    ?assertEqual([], channel_private_keys(all, TCConfig)),
     ok.
 
 create_action(Config, TCConfig) ->
@@ -2089,9 +2119,21 @@ create_action(Config, TCConfig) ->
         })
     end).
 
+probe_action(Config, TCConfig) ->
+    Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["actions_probe"]),
+            body => Config#{<<"name">> => <<"probed">>},
+            auth_header => AuthHeader
+        })
+    end).
+
 %% The private keys that the connector implementation gets with the config of an action,
-%% as it reads them.
-channel_private_keys(ActionName, TCConfig) ->
+%% as it reads them. `ActionNameOrAll' is the action name, or `all' for each action.
+channel_private_keys(ActionNameOrAll, TCConfig) ->
     Node = ?config(node, TCConfig),
     ?ON(
         Node,
@@ -2103,7 +2145,7 @@ channel_private_keys(ActionName, TCConfig) ->
                 ]},
                 _} <-
                 meck:history(?CONNECTOR_IMPL),
-            binary:match(ChanId, ActionName) =/= nomatch
+            ActionNameOrAll =:= all orelse binary:match(ChanId, ActionNameOrAll) =/= nomatch
         ])
     ).
 

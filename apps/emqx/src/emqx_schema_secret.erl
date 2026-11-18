@@ -13,7 +13,7 @@
 %% HOCON Schema API
 -export([convert_secret/2, source/1]).
 
--export([deny_file_sources/1]).
+-export([file_sources/1, deny_file_sources/1]).
 
 %% @doc Secret value.
 -type t() :: binary().
@@ -75,6 +75,16 @@ source({file, Filename}) ->
     <<"file://", Filename/binary>>;
 source(Secret) ->
     Secret.
+
+-doc """
+Return the `file://` sources of the secrets in `Term` that load their value from a file.
+
+`Term` is a checked config: a map, a list, or a value in one of them.
+""".
+-spec file_sources(term()) -> [binary()].
+file_sources(Term) ->
+    {_, Sources} = deny_file_sources(Term),
+    Sources.
 
 -doc """
 Replace each secret in `Term` that loads its value from a file with an empty secret.

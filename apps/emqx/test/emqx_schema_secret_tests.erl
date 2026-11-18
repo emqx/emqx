@@ -25,6 +25,7 @@ deny_file_sources_test() ->
         callback => NotASecret
     },
     {NewConf, Sources} = emqx_schema_secret:deny_file_sources(Conf),
+    ?assertEqual(Sources, emqx_schema_secret:file_sources(Conf)),
     ?assertEqual(
         [
             <<"file://${EMQX_ETC_DIR}/key-password">>,
@@ -56,4 +57,5 @@ deny_file_sources_no_change_test() ->
         improper => [a | b]
     },
     ?assertEqual({Conf, []}, emqx_schema_secret:deny_file_sources(Conf)),
+    ?assertEqual([], emqx_schema_secret:file_sources(Conf)),
     ?assertEqual({undefined, []}, emqx_schema_secret:deny_file_sources(undefined)).

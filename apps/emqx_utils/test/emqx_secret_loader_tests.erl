@@ -201,11 +201,35 @@ load_test_() ->
                 ?assertEqual(<<>>, load(Cookie)),
                 ?assertEqual(<<"secret">>, load(File))
             end}
+        end,
+        fun(#{dir := Dir, file := File}) ->
+            {"check/1 gives the result of a load, and it logs nothing", fun() ->
+                ?assertEqual(ok, check(File)),
+                set_allow_list([<<"/no/such/dir/*">>]),
+                FileBin = bin(File),
+                ?assertMatch(
+                    {error, #{path := FileBin, reason := not_in_allow_list, hint := <<_/binary>>}},
+                    check(File)
+                ),
+                ?assertMatch(
+                    {error, #{reason := not_in_allow_list}},
+                    emqx_secret_loader:check({file, bin(["file://", File])})
+                ),
+                %% The file is not read: a file that does not exist is allowed as well.
+                set_allow_list([bin([Dir, "/*"])]),
+                ?assertEqual(ok, check(Dir ++ "/no-such-file")),
+                os:putenv(?COOKIE_FILE_ENV, File),
+                ?assertMatch({error, #{reason := node_cookie_file}}, check(File)),
+                ?assertEqual([], denied_logs())
+            end}
         end
     ]}.
 
 load(Path) ->
     emqx_secret:unwrap(emqx_secret:wrap_load({file, "file://" ++ Path})).
+
+check(Path) ->
+    emqx_secret_loader:check({file, "file://" ++ Path}).
 
 set_allow_list(Patterns) ->
     application:set_env(emqx_utils, ?ALLOW_LIST, Patterns).

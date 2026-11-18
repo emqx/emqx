@@ -541,7 +541,9 @@ When the path matches no pattern, EMQX does not read the file. The secret is the
 
 Two more rules do not depend on this setting:
 - A connector, an action or a source in a namespace does not read `file://` secrets.
-- The file that `node.cookie` points to is never read as a secret."""
+- The file that `node.cookie` points to is never read as a secret.
+
+A connectivity test of a connector, an action or a source does not run with an empty secret. It fails with an error that gives the reason."""
 
 node_secret_file_allow_list.label:
 """Secret File Allow List"""

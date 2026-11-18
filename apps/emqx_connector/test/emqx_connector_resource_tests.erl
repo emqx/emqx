@@ -114,18 +114,94 @@ deny_secret_files_test_() ->
             end}
         ]}.
 
-log(
-    #{msg := {report, #{msg := "namespaced_secret_file_read_denied"} = Report}, level := error},
-    #{config := #{pid := Pid}}
-) ->
-    Pid ! {namespaced_denied_log, Report},
+check_secret_files_test_() ->
+    File = <<"/run/secrets/password">>,
+    Conf = #{
+        server => <<"localhost:1883">>,
+        password => emqx_schema_secret:convert_secret(<<"file://", File/binary>>, #{})
+    },
+    PlainConf = Conf#{password := emqx_schema_secret:convert_secret(<<"plain">>, #{})},
+    LogMeta = #{config_root => connectors, type => <<"mqtt">>, name => <<"c1">>},
+    SetAllowList = fun(Patterns) ->
+        application:set_env(emqx_utils, secret_file_allow_list, Patterns)
+    end,
+    {setup, local,
+        fun() ->
+            ok = logger:add_handler(?MODULE, ?MODULE, #{config => #{pid => self()}})
+        end,
+        fun(_) ->
+            application:unset_env(emqx_utils, secret_file_allow_list),
+            logger:remove_handler(?MODULE)
+        end,
+        [
+            {"the global namespace: the allow list decides", fun() ->
+                ?assertEqual(
+                    ok, emqx_connector_resource:check_secret_files(global, LogMeta, Conf)
+                ),
+                SetAllowList([<<"/run/secrets/*">>]),
+                ?assertEqual(
+                    ok, emqx_connector_resource:check_secret_files(global, LogMeta, Conf)
+                ),
+                ?assertEqual([], denied_logs()),
+                SetAllowList([<<"/etc/emqx/*">>]),
+                {error, Message} =
+                    emqx_connector_resource:check_secret_files(global, LogMeta, Conf),
+                ?assertMatch({_, _}, binary:match(Message, File)),
+                ?assertMatch(
+                    {_, _}, binary:match(Message, <<"node.secret_file_allow_list">>)
+                ),
+                ?assertMatch(
+                    [
+                        #{
+                            msg := "secret_file_read_denied",
+                            path := File,
+                            reason := not_in_allow_list,
+                            config_root := connectors,
+                            type := <<"mqtt">>,
+                            name := <<"c1">>
+                        }
+                    ],
+                    denied_logs()
+                ),
+                ?assertEqual(
+                    ok, emqx_connector_resource:check_secret_files(global, LogMeta, PlainConf)
+                )
+            end},
+            {"a namespace: no file is allowed", fun() ->
+                SetAllowList([<<"**">>]),
+                {error, Message} =
+                    emqx_connector_resource:check_secret_files(<<"ns1">>, LogMeta, Conf),
+                ?assertMatch({_, _}, binary:match(Message, <<"in a namespace">>)),
+                ?assertMatch(
+                    [
+                        #{
+                            msg := "namespaced_secret_file_read_denied",
+                            namespace := <<"ns1">>,
+                            paths := [File],
+                            name := <<"c1">>
+                        }
+                    ],
+                    denied_logs()
+                ),
+                ?assertEqual(
+                    ok,
+                    emqx_connector_resource:check_secret_files(<<"ns1">>, LogMeta, PlainConf)
+                ),
+                ?assertEqual([], denied_logs())
+            end}
+        ]}.
+
+log(#{msg := {report, #{msg := Msg} = Report}, level := error}, #{config := #{pid := Pid}}) when
+    Msg =:= "namespaced_secret_file_read_denied"; Msg =:= "secret_file_read_denied"
+->
+    Pid ! {connector_denied_log, Report},
     ok;
 log(_Event, _Config) ->
     ok.
 
 denied_logs() ->
     receive
-        {namespaced_denied_log, Report} -> [Report | denied_logs()]
+        {connector_denied_log, Report} -> [Report | denied_logs()]
     after 0 ->
         []
     end.

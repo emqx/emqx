@@ -33,18 +33,26 @@ secret can read:
 When the file is not allowed, the secret is an empty binary and an error log names
 the path. The caller gets no exception: a secret is unwrapped in many places, and
 most of them cannot handle one.
+
+A caller that can report an error, for example a dry run, calls `check/1` before
+it uses the secret.
 """.
 
 %% API
--export([load/1]).
+-export([load/1, check/1]).
 -export([file/1]).
 
 %% Internal exports
 -export([is_allowed/2]).
 
--export_type([source/0]).
+-export_type([source/0, denied/0]).
 
 -type source() :: {file, string() | binary()}.
+-type denied() :: #{
+    path := binary(),
+    reason := node_cookie_file | not_in_allow_list,
+    hint := binary()
+}.
 
 %% The pattern that allows every path.
 -define(ALLOW_ALL, <<"**">>).
@@ -56,21 +64,31 @@ load({file, <<"file://", Path/binary>>}) ->
 load({file, "file://" ++ Path}) ->
     file(Path).
 
+-doc """
+Tell whether `load/1` reads the file of `Source`.
+
+The file is not read. The error has the fields that `load/1` logs when it does not
+read the file.
+""".
+-spec check(source()) -> ok | {error, denied()}.
+check({file, <<"file://", Path/binary>>}) ->
+    check_file(interpolate(Path));
+check({file, "file://" ++ Path}) ->
+    check_file(interpolate(Path)).
+
 -spec file(file:filename_all()) -> binary() | no_return().
 file(Filename0) ->
-    Filename = emqx_utils_schema:naive_env_interpolation(Filename0),
-    case check(Filename) of
+    Filename = interpolate(Filename0),
+    case check_file(Filename) of
         ok ->
             read(Filename);
-        {error, Reason} ->
-            logger:log(error, #{
-                msg => "secret_file_read_denied",
-                path => unicode:characters_to_binary(Filename),
-                reason => Reason,
-                hint => hint(Reason)
-            }),
+        {error, Denied} ->
+            logger:log(error, Denied#{msg => "secret_file_read_denied"}),
             <<>>
     end.
+
+interpolate(Filename) ->
+    emqx_utils_schema:naive_env_interpolation(Filename).
 
 read(Filename) ->
     case file:read_file(Filename) of
@@ -84,19 +102,31 @@ read(Filename) ->
             })
     end.
 
-check(Filename) when is_list(Filename) ->
-    case is_node_cookie_file(Filename) of
-        true ->
-            {error, node_cookie_file};
+check_file(Filename) when is_list(Filename) ->
+    case denied_reason(Filename) of
         false ->
-            case is_allowed(Filename, allow_list()) of
-                true -> ok;
-                false -> {error, not_in_allow_list}
-            end
+            ok;
+        Reason ->
+            {error, #{
+                path => unicode:characters_to_binary(Filename),
+                reason => Reason,
+                hint => hint(Reason)
+            }}
     end;
-check(_Filename) ->
+check_file(_Filename) ->
     %% Not a valid file name. Reading it fails with the usual error.
     ok.
+
+denied_reason(Filename) ->
+    case is_node_cookie_file(Filename) of
+        true ->
+            node_cookie_file;
+        false ->
+            case is_allowed(Filename, allow_list()) of
+                true -> false;
+                false -> not_in_allow_list
+            end
+    end.
 
 hint(node_cookie_file) ->
     <<"The file that 'node.cookie' points to cannot be used as a secret.">>;
