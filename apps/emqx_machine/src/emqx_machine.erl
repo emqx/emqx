@@ -347,11 +347,10 @@ mria_lb_discover() ->
 on_node_classify(#{emqx := #{vsn := Vsn}}) ->
     MyVsn = get_emqx_vsn(),
     [
-        {emqx_vsn, Vsn},
-        case Vsn of
-            MyVsn -> emqx_same_vsn;
-            _ when Vsn > MyVsn -> emqx_next_vsn;
-            _ when Vsn < MyVsn -> emqx_prev_vsn
+        {emqx_vsn, Vsn}
+        | case Vsn of
+            MyVsn -> [emqx_same_vsn];
+            _ -> []
         end
     ];
 on_node_classify(#{}) ->
