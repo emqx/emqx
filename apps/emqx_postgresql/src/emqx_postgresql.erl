@@ -154,6 +154,7 @@ on_start(
         {username, User},
         {password, maps:get(password, Config, emqx_secret:wrap(""))},
         {database, DB},
+        {application_name, "emqx"},
         {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
         {pool_size, PoolSize}
     ],
@@ -674,6 +675,8 @@ conn_opts([Opt = {timeout, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
 conn_opts([Opt = {ssl_opts, _} | Opts], Acc) ->
     conn_opts(Opts, [Opt | Acc]);
+conn_opts([Opt = {application_name, _} | Opts], Acc) ->
+    conn_opts(Opts, [Opt | Acc]);
 conn_opts([_Opt | Opts], Acc) ->
     conn_opts(Opts, Acc).
 
@@ -765,7 +768,7 @@ prepare_sql_to_conn(
 ) when is_pid(Conn) ->
     LogMeta = #{msg => "postgresql_prepare_statement", name => Key, sql => SQL},
     ?SLOG(info, LogMeta),
-    case epgsql:parse2(Conn, Key, SQL, []) of
+    case do_parse(Conn, Key, SQL) of
         {ok, Statement} ->
             prepare_sql_to_conn(Conn, Rest, Statements#{Key => Statement}, 0);
         {error, #error{severity = error, codename = undefined_table} = Error} ->
@@ -811,6 +814,13 @@ prepare_sql_to_conn(
                 ),
             ?SLOG(error, LogMsg),
             {error, export_error(TranslatedError)}
+    end.
+
+do_parse(Conn, Key, SQL) ->
+    try
+        epgsql:parse2(Conn, Key, SQL, [])
+    after
+        _ = epgsql:sync(Conn)
     end.
 
 failed_to_remove_prev_prepared_statement_error() ->
