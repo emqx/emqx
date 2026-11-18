@@ -54,7 +54,7 @@ check(Namespace) ->
 %%------------------------------------------------------------------------------
 
 init(_) ->
-    case mria_config:whoami() of
+    case mria_cluster:role() of
         replicant ->
             ignore;
         _ ->

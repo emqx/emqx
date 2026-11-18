@@ -42,7 +42,7 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init(_) ->
-    case mria_config:whoami() of
+    case mria_cluster:role() of
         replicant ->
             {ok, _} = mnesia:subscribe({table, ?TAB, simple}),
             State = #{},

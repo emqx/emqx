@@ -71,7 +71,7 @@ probe_role() ->
 
 probe_role(Attempts) ->
     try
-        mria_config:whoami() =/= replicant
+        mria_cluster:role() =/= replicant
     catch
         Error:Reason ->
             case Attempts > 1 of
