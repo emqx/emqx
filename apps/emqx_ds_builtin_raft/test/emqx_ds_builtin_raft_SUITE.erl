@@ -196,13 +196,12 @@ t_stale_otx_started(Config) ->
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            [ok = ?ON(N, emqx_ds:open_db(DB, DBOpts)) || N <- Nodes],
-            %% Wait until OTX is running and use its node as the leader.
-            {ok, #{?snk_meta := #{node := LeaderNode}}} = ?block_until(#{
-                ?snk_kind := ds_otx_up, db := DB, shard := Shard
-            }),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, DB, DBOpts),
+            %% Wait until OTX is running, and select the current leader.
+            {ok, #{}} = ?block_until(#{?snk_kind := ds_otx_up, db := DB, shard := Shard}),
             [Leader = {Name, LeaderNode}, Next | _] = ?ON(
-                LeaderNode, emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)
+                hd(Nodes),
+                emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)
             ),
             RaPid = ?ON(LeaderNode, whereis(Name)),
 
@@ -366,12 +365,10 @@ t_shards_allocation(Config) ->
     Nodes = [NodeLost, Node | _] = ?config(nodes, Config),
     [SiteLost | SitesLive] = [ds_repl_meta(N, this_site) || N <- Nodes],
 
-    %% Make the cluster consider `Node1` as lost.
+    %% Stop the node and remove it from the cluster so its site is considered lost.
     ok = emqx_cth_peer:kill(NodeLost),
     _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
-    %% Simulate node loss that went unnoticed, taken from `mria:force_leave/1`.
-    true = ?ON(Node, mnesia_lib:del(extra_db_nodes, Node)),
-    ok = ?ON(Node, mria_mnesia:del_schema_copy(NodeLost)),
+    ok = ?ON(Node, mria:force_leave(NodeLost)),
     ?assertEqual(
         [SiteLost],
         ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
@@ -1241,6 +1238,99 @@ t_drop_generation(Config) ->
             ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace))
         end
     ).
+
+%% This testcase verifies that slow Ra log segment writes do not stall shard writers.
+%% * Write continuously to two shards, with a small WAL size to trigger segment writes.
+%% * Simulate slow segment IO by occupying dirty IO schedulers for six seconds.
+%% * Check that each shard write commits within one second throughout this interval.
+%% With two dirty IO schedulers, the segment write concurrency limit leaves one
+%% scheduler available for WAL writes.
+t_shard_writers_responsive(init, Config) ->
+    %% Isolate the slow IO and fix the dirty IO scheduler count.
+    Nodes = emqx_cth_cluster:start(
+        [
+            {?FUNCTION_NAME, #{
+                apps => [emqx_ds_builtin_raft],
+                env_vars => [{"ERL_FLAGS", "+SDio 2"}]
+            }}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    [{nodes, Nodes} | Config];
+t_shard_writers_responsive('end', Config) ->
+    emqx_cth_cluster:stop(?config(nodes, Config)).
+
+t_shard_writers_responsive(Config) ->
+    [Node] = ?config(nodes, Config),
+    ?ON(Node, ?assertEqual(2, erlang:system_info(dirty_io_schedulers))),
+    ?ON(Node, test_shard_writers_responsive()).
+
+test_shard_writers_responsive() ->
+    DB = shard_writer_progress,
+    Topic = [<<"shard_writer_progress">>],
+    %% Open a DB with frequent WAL rollovers.
+    ok = open_db(DB, #{
+        backend => builtin_raft,
+        n_shards => 2,
+        n_sites => 1,
+        replication_factor => 1,
+        replication_options => #{wal_max_size_bytes => 64 * 1024}
+    }),
+    TCPid = self(),
+    ok = meck:new(ra_log_segment, [passthrough, no_link, no_history]),
+    ok = meck:expect(ra_log_segment, close, fun(Segment) ->
+        %% Simulate a slow filesystem call on a real dirty IO scheduler.
+        %% Notify the testcase with {done, Pid} after six seconds.
+        ok = erts_debug:dirty_io(ready_wait6_done, TCPid),
+        meck:passthrough([Segment])
+    end),
+    %% Write to each shard every 10 ms, waiting for the commit before continuing.
+    Writer = fun Loop(Shard, Payload) ->
+        TTV = {Topic, ?ds_tx_ts_monotonic, Payload},
+        Ref = emqx_ds:dirty_append(#{db => DB, shard => Shard}, [TTV]),
+        ?assert(is_reference(Ref)),
+        receive
+            ?ds_tx_commit_reply(Ref, Reply) ->
+                ?assertMatch({ok, _}, emqx_ds:dirty_append_outcome(Ref, Reply))
+        after 1_000 ->
+            error({wal_commit_stalled, Shard})
+        end,
+        receive
+            stop -> ok
+        after 10 ->
+            Loop(Shard, Payload)
+        end
+    end,
+    Writers = [
+        spawn_monitor(fun() -> Writer(Shard, crypto:strong_rand_bytes(1024)) end)
+     || Shard <- emqx_ds:list_shards(DB)
+    ],
+    try
+        %% Wait for a slow segment write to finish, failing if a shard writer stalls.
+        receive
+            {done, _Pid} ->
+                [Pid ! stop || {Pid, _Ref} <- Writers];
+            {'DOWN', _Ref, process, Pid, Reason} ->
+                error({writer_failed, Pid, Reason})
+        after 10_000 ->
+            error(segment_write_not_completed)
+        end,
+        %% Let each writer finish its pending write and check that it exits normally.
+        lists:foreach(
+            fun({Pid, Ref}) ->
+                receive
+                    {'DOWN', Ref, process, Pid, ExitReason} -> ?assertEqual(normal, ExitReason)
+                end
+            end,
+            Writers
+        )
+    after
+        %% Stop any remaining writers. Stopping the peer cleans up the DB and mock.
+        lists:foreach(
+            fun({Pid, _Ref}) -> exit(Pid, kill) end,
+            Writers
+        )
+    end.
 
 %% Disabled: the name has no t_ prefix, so all/0 does not collect it.
 %% Before enabling it again: 1. Use TTV layout instead of MQTT wrapper.

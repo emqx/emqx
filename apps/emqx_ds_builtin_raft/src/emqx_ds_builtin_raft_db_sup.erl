@@ -212,6 +212,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
     DataDir = ra_system_data_dir(DB),
+    SegmentWriteConcurrency = max(1, erlang:system_info(dirty_io_schedulers) div 2),
     Config = lists:foldr(fun maps:merge/2, #{}, [
         ra_system:default_config(),
         #{
@@ -227,7 +228,11 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
             %% 2. In specific circumstances, machine upgrade may become stuck after
             %%    a rolling update, and extra leader re-election is needed to push
             %%    it through. Doing upgrade earlier prevents it.
-            machine_upgrade_strategy => quorum
+            machine_upgrade_strategy => quorum,
+            %% NOTE
+            %% Leave dirty IO scheduler capacity for concurrent WAL writes, to
+            %% avoid / significantly reduce potential log commit stalls.
+            segment_write_concurrency => SegmentWriteConcurrency
         },
         maps:with(
             [
@@ -235,7 +240,8 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
                 wal_max_batch_size,
                 wal_write_strategy,
                 wal_sync_method,
-                wal_compute_checksums
+                wal_compute_checksums,
+                segment_write_concurrency
             ],
             ReplicationOpts
         )
