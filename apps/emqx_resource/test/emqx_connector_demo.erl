@@ -299,6 +299,8 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_individual_reply(sync, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply(sync, InstId, BatchReq, State);
+        {_ChanId, #{q := ask_now, fn := _Fn, ctx := _Ctx}} = Req ->
+            batch_eval_ask_now(Req, sync, InstId, BatchReq, State);
         {random_reply, Num, ReplyTab} ->
             %% async batch retried
             Result = make_random_reply(Num),
@@ -321,6 +323,8 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {_ChanId, #{q := ask_now, fn := _Fn, ctx := _Ctx}} = Req ->
+            batch_eval_ask_now(Req, {async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {random_reply, Num, ReplyTab} ->
             %% only take the first Num in the batch should be random enough
             Pid ! {{random_reply, Num, ReplyTab}, ReplyFunAndArgs},
@@ -402,6 +406,21 @@ batch_ask_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
         apply_reply(ReplyFunAndArgs, Results)
     end),
     {ok, Pid}.
+
+batch_eval_ask_now({_ChanId, #{q := ask_now} = R}, SyncOrAsync, ConnResId, Batch, ConnState) ->
+    #{fn := Fn, ctx := Ctx} = R,
+    case Fn(Ctx) of
+        {return, Res} ->
+            Res;
+        {transform_batch, TransformFn} when is_function(TransformFn, 1) ->
+            Batch1 = [TransformFn(Q) || Q <- Batch],
+            case SyncOrAsync of
+                {async, ReplyFnAndArgs} ->
+                    on_batch_query_async(ConnResId, Batch1, ReplyFnAndArgs, ConnState);
+                sync ->
+                    on_batch_query(ConnResId, Batch1, ConnState)
+            end
+    end.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
