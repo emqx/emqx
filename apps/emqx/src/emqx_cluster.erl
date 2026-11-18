@@ -8,6 +8,7 @@
     name/0,
     join/2,
     leave/1,
+    force_leave/1,
     force_leave/2,
     ensure_normal_mode/0,
     ensure_singleton_mode/0,
@@ -56,6 +57,10 @@ leave(Intent) ->
 
 pre_join(_Cluster, _Remote, PeerNode, _Intent) ->
     check_permission(PeerNode).
+
+-spec force_leave(node()) -> ok | ignore | {error, _}.
+force_leave(Node) ->
+    force_leave(Node, by_remote).
 
 -doc """
 Special intent `force_kick` bypasses some checks.
