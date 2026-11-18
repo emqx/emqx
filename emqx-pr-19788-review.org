@@ -124,7 +124,7 @@ red.
 *Fix:* migrate to classy run-level hook registration or drop the manual
 callback wiring.
 
-*** TODO [#C] emqx_bcast left on the deprecated API
+*** FIXED [#C] emqx_bcast left on the deprecated API
 :PROPERTIES:
 :FILE:  plugins/emqx_bcast/src/emqx_bcast.erl
 :LINES: 238
@@ -165,7 +165,7 @@ still exists in mria 1.1.3) but is an inconsistent leftover.
 :CUSTOM_ID: sec-harness
 :END:
 
-** TODO [#A] =emqx_cth_cluster:perform/3= lost its crash-safety net
+** FIXED [#A] =emqx_cth_cluster:perform/3= lost its crash-safety net
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_cth_cluster.erl
 :LINES: 662-680
