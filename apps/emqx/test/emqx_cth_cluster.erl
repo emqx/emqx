@@ -653,10 +653,21 @@ host() ->
 perform(Act, NodeSpecs, Opts) ->
     ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
     Nodes = [Node || #{name := Node} <- NodeSpecs],
-    case do_perform(Act, NodeSpecs, Opts) of
-        [] ->
+    Result =
+        try do_perform(Act, NodeSpecs, Opts) of
+            [] ->
+                ok;
+            Errors ->
+                {error, Errors}
+        catch
+            EC:Err:Stack ->
+                {error, {EC, Err, Stack}}
+        end,
+
+    case Result of
+        ok ->
             Nodes;
-        Errors = [_ | _] ->
+        {error, Error} ->
             %% A failure partway through startup leaves the already-started peer
             %% control processes registered locally (by their node name). If we
             %% leak them, a retry of the same test case (e.g. via the flaky-test
@@ -665,9 +676,9 @@ perform(Act, NodeSpecs, Opts) ->
             %% `badarg`. Best-effort cleanup before re-raising so a retry starts
             %% from scratch.
 
-            ct:pal("cleaning up partially started nodes after ~p", [Errors]),
+            ct:pal("cleaning up partially started nodes after ~p", [Error]),
             catch stop(Nodes),
-            error({Act, Errors})
+            error({Act, Error})
     end.
 
 do_perform(Act, NodeSpecs, Opts) ->
