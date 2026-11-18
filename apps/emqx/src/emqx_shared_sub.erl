@@ -660,13 +660,13 @@ reregister_batches([], Count) ->
     Count;
 reregister_batches(Missing, Count) ->
     {Batch, Rest} = take_batch(?REREGISTER_BATCH_SIZE, Missing, []),
+    Records = [record(Group, Topic, SubPid) || {Group, Topic, SubPid} <- Batch],
     try
-        lists:foreach(
-            fun({Group, Topic, SubPid}) ->
-                ok = mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid))
-            end,
-            Batch
-        )
+        %% A replicant sends the batch to a core node in one call. The core node
+        %% runs `mnesia:write/1`, so it does not need the code of this module.
+        ok = mria:async_dirty(?SHARED_SUB_SHARD, fun lists:foreach/2, [
+            fun mnesia:write/1, Records
+        ])
     after
         gen_server:cast(?SERVER, {reregistered, Batch})
     end,
@@ -683,6 +683,8 @@ missing_members() ->
         undefined ->
             [];
         _ ->
+            %% The group alone is the key of the shared subscription table, so
+            %% that table is read once per group, for all the topics of the group.
             ByGroup = ets:foldl(
                 fun({{Group, Topic}, SubPid}, Acc) ->
                     Sub = {Topic, SubPid},
