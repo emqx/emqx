@@ -2,9 +2,9 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Table driven tests for emqx_machine:check_dist_tls_verify/2, the check that
+%% Table driven tests for emqx_dist_tls_check:check_dist_tls_verify/2, the check that
 %% reports a distribution TLS configuration which does not verify peers, and for
-%% emqx_machine:merge_dist_tls_opts/2, which builds the options the VM applies
+%% emqx_dist_tls_check:merge_dist_tls_opts/2, which builds the options the VM applies
 %% from the option file and the -ssl_dist_opt arguments.
 -module(emqx_machine_dist_tls_tests).
 
@@ -28,13 +28,13 @@
 
 non_tls_distribution_is_not_checked_test() ->
     Opts = [{server, [{verify, verify_none}]}, {client, [{verify, verify_none}]}],
-    ?assertEqual(ok, emqx_machine:check_dist_tls_verify("inet_tcp", Opts)),
-    ?assertEqual(ok, emqx_machine:check_dist_tls_verify("inet6_tcp", Opts)).
+    ?assertEqual(ok, emqx_dist_tls_check:check_dist_tls_verify("inet_tcp", Opts)),
+    ?assertEqual(ok, emqx_dist_tls_check:check_dist_tls_verify("inet6_tcp", Opts)).
 
 shipped_configuration_is_ok_test() ->
     ?assertEqual(
         ok,
-        emqx_machine:check_dist_tls_verify("inet_tls", opts(?GOOD_SERVER, ?GOOD_CLIENT))
+        emqx_dist_tls_check:check_dist_tls_verify("inet_tls", opts(?GOOD_SERVER, ?GOOD_CLIENT))
     ).
 
 check_dist_tls_verify_test_() ->
@@ -71,7 +71,7 @@ check_dist_tls_verify_test_() ->
     ],
     [
         {Name, fun() ->
-            ?assertEqual(Expected, emqx_machine:check_dist_tls_verify("inet_tls", Opts))
+            ?assertEqual(Expected, emqx_dist_tls_check:check_dist_tls_verify("inet_tls", Opts))
         end}
      || {Name, Opts, Expected} <- Cases
     ].
@@ -80,7 +80,9 @@ check_dist_tls_verify_test_() ->
 %% 'verify' in the client entry and names a CA and a certificate is accepted.
 client_verify_defaults_to_verify_peer_test() ->
     Client = [O || {K, _} = O <- ?GOOD_CLIENT, K =/= verify],
-    ?assertEqual(ok, emqx_machine:check_dist_tls_verify("inet_tls", opts(?GOOD_SERVER, Client))).
+    ?assertEqual(
+        ok, emqx_dist_tls_check:check_dist_tls_verify("inet_tls", opts(?GOOD_SERVER, Client))
+    ).
 
 %% OTP folds the -ssl_dist_opt arguments and the option file into one list,
 %% command line first (`inet_tls_dist:get_ssl_options/1'), so the option file is
@@ -91,7 +93,7 @@ merge_dist_tls_opts_puts_the_command_line_first_test() ->
             {server, []},
             {client, [{verify, verify_none}, {verify, verify_peer}]}
         ],
-        emqx_machine:merge_dist_tls_opts(
+        emqx_dist_tls_check:merge_dist_tls_opts(
             [{client, [{verify, verify_peer}]}],
             ["client_verify", "verify_none"]
         )
@@ -100,7 +102,7 @@ merge_dist_tls_opts_puts_the_command_line_first_test() ->
 %% A -ssl_dist_opt argument is named `<role>_<key>': an argument named for the
 %% other role is skipped, and a trailing argument without a value is ignored.
 merge_dist_tls_opts_keeps_the_role_prefix_test() ->
-    Opts = emqx_machine:merge_dist_tls_opts(
+    Opts = emqx_dist_tls_check:merge_dist_tls_opts(
         [],
         ["client_verify", "verify_peer", "server_fail_if_no_peer_cert", "true", "dangling"]
     ),
@@ -125,8 +127,8 @@ command_line_options_test_() ->
     ],
     [
         {Name, fun() ->
-            Opts = emqx_machine:merge_dist_tls_opts(TableOpts, CmdLineArgs),
-            ?assertEqual(Expected, emqx_machine:check_dist_tls_verify("inet_tls", Opts))
+            Opts = emqx_dist_tls_check:merge_dist_tls_opts(TableOpts, CmdLineArgs),
+            ?assertEqual(Expected, emqx_dist_tls_check:check_dist_tls_verify("inet_tls", Opts))
         end}
      || {Name, TableOpts, CmdLineArgs, Expected} <- Cases
     ].
@@ -135,20 +137,20 @@ command_line_options_test_() ->
 %% creates the `ssl_dist_opts' table for it, so `{ok, []}' is not the same as
 %% having no option file at all.
 dist_tls_opts_separates_an_empty_option_file_from_none_test() ->
-    ?assertEqual(error, emqx_machine:dist_tls_opts(error, [])),
-    ?assertEqual({ok, opts([], [])}, emqx_machine:dist_tls_opts({ok, []}, [])),
+    ?assertEqual(error, emqx_dist_tls_check:dist_tls_opts(error, [])),
+    ?assertEqual({ok, opts([], [])}, emqx_dist_tls_check:dist_tls_opts({ok, []}, [])),
     ?assertEqual(
         {ok, opts([{verify, verify_none}], [])},
-        emqx_machine:dist_tls_opts(error, ["server_verify", "verify_none"])
+        emqx_dist_tls_check:dist_tls_opts(error, ["server_verify", "verify_none"])
     ).
 
 %% The two checks together: an empty option file leaves the server on OTP's
 %% verify_none default, so it must be reported.
 empty_option_file_is_reported_test() ->
-    {ok, Opts} = emqx_machine:dist_tls_opts({ok, []}, []),
+    {ok, Opts} = emqx_dist_tls_check:dist_tls_opts({ok, []}, []),
     ?assertEqual(
         {warn, [{server, verify_none}]},
-        emqx_machine:check_dist_tls_verify("inet_tls", Opts)
+        emqx_dist_tls_check:check_dist_tls_verify("inet_tls", Opts)
     ).
 
 opts(Server, Client) ->
