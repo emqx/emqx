@@ -120,7 +120,10 @@ register_system_hooks() ->
 %% These hooks are registered separately to avoid starting unnecessary
 %% applications in test:
 register_business_hooks() ->
-    _ = classy:on_run_level(fun ?MODULE:manage_business_apps/2, 100),
+    _ = classy:on_run_level(
+        fun ?MODULE:manage_business_apps/2,
+        #{prio => 100, timeout => infinity}
+    ),
     ok.
 
 -doc false.
