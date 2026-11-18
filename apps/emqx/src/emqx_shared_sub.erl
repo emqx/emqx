@@ -75,7 +75,8 @@
     %% RPC Targets:
     init_monitors/0,
     %% Other:
-    update_stats/0
+    update_stats/0,
+    reregister_worker/0
 ]).
 
 -export_type([strategy/0]).
@@ -104,6 +105,11 @@
 -define(NACK(Reason), {shared_sub_nack, Reason}).
 -define(NO_ACK, no_ack).
 -define(SUBSCRIBER_DOWN, noproc).
+
+%% Registered name of the process that writes lost members back.
+-define(REREGISTER_WORKER, emqx_shared_sub_reregister).
+%% How many members the worker writes before the server confirms them.
+-define(REREGISTER_BATCH_SIZE, 100).
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
@@ -169,10 +175,30 @@ partition. A core node that rejoins the cluster to heal a partition loses the
 writes that it took during the partition.
 
 `emqx_router_helper' calls it on each reconcile.
+
+The work runs in a separate process, one at a time, so that a slow write to a core
+node, or a wait for one, does not block the shared subscription server. The server
+only confirms the members that the process wrote, a batch at a time.
 """.
 -spec reregister() -> ok.
 reregister() ->
-    gen_server:cast(?SERVER, reregister).
+    case whereis(?REREGISTER_WORKER) of
+        undefined ->
+            _ = proc_lib:spawn(?MODULE, reregister_worker, []),
+            ok;
+        _Running ->
+            ok
+    end.
+
+-doc false.
+-spec reregister_worker() -> ok.
+reregister_worker() ->
+    try register(?REREGISTER_WORKER, self()) of
+        true -> do_reregister()
+    catch
+        %% Another worker took the name first.
+        error:badarg -> ok
+    end.
 
 -doc """
 Return the nodes that own at least one member in the shared subscription table,
@@ -536,8 +562,8 @@ handle_cast({unsubscribe, Group, Topic, SubPid}, State) ->
     handle_unsubscribe(Group, Topic, SubPid),
     update_stats(),
     {noreply, State};
-handle_cast(reregister, State) ->
-    handle_reregister(),
+handle_cast({reregistered, Members}, State) ->
+    handle_reregistered(Members),
     {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
@@ -611,22 +637,10 @@ handle_purge_node(Node) ->
         Records
     ).
 
-%% Run in this server, after subscribe and unsubscribe calls that came before, so it
-%% does not write back a member that was just unsubscribed.
-handle_reregister() ->
+%% Runs in the worker process.
+do_reregister() ->
     try
-        ByGroup = ets:foldl(
-            fun({{Group, Topic}, SubPid}, Acc) ->
-                maps:update_with(Group, fun(L) -> [{Topic, SubPid} | L] end, [{Topic, SubPid}], Acc)
-            end,
-            #{},
-            ?SHARED_SUBSCRIBER
-        ),
-        Count = maps:fold(
-            fun(Group, Subs, N) -> N + reregister_group(Group, Subs) end,
-            0,
-            ByGroup
-        ),
+        Count = reregister_batches(missing_members(), 0),
         Count > 0 andalso
             ?tp(warning, shared_subscription_reregistered, #{members => Count}),
         ok
@@ -640,8 +654,47 @@ handle_reregister() ->
             })
     end.
 
-%% Return the number of members written back for the group.
-reregister_group(Group, Subs) ->
+%% Write the members a batch at a time, and tell the server after each batch, also
+%% when a write fails.
+reregister_batches([], Count) ->
+    Count;
+reregister_batches(Missing, Count) ->
+    {Batch, Rest} = take_batch(?REREGISTER_BATCH_SIZE, Missing, []),
+    try
+        lists:foreach(
+            fun({Group, Topic, SubPid}) ->
+                ok = mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid))
+            end,
+            Batch
+        )
+    after
+        gen_server:cast(?SERVER, {reregistered, Batch})
+    end,
+    reregister_batches(Rest, Count + length(Batch)).
+
+take_batch(N, [Member | Rest], Acc) when N > 0 ->
+    take_batch(N - 1, Rest, [Member | Acc]);
+take_batch(_N, Rest, Acc) ->
+    {Acc, Rest}.
+
+%% The members of this node that are not in the shared subscription table.
+missing_members() ->
+    case ets:whereis(?SHARED_SUBSCRIBER) of
+        undefined ->
+            [];
+        _ ->
+            ByGroup = ets:foldl(
+                fun({{Group, Topic}, SubPid}, Acc) ->
+                    Sub = {Topic, SubPid},
+                    maps:update_with(Group, fun(Subs) -> [Sub | Subs] end, [Sub], Acc)
+                end,
+                #{},
+                ?SHARED_SUBSCRIBER
+            ),
+            maps:fold(fun missing_members/3, [], ByGroup)
+    end.
+
+missing_members(Group, Subs, Acc) ->
     Node = node(),
     MS = [
         {
@@ -652,17 +705,31 @@ reregister_group(Group, Subs) ->
     ],
     Registered = maps:from_keys(ets:select(?SHARED_SUBSCRIPTION, MS), true),
     lists:foldl(
-        fun({Topic, SubPid} = Sub, N) ->
+        fun({Topic, SubPid} = Sub, AccIn) ->
             case maps:is_key(Sub, Registered) orelse not erlang:is_process_alive(SubPid) of
-                true ->
-                    N;
-                false ->
-                    ok = mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
-                    N + 1
+                true -> AccIn;
+                false -> [{Group, Topic, SubPid} | AccIn]
             end
         end,
-        0,
+        Acc,
         Subs
+    ).
+
+%% The worker wrote these members back. It read the member table of this server
+%% before, so a member can be unsubscribed since, and the write of the worker can
+%% reach the core node after the delete of the unsubscribe. This runs in the server,
+%% after the unsubscribe: remove such a member again.
+handle_reregistered(Members) ->
+    lists:foreach(
+        fun({Group, Topic, SubPid}) ->
+            case ets:match_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}) of
+                [_] ->
+                    ok;
+                [] ->
+                    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid))
+            end
+        end,
+        Members
     ).
 
 update_stats() ->
