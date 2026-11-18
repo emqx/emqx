@@ -283,7 +283,7 @@ sites() ->
 %% * `lost`: sites that are no longer considered part of the cluster.
 -spec sites(all | cluster | lost) -> [site()].
 sites(all) ->
-    classy:sites(all);
+    [S || #?NODE_TAB{site = S} <- all_nodes()];
 sites(cluster) ->
     [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) =/= lost];
 sites(lost) ->
