@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+fixture=shelltest/find-prev-rel-tag.fixture
+mkdir -p "$fixture/apps/test_app" "$fixture/plugins" "$fixture/scripts"
+git -C "$fixture" init -q -b main
+git -C "$fixture" config user.name test
+git -C "$fixture" config user.email test@example.com
+git -C "$fixture" commit -q --allow-empty -m base
+git -C "$fixture" branch older-minor
+git -C "$fixture" commit -q --allow-empty -m release
+git -C "$fixture" tag 6.2.3
+git -C "$fixture" commit -q --allow-empty -m change1
+git -C "$fixture" commit -q --allow-empty -m change2
+git -C "$fixture" checkout -q older-minor
+git -C "$fixture" commit -q --allow-empty -m older-release
+git -C "$fixture" tag 6.1.5
+git -C "$fixture" checkout -q main
+git -C "$fixture" merge -q --no-ff older-minor -m merge
+printf '%s\n' '6.2.4-rc.1' > "$fixture/release_version"
+cat > "$fixture/pkg-vsn.sh" <<'EOF'
+#!/bin/sh
+cat release_version
+EOF
+chmod +x "$fixture/pkg-vsn.sh"
+cp find-prev-rel-tag.sh apps-version-check.exs "$fixture/scripts/"
+printf '%s\n' 'version: "7.0.0"' > "$fixture/apps/test_app/mix.exs"

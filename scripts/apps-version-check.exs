@@ -36,24 +36,26 @@ defmodule AppsVersionCheck do
   @code_line_re "^[[:space:]]*[^[:space:]%]"
 
   def latest_release!() do
-    {out, 0} =
-      System.cmd(
-        "bash",
-        ["-c", "./scripts/find-prev-rel-tag.sh"],
-        env: [{"PREV_TAG_MATCH_PATTERN", "*"}]
-      )
+    case System.cmd("bash", ["./scripts/find-prev-rel-tag.sh"]) do
+      {out, 0} ->
+        git_ref = String.trim(out)
+        vsn = git_ref |> String.replace(~r/^(e|v)/, "") |> Version.parse!()
+        %{git_ref: git_ref, latest_release: vsn}
 
-    git_ref = String.trim(out)
+      {_, 2} ->
+        {out, 0} = System.cmd("env", ["-u", "PKG_VSN", "./pkg-vsn.sh", "--release"])
+        target = out |> String.trim() |> Version.parse!()
 
-    vsn =
-      git_ref
-      |> String.replace(~r/^(e|v)/, "")
-      |> Version.parse!()
+        if target.patch != 0 do
+          raise "No stable release tag found for #{target.major}.#{target.minor}; fetch release tags"
+        end
 
-    %{
-      git_ref: git_ref,
-      latest_release: vsn
-    }
+        log("No stable release in #{target.major}.#{target.minor}; checking initial app versions")
+        %{git_ref: nil, latest_release: target}
+
+      {_, code} ->
+        raise "Failed to find the previous release tag (exit #{code})"
+    end
   end
 
   def mix_exs_at(filepath, git_ref) do
@@ -214,6 +216,20 @@ defmodule AppsVersionCheck do
     File.write!(src_file, "#{desired_vsn}\n")
   end
 
+  def do_has_valid_app_vsn?(app, %{git_ref: nil, latest_release: release} = context) do
+    src_file = Path.join(["apps", app, "mix.exs"])
+    current = src_file |> File.read!() |> get_version()
+    desired = %{release | patch: 0, pre: [], build: nil}
+
+    if current == desired do
+      true
+    else
+      log_err("#{src_file}: app version must be #{desired} but got #{current}")
+      Map.get(context, :auto_fix, false) && fix_vsn(src_file, current, desired)
+      false
+    end
+  end
+
   def do_has_valid_app_vsn?(app, context) do
     %{
       latest_release: latest_release,
@@ -323,6 +339,8 @@ defmodule AppsVersionCheck do
       :none
     end
   end
+
+  def do_has_valid_plugin_release_vsn?(_plugin, _src_file, %{git_ref: nil}), do: true
 
   def do_has_valid_plugin_release_vsn?(plugin, src_file, context) do
     %{git_ref: git_ref} = context

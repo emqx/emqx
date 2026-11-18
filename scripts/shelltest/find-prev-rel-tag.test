@@ -1,0 +1,29 @@
+cd shelltest/find-prev-rel-tag.fixture && ./scripts/find-prev-rel-tag.sh
+>>>
+6.2.3
+>>>= 0
+
+cd shelltest/find-prev-rel-tag.fixture && git tag 6.2.4-cloud.1 && git tag 6.20.1 && ./scripts/find-prev-rel-tag.sh
+>>>
+6.2.3
+>>>= 0
+
+cd shelltest/find-prev-rel-tag.fixture && printf '%s\n' '7.0.0-alpha.1' > release_version && ./scripts/find-prev-rel-tag.sh 2>&1
+>>>
+No stable release tag found for 7.0
+>>>= 2
+
+cd shelltest/find-prev-rel-tag.fixture && ./scripts/apps-version-check.exs >/dev/null 2>&1 && echo initial-version-ok
+>>>
+initial-version-ok
+>>>= 0
+
+cd shelltest/find-prev-rel-tag.fixture && printf '%s\n' 'version: "6.2.0"' > apps/test_app/mix.exs && if ./scripts/apps-version-check.exs >/dev/null 2>&1; then echo unexpected-success; else echo invalid-version-rejected; fi
+>>>
+invalid-version-rejected
+>>>= 0
+
+cd shelltest/find-prev-rel-tag.fixture && printf '%s\n' '6.4.1' > release_version && if ./scripts/apps-version-check.exs >/dev/null 2>&1; then echo unexpected-success; else echo missing-tags-rejected; fi
+>>>
+missing-tags-rejected
+>>>= 0
