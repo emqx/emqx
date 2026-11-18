@@ -113,6 +113,9 @@ default() -> community().
 %% @doc Parse license key.
 %% If the license key is prefixed with "file://path/to/license/file",
 %% then the license key is read from the file.
+%% The file is read here, and not as a `file://' secret, on purpose:
+%% `node.secret_file_allow_list' does not apply to the license key, so the
+%% list needs no pattern for the license file.
 -spec parse(raw_license()) -> {ok, license()} | {error, map()}.
 parse(Content) ->
     parse(to_bin(Content), ?MODULE:pubkey()).
