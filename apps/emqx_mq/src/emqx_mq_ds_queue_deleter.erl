@@ -51,31 +51,43 @@ delete(DB, Topics) ->
     ok
     | {error, [deletion_error()]}
     | {error, {stream_lookup, term()}}.
-delete(DB, Topics, Bounds) ->
-    case discover(DB, Topics, Bounds, []) of
-        {ok, Entries} ->
+delete(DB, Topics, infinity) ->
+    case discover(DB, Topics, infinity, #{}, [], []) of
+        {Entries, []} ->
             loop(lists:foldl(fun send/2, #st{db = DB}, Entries));
-        {error, _} = Error ->
-            Error
+        {_Entries, LookupErrors} ->
+            {error, {stream_lookup, LookupErrors}}
+    end;
+delete(DB, Topics, Bounds) ->
+    %% Look up streams only in the shards of the bounds. A shard that fails the lookup
+    %% does not stop the deletion in the other shards.
+    Shards = lists:usort([Shard || {Shard, _Generation} <- maps:keys(Bounds)]),
+    {Entries, LookupErrors} = lists:foldl(
+        fun(Shard, {EntriesAcc, ErrorsAcc}) ->
+            discover(DB, Topics, Bounds, #{shard => Shard}, EntriesAcc, ErrorsAcc)
+        end,
+        {[], []},
+        Shards
+    ),
+    case {loop(lists:foldl(fun send/2, #st{db = DB}, Entries)), LookupErrors} of
+        {ok, []} -> ok;
+        {ok, _} -> {error, {stream_lookup, LookupErrors}};
+        {{error, _} = Error, _} -> Error
     end.
 
 %%------------------------------------------------------------------------------
 %% Private
 %%------------------------------------------------------------------------------
 
-discover(_, [], _Bounds, Entries) ->
-    {ok, Entries};
-discover(DB, [Topic | Rest], Bounds, Entries) ->
-    case emqx_ds:get_streams(DB, Topic, 0, #{}) of
-        {Streams, []} ->
-            New = [
-                #entry{slab = Slab, stream = Stream, topic = Topic, from = From, till = Till}
-             || {Slab, Stream} <- Streams, {ok, From, Till} <- [range(Slab, Bounds)]
-            ],
-            discover(DB, Rest, Bounds, New ++ Entries);
-        {_, Errors} ->
-            {error, {stream_lookup, Errors}}
-    end.
+discover(_DB, [], _Bounds, _Opts, Entries, Errors) ->
+    {Entries, Errors};
+discover(DB, [Topic | Rest], Bounds, Opts, Entries, Errors) ->
+    {Streams, LookupErrors} = emqx_ds:get_streams(DB, Topic, 0, Opts),
+    New = [
+        #entry{slab = Slab, stream = Stream, topic = Topic, from = From, till = Till}
+     || {Slab, Stream} <- Streams, {ok, From, Till} <- [range(Slab, Bounds)]
+    ],
+    discover(DB, Rest, Bounds, Opts, New ++ Entries, LookupErrors ++ Errors).
 
 range(_Slab, infinity) ->
     {ok, 0, infinity};

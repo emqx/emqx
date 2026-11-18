@@ -195,6 +195,60 @@ t_drop_discovery_error(_Config) ->
     ok = emqx_mq_message_db:drop(Queue0),
     ?assertEqual([], emqx_ds:dirty_read(DB, Topic0)).
 
+-doc "Bounded deletion looks up only the bounded shards, and a failed shard does not stop the others".
+t_delete_shard_isolation(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
+    Topic0 = message_topic(queue(true)),
+    [Shard0, Shard1] = emqx_ds:list_shards(DB),
+    seed(DB, Shard0, 1, Topic0, [1]),
+    seed(DB, Shard1, 1, Topic0, [1]),
+    ok = fail_stream_lookup(Shard1),
+    %% Bounds of the healthy shard only
+    ?assertEqual(ok, emqx_mq_ds_queue_deleter:delete(DB, [Topic0], #{{Shard0, 1} => 10})),
+    ?assertEqual([], read_shard(DB, Shard0, Topic0)),
+    ?assertMatch([_], read_shard(DB, Shard1, Topic0)),
+    %% Bounds of both shards: the healthy shard deletes, and the failed one is reported
+    seed(DB, Shard0, 1, Topic0, [2]),
+    ?assertMatch(
+        {error, {stream_lookup, [{Shard1, _}]}},
+        emqx_mq_ds_queue_deleter:delete(DB, [Topic0], #{{Shard0, 1} => 10, {Shard1, 1} => 10})
+    ),
+    ?assertEqual([], read_shard(DB, Shard0, Topic0)),
+    ?assertMatch([_], read_shard(DB, Shard1, Topic0)).
+
+-doc "A reject queue shard releases quota while another shard fails stream lookups".
+t_release_shard_isolation(_Config) ->
+    MQ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"release">>,
+        topic_filter => <<"release/#">>,
+        limits => #{
+            on_full => reject, max_shard_message_count => 1, max_shard_message_bytes => infinity
+        }
+    }),
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
+    [Shard0, Shard1] = emqx_ds:list_shards(DB),
+    [ClientId | _] = [
+        C
+     || N <- lists:seq(1, 100), C <- [integer_to_binary(N)], emqx_ds:shard_of(DB, C) =:= Shard0
+    ],
+    Insert = fun(Payload) ->
+        emqx_mq_message_db:insert(MQ, emqx_message:make(ClientId, 1, <<"release/t">>, Payload))
+    end,
+    %% Two flushed messages close a bucket, and the full shard rejects writes
+    lists:foreach(
+        fun(Payload) ->
+            ok = Insert(Payload),
+            ok = emqx_mq_quota_buffer:flush(mq_message_quota_buffer)
+        end,
+        [<<"first">>, <<"second">>]
+    ),
+    ?assertEqual({error, queue_full}, Insert(<<"third">>)),
+    ok = fail_stream_lookup(Shard1),
+    Boundary = lists:max([Ts || {_, Ts, _} <- emqx_mq_message_db:dirty_read_all(MQ)]) + 1,
+    ?assertEqual(ok, emqx_mq_message_db:release_before(MQ, Shard0, Boundary)),
+    ?assertMatch({ok, #{buckets := 1}}, emqx_mq_message_db:occupancy(MQ, Shard0)),
+    ?assertEqual(ok, Insert(<<"third">>)).
+
 -doc "A failure after a committed batch stops the loop and a later drop completes deletion".
 t_drop_batch_error(_Config) ->
     DB = ?MQ_MESSAGE_LASTVALUE_DB,
@@ -436,6 +490,25 @@ run_gc(Shards, Queues) ->
         end,
         Refs
     ).
+
+%% Make stream lookups fail for one shard, in a lookup of all shards and of that shard alone.
+fail_stream_lookup(FailedShard) ->
+    mock_ds(),
+    Error = {FailedShard, {error, recoverable, test_unavailable}},
+    meck:expect(emqx_ds, get_streams, fun(DB, Topic, Start, Opts) ->
+        case Opts of
+            #{shard := FailedShard} ->
+                {[], [Error]};
+            #{shard := _} ->
+                meck:passthrough([DB, Topic, Start, Opts]);
+            #{} ->
+                {Streams, Errors} = meck:passthrough([DB, Topic, Start, Opts]),
+                {[S || {{Shard, _}, _} = S <- Streams, Shard =/= FailedShard], [Error | Errors]}
+        end
+    end).
+
+read_shard(DB, Shard, Topic) ->
+    emqx_ds:dirty_read(#{db => DB, shard => Shard}, Topic).
 
 mock_ds() ->
     ok = meck:new(emqx_ds, [passthrough, no_link]),
