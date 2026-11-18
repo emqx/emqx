@@ -177,10 +177,11 @@ enqueue_request(
     %% loader otherwise burns a full 1000-device admit (+release) per
     %% rejected request, saturating the index shards the promoters need
     %% for appends (measured: shard 0 backed up at 1600 rejected req/s).
-    MaxDepth = ?INTAKE_QUEUE_DEPTH,
+    MaxDepth = emqx_bcast_intake:queue_limit(),
     case emqx_bcast_intake:admission_depth() >= MaxDepth of
         true ->
             emqx_bcast_metrics:intake_rejected(),
+            log_intake_busy(RequestId, ProductKey, DeviceNames),
             {ok, 429, #{},
                 emqx_bcast_api:error_response(
                     RequestId, <<"Busy">>, <<"Intake queue full, retry later">>, #{}
@@ -205,13 +206,14 @@ enqueue_request(
                             {ok, 200, #{}, emqx_bcast_api:success_response(RequestId, ApiMsgId)};
                         full ->
                             _ = emqx_bcast_index_owner:release_admit(ProductKey, DeviceNames),
+                            log_intake_busy(RequestId, ProductKey, DeviceNames),
                             {ok, 429, #{},
                                 emqx_bcast_api:error_response(
                                     RequestId, <<"Busy">>, <<"Intake queue full, retry later">>, #{}
                                 )}
                     end;
                 {error, {quota_exceeded, OverLimit}} ->
-                    quota_exceeded_response(RequestId, OverLimit)
+                    quota_exceeded_response(RequestId, ProductKey, DeviceNames, OverLimit)
             end
     end.
 
@@ -240,12 +242,14 @@ quota_admit(ProductKey, DeviceNames) ->
             ok
     end.
 
-quota_exceeded_response(RequestId, []) ->
+quota_exceeded_response(RequestId, ProductKey, DeviceNames, []) ->
+    log_global_quota_exceeded(RequestId, ProductKey, DeviceNames),
     {ok, 429, #{},
         emqx_bcast_api:error_response(
             RequestId, <<"QuotaExceeded">>, <<"Pending delivery quota exceeded">>, #{}
         )};
-quota_exceeded_response(RequestId, OverLimit) ->
+quota_exceeded_response(RequestId, ProductKey, DeviceNames, OverLimit) ->
+    log_device_quota_exceeded(RequestId, ProductKey, DeviceNames, OverLimit),
     {ok, 429, #{},
         emqx_bcast_api:error_response(
             RequestId,
@@ -253,6 +257,60 @@ quota_exceeded_response(RequestId, OverLimit) ->
             <<"Device pending delivery quota exceeded">>,
             #{<<"Devices">> => OverLimit}
         )}.
+
+log_intake_busy(RequestId, ProductKey, DeviceNames) ->
+    maybe_log_rate_limit(
+        bcast_batch_pub_intake_busy,
+        fun(Suppressed) ->
+            (rate_limit_fields(RequestId, ProductKey, DeviceNames))#{
+                intake_depth => emqx_bcast_intake:admission_depth(),
+                suppressed_since_last_log => Suppressed
+            }
+        end
+    ).
+
+log_global_quota_exceeded(RequestId, ProductKey, DeviceNames) ->
+    maybe_log_rate_limit(
+        bcast_batch_pub_global_quota_exceeded,
+        fun(Suppressed) ->
+            (rate_limit_fields(RequestId, ProductKey, DeviceNames))#{
+                quota => max_pending_deliveries,
+                suppressed_since_last_log => Suppressed
+            }
+        end
+    ).
+
+log_device_quota_exceeded(RequestId, ProductKey, DeviceNames, OverLimit) ->
+    maybe_log_rate_limit(
+        bcast_batch_pub_device_quota_exceeded,
+        fun(Suppressed) ->
+            (rate_limit_fields(RequestId, ProductKey, DeviceNames))#{
+                over_limit_devices => length(OverLimit),
+                quota => max_pending_deliveries_per_device,
+                suppressed_since_last_log => Suppressed
+            }
+        end
+    ).
+
+rate_limit_fields(RequestId, ProductKey, DeviceNames) ->
+    #{
+        request_id => RequestId,
+        product_key => ProductKey,
+        devices => length(DeviceNames)
+    }.
+
+maybe_log_rate_limit(Msg, FieldsFun) ->
+    case logger:allow(warning, ?MODULE) of
+        true ->
+            case emqx_bcast_log_throttle:allow(Msg) of
+                {true, Suppressed} ->
+                    ?SLOG(warning, (FieldsFun(Suppressed))#{msg => Msg});
+                false ->
+                    ok
+            end;
+        false ->
+            ok
+    end.
 
 prepare_qos1_content(MessageContent, _MessageId) when MessageContent =/= undefined ->
     case emqx_bcast_utils:decode_base64(MessageContent) of

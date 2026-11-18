@@ -2,7 +2,127 @@
 
 All notable changes to the emqx_bcast plugin since version `0.1.0` are documented here.
 
+## 0.4.5
+
+Follow-up to `0.4.4`, the release shipped with EMQX 6.3.3.
+
+### Upgrade notes
+
+- Existing stored configurations are still normalized when a plugin starts,
+  so a legacy negative limit or an out-of-range per-device cap does not prevent
+  an upgrade. Configuration updates through the plugin config API now reject
+  those values instead of persisting a value different from the effective one.
+- Existing delivery and ACK table layouts are unchanged. A new derived
+  `bcast_msg_part_accounted` table records which index-shard parts have already
+  been reflected in the completion counter. It is created automatically, and
+  legacy completed-part markers are reconciled through it, so no data migration
+  is required.
+- Different versions of the `emqx_bcast` plugin must not run in one cluster.
+  Upgrade the plugin cluster-wide by uninstalling the old version and then
+  installing the new version. For an EMQX rolling upgrade, stopping the plugin
+  on every node before the upgrade and enabling it after all nodes have been
+  upgraded is a recommended operational procedure, not a plugin compatibility
+  requirement.
+
+### Fixed
+
+- Keep new-delivery part reports lock-free at the source index shard and route
+  completed parts by DeliveryId to 48 reporter workers. A reporter projects the
+  remaining count and runs at most one completion transaction per delivery,
+  instead of competing for the shared counter row once per index-shard part.
+  Source shards publish part reports with asynchronous casts, retry until the
+  reporter acknowledges receipt, and monitor the acknowledged reporter PID.
+  Neither a slow cross-core reporter nor a reporter restart blocks the source
+  ACK/claim/append mailbox. A source account row that never becomes visible
+  uses exponential retry backoff up to five seconds instead of a permanent
+  20 ms loop. Legacy deliveries without a part-accounting sentinel retain the
+  transactional marker-reconciliation path.
+- Treat a reporter-local empty delivery or part-account read as possible Mnesia
+  replica lag. The reporter retries until every notified source account row is
+  visible; a missing delivery is considered deleted only after every running DB
+  core confirms it absent. Delivery deletion paths also send an explicit forget
+  and a bounded pending sweep removes lost-notification leftovers. If a counter
+  projection races delivery deletion, the reporter rechecks metadata after the
+  write and removes a counter recreated after the delivery rows were deleted.
+- Use an O(1) `ets:lookup_element` on `bcast_msg.target_ack_count` as the
+  completion target instead of selecting or copying the full delivery row.
+  Backfilled and previously-existing legacy `bcast_msg_meta.counter` rows are
+  normalized to the full target, while the separate atomic counter stores the
+  remaining total. The legacy report path also uses the delivery target, so an
+  unnormalized remaining value cannot complete a delivery early.
+- Persist an immutable per-part ACK count and retain the full part size across
+  an owner handover. A persisted partial ACK is not added again when the same
+  part completes, so one finished part cannot offset an unfinished part and
+  delete the delivery before its remaining devices receive a PUBLISH. Source
+  shards track unique part devices and ACKed devices, so a promoter retry that
+  re-appends an already-ACKed device cannot increase the logical count.
+- Rebuild a missing remaining-ack counter row when the delivery reporter
+  projects completed-part accounting.
+- Report `PendingCount` from durable partial ACK markers and the completion
+  counter. A same-shard partial ACK lowers the management count on the next
+  ACK-marker flush while completed parts use their watermark and counter
+  decrement instead of retaining a full marker.
+- Project `PendingCount` from completed-part accounting and partial ACKs of
+  unfinished parts separately. A completed part no longer remains in the count
+  when another part has a partial ACK. Legacy deliveries without accounting
+  rows keep the conservative projection.
+- Coalesce partial ACK markers per delivery and index shard into one 500 ms
+  flush. A hot ACK path no longer performs one replicated Mnesia write per
+  acknowledgement and no longer lets ACK-marker growth delay the core-applied
+  confirmation past the pull side's 30-second recovery window.
+- Replace each unfinished part's previous partial marker instead of appending a
+  new bag row per flush, and rebuild completed parts from
+  `bcast_msg_part_accounted`. `bcast_msg_acked` is bounded by unfinished parts
+  that received an ACK, not by drain duration or completed parts. Once a part
+  account row is durable, its buffered partial ACKs are cleared and its
+  persisted marker is removed, so a later flush cannot recreate state for an
+  already-completed part.
+- Restore and consolidate persisted partial-ACK markers when an index shard is
+  rebuilt. The next flush replaces the exact recovered marker instead of
+  appending another bag row, and obsolete markers for a part with an accounting
+  watermark are removed. A part that finished immediately before a rebuild but
+  has not reported its account row yet is reported during recovery.
+- Check delivery existence with an O(1) local table lookup during partial-marker
+  flushes instead of dirty-reading the complete `bcast_msg` row. Mnesia read
+  volume no longer copies every target device name once per flush, so it does
+  not grow with drain duration.
+- Use a constant-time queue for the bounded ACK-worker backlog. A sustained ACK
+  burst no longer copies the complete backlog for every incoming batch.
+- Aggregate expired ACK-in-flight warnings into one report per pull-shard sweep.
+  Each report carries the expired count and a bounded sample.
+- Arm a client whose connect event predates the plugin from a verified local
+  subscription event, without waiting for its next keepalive or publish.
+- Retire an unacknowledged in-flight slot left by the previous client
+  generation when the same ClientID reconnects with a clean session. The new
+  generation's first claim restages that slot, so the pending delivery is
+  retried without waiting for another publish or the old claim lease.
+- Preserve the cached subscription filters when `session.resumed` adopts a new
+  channel PID. If EMQX has not yet made every restored subscription option
+  visible, the resumed client keeps the filters it already had instead of
+  reporting no matching subscription and leaving its QoS1 backlog stalled.
+- Reject negative schema-bounded plugin limits and out-of-range per-device
+  limits at configuration-update time. Runtime fallback/clamping remains for
+  legacy stored configurations.
+- Reclaim orphan `bcast_msg_part_accounted` rows. The periodic cleanup leader
+  scans a bounded slice with a rotating continuation and deletes a row group
+  only after both the delivery and metadata rows are gone. A failed delete
+  keeps that slice as the next retry continuation and revalidates it before
+  advancing, so a transient transaction abort cannot skip the rows until the
+  scan wraps around.
+- Log plugin-generated 429 responses for intake `Busy`, global
+  `QuotaExceeded`, and per-device `QuotaExceeded`. The warnings include the
+  request ID, ProductKey, device count, relevant quota/depth information, and
+  the number suppressed since the previous warning. Throttling is maintained
+  inside the plugin so a sustained rejection burst cannot flood the log or
+  regress the admission hot path.
+- Keep message expiry monotonic when identical-content or reused-MessageId
+  promotions commit out of admission order. A late promotion for an older
+  request can no longer shorten an expiry already extended by a newer request,
+  including when both requests are promoted in the same batch.
+
 ## 0.4.4
+
+Released with EMQX 6.3.3.
 
 ### Fixed
 

@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bcast_config).
 
--export([load/0, update/1, get/1, get/2]).
+-export([load/0, validate/1, update/1, get/1, get/2]).
 
 -include("emqx_bcast.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -32,6 +32,44 @@ load() ->
             _:_ -> #{}
         end,
     update(Config).
+
+-spec validate(map()) -> ok | {error, term()}.
+validate(Config) when is_map(Config) ->
+    NonNegative = [
+        <<"max_device_count">>,
+        <<"max_message_size_broadcast">>,
+        <<"max_message_size_batch">>,
+        <<"max_pending_deliveries">>,
+        <<"delivery_pool_size">>
+    ],
+    maybe
+        ok ?= validate_non_negative(NonNegative, Config),
+        validate_per_device(Config)
+    end;
+validate(_Config) ->
+    ok.
+
+validate_non_negative([], _Config) ->
+    ok;
+validate_non_negative([Field | Rest], Config) ->
+    case maps:find(Field, Config) of
+        {ok, Value} when is_integer(Value), Value < 0 ->
+            {error, {invalid_plugin_config_value, Field, Value, non_negative_integer}};
+        _ ->
+            validate_non_negative(Rest, Config)
+    end.
+
+validate_per_device(Config) ->
+    Field = <<"max_pending_deliveries_per_device">>,
+    case maps:find(Field, Config) of
+        {ok, Value} when is_integer(Value) ->
+            case Value >= 10 andalso Value =< 200 of
+                true -> ok;
+                false -> {error, {invalid_plugin_config_value, Field, Value, {range, 10, 200}}}
+            end;
+        _ ->
+            ok
+    end.
 
 -spec update(map()) -> ok.
 update(Config) ->

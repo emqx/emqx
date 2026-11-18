@@ -229,6 +229,11 @@ EOF
     "$SCRIPTS/test/emqx-smoke-test.sh" 127.0.0.1 18083
     pytest -v "${PAHO_MQTT_TESTING_PATH}"/interoperability/test_client/V5/test_connect.py::test_basic
     "${bin_dir}/emqx" ping
+    echo "running ${packagename} start again, it must be refused"
+    if "${bin_dir}/emqx" 'start'; then
+        echo "ERROR: second_start_not_refused"
+        exit 1
+    fi
     echo "running ${packagename} stop"
     if ! "${bin_dir}/emqx" 'stop'; then
         echo "ERROR: failed_to_stop_emqx_with_the_stop_command"

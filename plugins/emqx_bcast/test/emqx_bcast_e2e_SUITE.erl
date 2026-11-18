@@ -63,6 +63,10 @@ init_per_testcase(_Case, Config) ->
      || T <-
             [
                 bcast_msg,
+                bcast_msg_meta,
+                bcast_msg_meta_counter,
+                bcast_msg_acked,
+                bcast_msg_part_accounted,
                 bcast_message,
                 bcast_message_order,
                 bcast_message_hash,
@@ -77,7 +81,10 @@ end_per_testcase(_Case, _Config) -> ok.
 %% helpers
 
 connect(ClientId) ->
-    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    connect(ClientId, []).
+
+connect(ClientId, Opts) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId} | Opts]),
     {ok, _} = emqtt:connect(C),
     put_clients(C, ClientId),
     C.
@@ -486,6 +493,55 @@ t_replay_on_subscribe_after_reconnect(_Config) ->
     wait_subscribed(<<"e2e_rply_b">>, topic(<<"e2e_rply_b">>)),
     Msgs3 = recv(1),
     ?assertEqual(1, length(Msgs3)),
+    disconnect(C2).
+
+-doc "An unacknowledged QoS1 delivery is retried after the same client returns\n"
+"with a clean session. The old connection's delayed cleanup must not leave an\n"
+"unacknowledged window entry that permanently blocks the new session.".
+t_unacked_delivery_retries_after_clean_session_reconnect(_Config) ->
+    DN = <<"e2e_retry_clean">>,
+    Redelivered0 = metric(<<"batch_pub_qos1_redelivered">>),
+    C1 = connect(DN, [{auto_ack, false}]),
+    sub_default(C1, DN),
+    wait_subscribed(DN, topic(DN)),
+    {ok, 200, _, _} = api_call(#{
+        <<"Action">> => <<"BatchPub">>,
+        <<"ProductKey">> => <<"default">>,
+        <<"DeviceName">> => [DN],
+        <<"MessageContent">> => b64(?PAYLOAD),
+        <<"Qos">> => 1
+    }),
+    ?assertMatch([#{qos := 1}], recv(1)),
+    {ok, [DeliveryId]} = emqx_bcast_storage:get_device_deliveries(
+        {<<"default">>, DN}
+    ),
+    %% Deliberately disconnect without PUBACK. The next client uses the same
+    %% ClientID and a clean session, exactly like the black-box QA sequence.
+    disconnect(C1),
+    C2 = connect(DN),
+    sub_default(C2, DN),
+    wait_subscribed(DN, topic(DN)),
+    ?assertMatch([#{qos := 1}], recv(1)),
+    ?assert(
+        wait_until(
+            fun() -> metric(<<"batch_pub_qos1_redelivered">>) >= Redelivered0 + 1 end,
+            100
+        )
+    ),
+    ?assert(
+        wait_until(
+            fun() ->
+                emqx_bcast_storage:get_device_deliveries({<<"default">>, DN}) =:=
+                    {ok, []}
+            end,
+            100
+        )
+    ),
+    DeliveryUuid = emqx_bcast_utils:guid_to_uuid(DeliveryId),
+    ?assertMatch(
+        {error, 404, _, _},
+        emqx_bcast_api:handle(get, [<<"deliveries">>, DeliveryUuid], #{})
+    ),
     disconnect(C2).
 
 -doc "PubBroadcast is skipped for online devices without a broadcast subscription.".

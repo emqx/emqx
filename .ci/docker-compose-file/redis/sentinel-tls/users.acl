@@ -1,2 +1,4 @@
 user default on >public ~* &* +@all
 user test_user on >test_passwd ~* &* +@all
+user passwordless on resetpass ~* &* +@all
+user useless on nopass resetkeys resetchannels -@all
