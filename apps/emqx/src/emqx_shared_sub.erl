@@ -685,18 +685,27 @@ missing_members() ->
         _ ->
             %% The group alone is the key of the shared subscription table, so
             %% that table is read once per group, for all the topics of the group.
-            ByGroup = ets:foldl(
-                fun({{Group, Topic}, SubPid}, Acc) ->
-                    Sub = {Topic, SubPid},
-                    maps:update_with(Group, fun(Subs) -> [Sub | Subs] end, [Sub], Acc)
-                end,
-                #{},
-                ?SHARED_SUBSCRIBER
-            ),
-            maps:fold(fun missing_members/3, [], ByGroup)
+            maps:fold(fun missing_members/3, [], local_topics_by_group())
     end.
 
-missing_members(Group, Subs, Acc) ->
+%% The keys of the member table of this node, by group. This holds the topics
+%% only, not the members, to keep the heap of the worker small.
+local_topics_by_group() ->
+    %% Without the fix, `ets:next/2` fails when the server deletes the key.
+    true = ets:safe_fixtable(?SHARED_SUBSCRIBER, true),
+    try
+        local_topics_by_group(ets:first(?SHARED_SUBSCRIBER), #{})
+    after
+        ets:safe_fixtable(?SHARED_SUBSCRIBER, false)
+    end.
+
+local_topics_by_group('$end_of_table', Acc) ->
+    Acc;
+local_topics_by_group({Group, Topic} = Key, Acc0) ->
+    Acc = maps:update_with(Group, fun(Topics) -> [Topic | Topics] end, [Topic], Acc0),
+    local_topics_by_group(ets:next(?SHARED_SUBSCRIBER, Key), Acc).
+
+missing_members(Group, Topics, Acc) ->
     Node = node(),
     MS = [
         {
@@ -707,14 +716,18 @@ missing_members(Group, Subs, Acc) ->
     ],
     Registered = maps:from_keys(ets:select(?SHARED_SUBSCRIPTION, MS), true),
     lists:foldl(
-        fun({Topic, SubPid} = Sub, AccIn) ->
-            case maps:is_key(Sub, Registered) orelse not erlang:is_process_alive(SubPid) of
-                true -> AccIn;
-                false -> [{Group, Topic, SubPid} | AccIn]
-            end
+        fun(Topic, AccIn) ->
+            %% Empty when the topic was unsubscribed since its key was read.
+            Subs = ets:lookup(?SHARED_SUBSCRIBER, {Group, Topic}),
+            [
+                {Group, Topic, SubPid}
+             || {_Key, SubPid} <- Subs,
+                not maps:is_key({Topic, SubPid}, Registered),
+                erlang:is_process_alive(SubPid)
+            ] ++ AccIn
         end,
         Acc,
-        Subs
+        Topics
     ).
 
 %% The worker wrote these members back. It read the member table of this server
