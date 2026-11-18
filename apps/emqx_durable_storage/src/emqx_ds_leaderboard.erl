@@ -173,7 +173,7 @@ init(_) ->
             S = #s{},
             {ok, S};
         {error, stopping} ->
-            {stop, normal, undefined}
+            {stop, normal}
     end.
 
 handle_call(#call_reg{} = C, _From, S) ->
@@ -200,7 +200,7 @@ handle_info(_Info, S) ->
 terminate(_Reason, undefined) ->
     ok;
 terminate(_Reason, #s{}) ->
-    _ = mria:clear_table(?tab),
+    _ = clear_table(),
     ok.
 
 %%================================================================================
@@ -216,18 +216,21 @@ handle_reg(#call_reg{db = DB, shard = Shard, key = Key, pid = Pid}, S = #s{monit
     S#s{monitors = M}.
 
 -spec handle_unreg(#call_unreg{}, #s{}) -> #s{}.
-handle_unreg(#call_unreg{db = DB, shard = Shard, key = Key, pid = Pid}, S = #s{monitors = M0}) ->
+handle_unreg(
+    #call_unreg{db = DB, shard = Shard, key = Key, pid = Pid},
+    #s{monitors = Monitors0} = S
+) ->
     TableKey = make_key(DB, Shard, Key, node(), Pid),
-    M =
-        case emqx_utils_maps:find_key(TableKey, M0) of
+    Monitors =
+        case emqx_utils_maps:find_key(TableKey, Monitors0) of
             {ok, MRef} ->
                 demonitor(MRef),
-                maps:remove(TableKey, M0);
+                maps:remove(MRef, Monitors0);
             undefined ->
-                M0
+                Monitors0
         end,
     ok = mria:dirty_delete(?tab, TableKey),
-    S#s{monitors = M}.
+    S#s{monitors = Monitors}.
 
 -spec make_key(emqx_ds:db(), emqx_ds:shard(), key(), node(), pid()) -> table_key().
 make_key(DB, Shard, Key, Node, Pid) ->
@@ -261,3 +264,21 @@ find_local([Pid | Head], Tail) when node(Pid) =:= node() ->
     {Pid, Head, Tail};
 find_local([Pid | Head], Tail) ->
     find_local(Head, [Pid | Tail]).
+
+%% Currently mria doesn't support clear_table. Manually delete all
+%% keys owned by this node.
+clear_table() ->
+    _ = ets:foldl(
+        fun(#?tab{key = Key}, Acc) ->
+            case Key of
+                ?table_key(_DB, _Shard, _Key, Node, _Pid) when Node =:= node() ->
+                    mria:dirty_delete(?tab, Key);
+                _ ->
+                    ok
+            end,
+            Acc
+        end,
+        0,
+        ?tab
+    ),
+    ok.
