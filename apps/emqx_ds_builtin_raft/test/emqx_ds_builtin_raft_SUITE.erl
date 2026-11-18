@@ -365,12 +365,10 @@ t_shards_allocation(Config) ->
     Nodes = [NodeLost, Node | _] = ?config(nodes, Config),
     [SiteLost | SitesLive] = [ds_repl_meta(N, this_site) || N <- Nodes],
 
-    %% Make the cluster consider `Node1` as lost.
+    %% Stop the node and remove it from the cluster so its site is considered lost.
     ok = emqx_cth_peer:kill(NodeLost),
     _ = ?retry(200, 5, [NodeLost] = [NodeLost] -- ?ON(Node, mria:cluster_nodes(running))),
-    %% Simulate node loss that went unnoticed, taken from `mria:force_leave/1`.
-    true = ?ON(Node, mnesia_lib:del(extra_db_nodes, Node)),
-    ok = ?ON(Node, mria_mnesia:del_schema_copy(NodeLost)),
+    ok = ?ON(Node, mria:force_leave(NodeLost)),
     ?assertEqual(
         [SiteLost],
         ?ON(Node, emqx_ds_builtin_raft_meta:sites(lost))
