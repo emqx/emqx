@@ -350,6 +350,9 @@ handle_reconcile(State) ->
     TRef = schedule_task(reconcile, ?RECONCILE_INTERVAL),
     NState = State#{timer_reconcile := TRef},
     TS = erlang:monotonic_time(millisecond),
+    %% Another node may have deleted the shared subscription members of this node,
+    %% while this node was seen down.
+    ok = emqx_shared_sub:reregister(),
     schedule_purges(TS, reconcile(NState)).
 
 debounce_reconcile(State = #{timer_reconcile := TRef}) ->
