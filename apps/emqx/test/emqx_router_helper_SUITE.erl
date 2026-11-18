@@ -310,6 +310,12 @@ t_reregister_members(Config) ->
     Dest = {?GROUP, Replicant},
     Sub = start_shared_sub(Replicant, ?GROUP, Topic),
     ?retry(100, 50, ?assert(emqx_router:has_route(Topic, Dest))),
+    %% More members: a second topic of the same group, and a second group.
+    Topic2 = <<"t/rereg2/#">>,
+    Topic3 = <<"t/rereg3/#">>,
+    Group2 = <<"g2">>,
+    Sub2 = start_shared_sub(Replicant, ?GROUP, Topic2),
+    Sub3 = start_shared_sub(Replicant, Group2, Topic3),
     %% Pause the reconcile of the replicant, and let a running worker finish, so that
     %% the replicant does not write the member back before the deletion is seen.
     ok = erpc:call(Replicant, sys, suspend, [?HELPER]),
@@ -325,6 +331,8 @@ t_reregister_members(Config) ->
     ),
     ok = emqx_shared_sub:purge_node(Replicant),
     ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic2)),
+    ?assertEqual([], emqx_shared_sub:subscribers(Group2, Topic3)),
     ?retry(
         100,
         50,
@@ -332,8 +340,10 @@ t_reregister_members(Config) ->
     ),
     ok = erpc:call(Replicant, sys, resume, [?HELPER]),
     {ok, [Event]} = snabbkaffe:receive_events(SRef),
-    ?assertMatch(#{members := 1}, Event),
+    ?assertMatch(#{members := 3}, Event),
     ?retry(100, 50, ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic))),
+    ?retry(100, 50, ?assertEqual([Sub2], emqx_shared_sub:subscribers(?GROUP, Topic2))),
+    ?retry(100, 50, ?assertEqual([Sub3], emqx_shared_sub:subscribers(Group2, Topic3))),
     ?assert(emqx_router:has_route(Topic, Dest)),
     %% Publish on the replicant: it dispatches with its copy of both tables.
     ?retry(
