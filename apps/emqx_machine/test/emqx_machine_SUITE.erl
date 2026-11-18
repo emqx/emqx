@@ -80,6 +80,7 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(t_custom_shard_transports, Config) ->
     OldConfig0 = ?config(old_config, Config),
+    classy:stop_system(),
     application:stop(classy),
     case OldConfig0 of
         {ok, OldConfig} ->
