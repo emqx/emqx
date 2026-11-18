@@ -28,7 +28,10 @@
 
 -export([stub_bpapi_supported_version/2]).
 
+-export([encode_serial_index/1]).
+
 -include_lib("../src/emqx_mq_internal.hrl").
+-include("../gen_src/MessageQueue.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -283,3 +286,18 @@ stub_bpapi_supported_version(API, Version) ->
 
 stub_version(Version) when is_function(Version, 0) -> Version();
 stub_version(Version) -> Version.
+
+-doc """
+Encode a stored quota index with the given serial buckets, newest first.
+Each bucket is `{Serial, TsUs, Bytes, Count}`.
+""".
+-spec encode_serial_index([{non_neg_integer(), non_neg_integer(), integer(), integer()}]) ->
+    binary().
+encode_serial_index(Buckets) ->
+    'MessageQueue':encode('StorageIndex', #'StorageIndex'{
+        maxTsUs = 0,
+        serialBuckets = [
+            #'SerialIndexBucket'{serial = S, tsUs = T, bytes = B, count = C}
+         || {S, T, B, C} <- Buckets
+        ]
+    }).

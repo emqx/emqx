@@ -10,51 +10,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
--include("../gen_src/MessageQueue.hrl").
 
 all() ->
-    [{group, mq}].
-
-groups() ->
-    Cases = [
-        t_gc_batches,
-        t_gc_quota_cutoffs,
-        t_gc_slab_isolation,
-        t_gc_queue_retry,
-        t_gc_queue_give_up,
-        t_gc_slab_abort,
-        t_drop_batches,
-        t_drop_discovery_error,
-        t_drop_batch_error,
-        t_gc_zero_cutoff
-    ],
-    [{mq, [], Cases}, {streams, [], Cases}].
-
-init_per_group(mq, Config) ->
-    [
-        {module, emqx_mq_message_db},
-        {db, ?MQ_MESSAGE_LASTVALUE_DB},
-        {regular_db, ?MQ_MESSAGE_REGULAR_DB},
-        {worker, emqx_mq_gc_slab_worker},
-        {taken_event, mq_gc_queue_taken},
-        {sent_event, mq_gc_batch_sent},
-        {event, mq_gc_batch_reply}
-        | Config
-    ];
-init_per_group(streams, Config) ->
-    [
-        {module, emqx_streams_message_db},
-        {db, ?STREAMS_MESSAGE_LASTVALUE_DB},
-        {regular_db, ?STREAMS_MESSAGE_REGULAR_DB},
-        {worker, emqx_streams_gc_slab_worker},
-        {taken_event, streams_gc_queue_taken},
-        {sent_event, streams_gc_batch_sent},
-        {event, streams_gc_batch_reply}
-        | Config
-    ].
-
-end_per_group(_Group, _Config) ->
-    ok.
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
@@ -62,10 +20,7 @@ init_per_testcase(TestCase, Config) ->
             emqx_durable_storage,
             {emqx,
                 emqx_mq_test_utils:cth_config(emqx, #{
-                    <<"durable_storage">> => #{
-                        <<"mq_messages">> => #{<<"n_shards">> => 2},
-                        <<"streams_messages">> => #{<<"n_shards">> => 2}
-                    }
+                    <<"durable_storage">> => #{<<"mq_messages">> => #{<<"n_shards">> => 2}}
                 })},
             {emqx_mq, emqx_mq_test_utils:cth_config(emqx_mq)}
         ],
@@ -80,9 +35,8 @@ end_per_testcase(_TestCase, Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 -doc "GC drains multiple batches per shard and preserves newer data and neighboring queues".
-t_gc_batches(Config) ->
-    Event = ?config(event, Config),
-    DB = ?config(db, Config),
+t_gc_batches(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     Queue0 = queue(true),
     Topic0 = message_topic(Queue0),
     Topic1 = message_topic(Queue0#{id => <<"neighbor">>}),
@@ -99,7 +53,7 @@ t_gc_batches(Config) ->
     ),
     ?check_trace(
         begin
-            ok = run_gc(Config, [Queue0]),
+            ok = run_gc([Queue0]),
             ?assertEqual(length(Shards0), length(emqx_ds:dirty_read(DB, Topic0))),
             ?assert(
                 lists:all(fun({_, TS, _}) -> TS =:= Future0 end, emqx_ds:dirty_read(DB, Topic0))
@@ -111,7 +65,7 @@ t_gc_batches(Config) ->
                 fun(Shard) ->
                     Results0 = [
                         Result
-                     || #{slab := {S, _}, result := Result} <- ?of_kind(Event, Trace),
+                     || #{slab := {S, _}, result := Result} <- ?of_kind(mq_gc_batch_reply, Trace),
                         S =:= Shard
                     ],
                     ?assert(length(Results0) > 1),
@@ -129,8 +83,8 @@ t_gc_batches(Config) ->
     ).
 
 -doc "GC uses each shard's quota cutoff and preserves records exactly at that cutoff".
-t_gc_quota_cutoffs(Config) ->
-    DB = ?config(db, Config),
+t_gc_quota_cutoffs(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     Queue0 = maps:merge(queue(true), #{
         data_retention_period => erlang:system_time(millisecond) + 3600_000,
         limits => #{max_shard_message_count => 1, max_shard_message_bytes => infinity}
@@ -143,13 +97,9 @@ t_gc_quota_cutoffs(Config) ->
     %% The newest bucket alone reaches the count limit, so the deadline is its start.
     Cutoffs0 = lists:map(
         fun({Shard, Scale}) ->
-            Buckets = [
-                #'SerialIndexBucket'{serial = 2, tsUs = Scale * 1000_000, bytes = 0, count = 1},
-                #'SerialIndexBucket'{serial = 0, tsUs = 0, bytes = 0, count = 1}
-            ],
-            IndexBin = 'MessageQueue':encode('StorageIndex', #'StorageIndex'{
-                maxTsUs = 0, serialBuckets = Buckets
-            }),
+            IndexBin = emqx_mq_test_utils:encode_serial_index([
+                {2, Scale * 1000_000, 0, 1}, {0, 0, 0, 1}
+            ]),
             Cutoff0 = emqx_mq_quota_index:deadline(
                 emqx_mq_quota_index:decode(IndexOpts0, IndexBin)
             ),
@@ -166,7 +116,7 @@ t_gc_quota_cutoffs(Config) ->
         end,
         lists:zip(Shards0, lists:seq(1, length(Shards0)))
     ),
-    ok = run_gc(Config, [Queue0]),
+    ok = run_gc([Queue0]),
     lists:foreach(
         fun({Shard, Cutoff}) ->
             ?assertEqual(
@@ -179,8 +129,7 @@ t_gc_quota_cutoffs(Config) ->
     ?assertEqual(length(Shards0), length(emqx_ds:dirty_read(DB, IndexTopic0))).
 
 -doc "Drop drains every generation and shard, removes indexes, and preserves other queues and slabs".
-t_drop_batches(Config) ->
-    Mod = ?config(module, Config),
+t_drop_batches(_Config) ->
     lists:foreach(
         fun(#{db := DB, lastvalue := IsLastvalue}) ->
             Queue0 = queue(IsLastvalue),
@@ -195,7 +144,7 @@ t_drop_batches(Config) ->
             Slabs0 = emqx_ds:list_slabs(DB),
             ?check_trace(
                 begin
-                    ok = Mod:drop(Queue0),
+                    ok = emqx_mq_message_db:drop(Queue0),
                     ?assertEqual([], emqx_ds:dirty_read(DB, Topic0)),
                     ?assertEqual(4, length(emqx_ds:dirty_read(DB, Topic1))),
                     case IsLastvalue of
@@ -217,18 +166,17 @@ t_drop_batches(Config) ->
                     ?assertEqual(4, length([done || {ok, false} <- Results0]))
                 end
             ),
-            ok = Mod:drop(Queue0)
+            ok = emqx_mq_message_db:drop(Queue0)
         end,
         [
-            #{db => ?config(db, Config), lastvalue => true},
-            #{db => ?config(regular_db, Config), lastvalue => false}
+            #{db => ?MQ_MESSAGE_LASTVALUE_DB, lastvalue => true},
+            #{db => ?MQ_MESSAGE_REGULAR_DB, lastvalue => false}
         ]
     ).
 
 -doc "A partial discovery failure returns before deleting any discovered streams".
-t_drop_discovery_error(Config) ->
-    Mod = ?config(module, Config),
-    DB = ?config(db, Config),
+t_drop_discovery_error(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     Queue0 = queue(true),
     Topic0 = message_topic(Queue0),
     [Shard0, Shard1] = emqx_ds:list_shards(DB),
@@ -241,16 +189,15 @@ t_drop_discovery_error(Config) ->
             {Shard1, {error, recoverable, test_unavailable}}
         ]}
     end),
-    ?assertMatch({error, {stream_lookup, [_ | _]}}, Mod:drop(Queue0)),
+    ?assertMatch({error, {stream_lookup, [_ | _]}}, emqx_mq_message_db:drop(Queue0)),
     ok = meck:delete(emqx_ds, get_streams, 4),
     ?assertEqual(2, length(emqx_ds:dirty_read(DB, Topic0))),
-    ok = Mod:drop(Queue0),
+    ok = emqx_mq_message_db:drop(Queue0),
     ?assertEqual([], emqx_ds:dirty_read(DB, Topic0)).
 
 -doc "A failure after a committed batch stops the loop and a later drop completes deletion".
-t_drop_batch_error(Config) ->
-    Mod = ?config(module, Config),
-    DB = ?config(db, Config),
+t_drop_batch_error(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     Queue0 = queue(true),
     Topic0 = message_topic(Queue0),
     [Shard0 | _] = emqx_ds:list_shards(DB),
@@ -264,17 +211,17 @@ t_drop_batch_error(Config) ->
     end),
     ?assertMatch(
         {error, [_ | _]},
-        Mod:drop(Queue0)
+        emqx_mq_message_db:drop(Queue0)
     ),
     Count0 = length(emqx_ds:dirty_read(DB, Topic0)),
     ?assert(Count0 > 0 andalso Count0 < 1001),
     ok = meck:delete(emqx_ds, del_batch, 6),
-    ok = Mod:drop(Queue0),
+    ok = emqx_mq_message_db:drop(Queue0),
     ?assertEqual([], emqx_ds:dirty_read(DB, Topic0)).
 
 -doc "A zero retention cutoff leaves data intact and does not submit an empty deletion range".
-t_gc_zero_cutoff(Config) ->
-    DB = ?config(db, Config),
+t_gc_zero_cutoff(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     %% Twice the current time keeps `now - period` negative, so GC clamps the cutoff to 0.
     Queue0 = maps:merge(queue(true), #{
         data_retention_period => 2 * erlang:system_time(millisecond)
@@ -284,17 +231,12 @@ t_gc_zero_cutoff(Config) ->
     seed(DB, Shard0, 1, Topic0, [0]),
     mock_ds(),
     ok = meck:expect(emqx_ds, del_batch, fun(_, _, _, _, _, _) -> error(empty_range) end),
-    ok = run_gc(Config, [Queue0]),
+    ok = run_gc([Queue0]),
     ?assertEqual([{Topic0, 0, <<>>}], emqx_ds:dirty_read(DB, Topic0)).
 
-%%--------------------------------------------------------------------
-%% Helpers
-%%--------------------------------------------------------------------
-
 -doc "A failed slab does not prevent another slab worker from deleting expired data".
-t_gc_slab_isolation(Config) ->
-    Worker = ?config(worker, Config),
-    DB = ?config(db, Config),
+t_gc_slab_isolation(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     Queue0 = queue(true),
     Topic0 = message_topic(Queue0),
     [Shard0, Shard1] = emqx_ds:list_shards(DB),
@@ -309,7 +251,7 @@ t_gc_slab_isolation(Config) ->
     end),
     Workers0 = [
         begin
-            {ok, Pid} = Worker:start_link({Shard, 1}, [Queue0]),
+            {ok, Pid} = emqx_mq_gc_slab_worker:start_link({Shard, 1}, [Queue0]),
             Pid
         end
      || Shard <- [Shard0, Shard1]
@@ -326,20 +268,18 @@ t_gc_slab_isolation(Config) ->
     ),
     ?assertEqual(1, length(emqx_ds:dirty_read(DB, Topic0))).
 
+%% A queue whose retention expires every stored message.
 queue(IsLastvalue) ->
-    #{
+    emqx_mq_test_utils:fill_mq_defaults(#{
         id => <<"target">>,
         topic_filter => <<"batch/#">>,
         is_lastvalue => IsLastvalue,
-        data_retention_period => 0,
-        limits => #{max_shard_message_count => infinity, max_shard_message_bytes => infinity}
-    }.
+        data_retention_period => 0
+    }).
 
 -doc "A failed request is retried for that queue only, and the other queues keep going".
-t_gc_queue_retry(Config) ->
-    DB = ?config(db, Config),
-    SentEvent = ?config(sent_event, Config),
-    ReplyEvent = ?config(event, Config),
+t_gc_queue_retry(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     [Shard0 | _] = emqx_ds:list_shards(DB),
     Base0 = queue(true),
     Queues0 = [Base0#{id := integer_to_binary(N)} || N <- lists:seq(1, 12)],
@@ -354,17 +294,18 @@ t_gc_queue_retry(Config) ->
         end
     end),
     ?check_trace(
-        ok = run_gc(Config, [Shard0], Queues0),
+        ok = run_gc([Shard0], Queues0),
         fun(Trace) ->
             %% The failed queue is retried once, after the retry interval.
-            ?assertMatch([#{failures := 1}], ?of_kind(retry_event(Config), Trace)),
+            ?assertMatch([#{failures := 1}], ?of_kind(mq_gc_queue_retry, Trace)),
             %% At most ten queues are in deletion at a time. The failed queue holds one of the
             %% ten places while it waits for its retry, without a request in flight.
             {0, Max0} = lists:foldl(
                 fun
-                    (#{?snk_kind := Kind}, {N, Max}) when Kind =:= SentEvent ->
+                    (#{?snk_kind := Kind}, {N, Max}) when Kind =:= mq_gc_batch_sent ->
                         {N + 1, max(Max, N + 1)};
-                    (#{?snk_kind := Kind}, {N, Max}) when Kind =:= ReplyEvent -> {N - 1, Max};
+                    (#{?snk_kind := Kind}, {N, Max}) when Kind =:= mq_gc_batch_reply ->
+                        {N - 1, Max};
                     (_, Acc) ->
                         Acc
                 end,
@@ -377,8 +318,8 @@ t_gc_queue_retry(Config) ->
     ?assertEqual([], emqx_ds:dirty_read(DB, [<<"topic">>, <<"batch/#">>, '#'])).
 
 -doc "A queue whose requests keep failing is given up after three failures".
-t_gc_queue_give_up(Config) ->
-    DB = ?config(db, Config),
+t_gc_queue_give_up(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     [Shard0 | _] = emqx_ds:list_shards(DB),
     Base0 = queue(true),
     Bad0 = Base0#{id := <<"bad">>},
@@ -395,18 +336,18 @@ t_gc_queue_give_up(Config) ->
         end
     end),
     ?check_trace(
-        ok = run_gc(Config, [Shard0], [Bad0, Good0]),
+        ok = run_gc([Shard0], [Bad0, Good0]),
         fun(Trace) ->
-            ?assertMatch([_], ?of_kind(failed_event(Config), Trace)),
-            ?assertEqual([], ?of_kind(slab_failed_event(Config), Trace))
+            ?assertMatch([_], ?of_kind(mq_gc_queue_failed, Trace)),
+            ?assertEqual([], ?of_kind(mq_gc_slab_failed, Trace))
         end
     ),
     ?assertEqual(1, length(emqx_ds:dirty_read(DB, message_topic(Bad0)))),
     ?assertEqual([], emqx_ds:dirty_read(DB, message_topic(Good0))).
 
 -doc "The worker stops after five shard failures, even when other requests succeed".
-t_gc_slab_abort(Config) ->
-    DB = ?config(db, Config),
+t_gc_slab_abort(_Config) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
     [Shard0 | _] = emqx_ds:list_shards(DB),
     Base0 = queue(true),
     Good0 = Base0#{id := <<"good">>},
@@ -424,15 +365,20 @@ t_gc_slab_abort(Config) ->
         end
     end),
     ?check_trace(
-        ok = run_gc(Config, [Shard0], [Good0 | Bad0]),
+        ok = run_gc([Shard0], [Good0 | Bad0]),
         fun(Trace) ->
-            ?assertMatch([_], ?of_kind(slab_failed_event(Config), Trace)),
-            ?assertEqual([], ?of_kind(failed_event(Config), Trace))
+            ?assertMatch([_], ?of_kind(mq_gc_slab_failed, Trace)),
+            ?assertEqual([], ?of_kind(mq_gc_queue_failed, Trace))
         end
     ),
     ?assertEqual([], emqx_ds:dirty_read(DB, message_topic(Good0))),
     ?assertEqual(3, length(lists:append([emqx_ds:dirty_read(DB, message_topic(Q)) || Q <- Bad0]))).
 
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+%% Message, filter and index topics of a queue in the MQ message DBs.
 message_topic(#{topic_filter := Filter, id := Id}) ->
     [<<"topic">>, Filter, Id, <<"key">>, <<"key">>].
 
@@ -467,29 +413,14 @@ seed(DB, Shard, Generation, Topic, Timestamps0) ->
     ),
     seed(DB, Shard, Generation, Topic, Timestamps).
 
-retry_event(Config) -> event_name(Config, gc_queue_retry).
-
-failed_event(Config) -> event_name(Config, gc_queue_failed).
-
-slab_failed_event(Config) -> event_name(Config, gc_slab_failed).
-
-event_name(Config, Suffix) ->
-    Prefix =
-        case ?config(worker, Config) of
-            emqx_mq_gc_slab_worker -> "mq_";
-            emqx_streams_gc_slab_worker -> "streams_"
-        end,
-    list_to_atom(Prefix ++ atom_to_list(Suffix)).
-
 %% Run the GC slab workers for an explicit list of queues and wait for them to stop.
-run_gc(Config, Queues) ->
-    run_gc(Config, emqx_ds:list_shards(?config(db, Config)), Queues).
+run_gc(Queues) ->
+    run_gc(emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB), Queues).
 
-run_gc(Config, Shards, Queues) ->
-    Worker = ?config(worker, Config),
+run_gc(Shards, Queues) ->
     Refs = [
         begin
-            {ok, Pid} = Worker:start_link({Shard, 1}, Queues),
+            {ok, Pid} = emqx_mq_gc_slab_worker:start_link({Shard, 1}, Queues),
             unlink(Pid),
             monitor(process, Pid)
         end
