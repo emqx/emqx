@@ -35,6 +35,7 @@ groups() ->
         t_dispatch_skips_orphan_member,
         t_replicant_to_replicant_dispatch,
         t_reregister_members,
+        t_reregister_unsubscribed_member,
         t_ensure_helper
     ],
     [
@@ -309,6 +310,14 @@ t_reregister_members(Config) ->
     Dest = {?GROUP, Replicant},
     Sub = start_shared_sub(Replicant, ?GROUP, Topic),
     ?retry(100, 50, ?assert(emqx_router:has_route(Topic, Dest))),
+    %% Pause the reconcile of the replicant, and let a running worker finish, so that
+    %% the replicant does not write the member back before the deletion is seen.
+    ok = erpc:call(Replicant, sys, suspend, [?HELPER]),
+    ?retry(
+        100,
+        50,
+        ?assertEqual(undefined, erpc:call(Replicant, erlang, whereis, [emqx_shared_sub_reregister]))
+    ),
     {ok, SRef} = snabbkaffe:subscribe(
         ?match_event(#{?snk_kind := shared_subscription_reregistered}),
         1,
@@ -316,6 +325,12 @@ t_reregister_members(Config) ->
     ),
     ok = emqx_shared_sub:purge_node(Replicant),
     ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    ?retry(
+        100,
+        50,
+        ?assertEqual([], erpc:call(Replicant, emqx_shared_sub, subscribers, [?GROUP, Topic]))
+    ),
+    ok = erpc:call(Replicant, sys, resume, [?HELPER]),
     {ok, [Event]} = snabbkaffe:receive_events(SRef),
     ?assertMatch(#{members := 1}, Event),
     ?retry(100, 50, ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic))),
@@ -334,6 +349,34 @@ t_reregister_members(Config) ->
             ?assertEqual([Sub], collect_deliveries(1))
         end
     ).
+
+-doc """
+The worker that writes lost members back reads the member table of the shared
+subscription server, then writes outside the server. A member that is unsubscribed
+meanwhile can get its row back after the unsubscribe removed it. When the server
+confirms the members that the worker wrote, it removes such a member again, and
+keeps a member that is still subscribed.
+""".
+t_reregister_unsubscribed_member(_Config) ->
+    Topic = <<"t/rereg/confirm">>,
+    Sub = start_shared_sub(node(), ?GROUP, Topic),
+    %% A live process that is not subscribed, with a row in the table: as a member
+    %% that was unsubscribed before the write of the worker reached the table.
+    Gone = spawn_link(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    Row = {emqx_shared_subscription, ?GROUP, Topic, Gone},
+    ok = mria:dirty_write(emqx_shared_subscription, Row),
+    ?assertEqual(lists:sort([Sub, Gone]), lists:sort(emqx_shared_sub:subscribers(?GROUP, Topic))),
+    Members = [{?GROUP, Topic, Sub}, {?GROUP, Topic, Gone}],
+    ok = gen_server:cast(emqx_shared_sub, {reregistered, Members}),
+    _ = sys:get_state(emqx_shared_sub),
+    ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    Gone ! stop,
+    exit(Sub, kill),
+    ?retry(100, 50, ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic))).
 
 %%--------------------------------------------------------------------
 %% Helpers
