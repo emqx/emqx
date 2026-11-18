@@ -336,6 +336,41 @@ t_evict_lost_session(_Config) ->
     ok = emqx_eviction_agent:evict_sessions(1, node()),
     ?retry(_Sleep = 10, _Retries = 20, ?assertEqual(0, emqx_eviction_agent:session_count())).
 
+%% The channel that holds the session has not finished resuming it, and refuses
+%% the takeover. The session is not discarded, and a later attempt evicts it.
+t_evict_resuming_session(_Config) ->
+    _ = erlang:process_flag(trap_exit, true),
+    ok = restart_emqx(),
+    ClientId = <<"client_resuming_session">>,
+
+    %% Make a session
+    {ok, C0} = emqtt_connect([{clientid, ClientId}, {clean_start, false}]),
+    {ok, _, _} = emqtt:subscribe(C0, <<"t1">>),
+    ok = emqtt:disconnect(C0),
+    ok = emqx_eviction_agent:enable(test_eviction, undefined),
+    ?assertEqual(1, emqx_eviction_agent:session_count()),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    ok = meck:new(emqx_cm_takeover, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_cm_takeover, begin_, fun(_, _) -> {error, session_resuming} end),
+        ok = emqx_eviction_agent:evict_sessions(1, node()),
+        ?assertEqual([ChanPid], emqx_cm:lookup_channels(ClientId)),
+        ?assert(is_process_alive(ChanPid))
+    after
+        meck:unload(emqx_cm_takeover)
+    end,
+
+    ok = emqx_eviction_agent:evict_sessions(1, node()),
+    ?retry(
+        _Sleep = 10,
+        _Retries = 20,
+        begin
+            ?assertMatch([Pid] when Pid =/= ChanPid, emqx_cm:lookup_channels(ClientId)),
+            ?assertNot(is_process_alive(ChanPid))
+        end
+    ).
+
 %% By phantom session we mean a session that has a record in `emqx_cm`
 %% but the session process is not running for some reason.
 t_evict_phantom_session(Config) ->

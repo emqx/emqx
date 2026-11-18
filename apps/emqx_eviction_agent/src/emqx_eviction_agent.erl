@@ -379,6 +379,11 @@ do_evict_sessions(Nodes, ChannelStream) ->
                             %% We unregister the channel immediately to avoid another attempt
                             %% to evict the same session if `emqx_cm` is under load and is slow.
                             emqx_cm:unregister_channel(ClientId, ChanPid);
+                        {error, {session_resuming, _}} ->
+                            %% The channel has not finished resuming the session,
+                            %% and refused the takeover. Nothing is wrong with the
+                            %% session: leave it for the next iteration.
+                            ok;
                         {error, _} ->
                             %% We do not want to retry evicting the same session
                             %% on the next iteration; something wrong with it anyway.
@@ -447,6 +452,16 @@ evict_session_channel(Nodes, ClientId, ConnInfo, ClientInfo) ->
                 warning,
                 #{
                     msg => "evict_session_channel_no_session",
+                    client_id => ClientId,
+                    node => Node
+                }
+            ),
+            Error;
+        {error, {session_resuming, _}} = Error ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "evict_session_channel_session_resuming",
                     client_id => ClientId,
                     node => Node
                 }
