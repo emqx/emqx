@@ -34,6 +34,7 @@ groups() ->
         t_dispatch_skips_down_member,
         t_dispatch_skips_orphan_member,
         t_replicant_to_replicant_dispatch,
+        t_reregister_members,
         t_ensure_helper
     ],
     [
@@ -287,6 +288,49 @@ t_replicant_to_replicant_dispatch(Config) ->
         25,
         begin
             ok = publish_n(Replicant1, <<"t/r2r/1">>, 1),
+            ?assertEqual([Sub], collect_deliveries(1))
+        end
+    ).
+
+t_reregister_members('init', Config) ->
+    start_replicant(?FUNCTION_NAME, Config);
+t_reregister_members('end', Config) ->
+    stop_replicant(Config).
+
+-doc """
+Another node deletes the shared subscription member of a live replicant, as a core
+node does when it purges a replicant that it saw down during a partition, or when
+it rejoins the cluster to heal one. The replicant writes it back on its next
+reconcile.
+""".
+t_reregister_members(Config) ->
+    Replicant = ?config(replicant, Config),
+    Topic = <<"t/rereg/#">>,
+    Dest = {?GROUP, Replicant},
+    Sub = start_shared_sub(Replicant, ?GROUP, Topic),
+    ?retry(100, 50, ?assert(emqx_router:has_route(Topic, Dest))),
+    {ok, SRef} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := shared_subscription_reregistered}),
+        1,
+        ?PURGE_WAIT_TIMEOUT
+    ),
+    ok = emqx_shared_sub:purge_node(Replicant),
+    ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    {ok, [Event]} = snabbkaffe:receive_events(SRef),
+    ?assertMatch(#{members := 1}, Event),
+    ?retry(100, 50, ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic))),
+    ?assert(emqx_router:has_route(Topic, Dest)),
+    %% Publish on the replicant: it dispatches with its copy of both tables.
+    ?retry(
+        100,
+        50,
+        ?assertEqual([Sub], erpc:call(Replicant, emqx_shared_sub, subscribers, [?GROUP, Topic]))
+    ),
+    ?retry(
+        200,
+        25,
+        begin
+            ok = publish_n(Replicant, <<"t/rereg/1">>, 1),
             ?assertEqual([Sub], collect_deliveries(1))
         end
     ).

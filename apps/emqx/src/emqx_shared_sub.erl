@@ -17,6 +17,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
 %% Mnesia bootstrap
@@ -33,6 +34,7 @@
     unsubscribe/3,
     unsubscribe_down/3,
     purge_node/1,
+    reregister/0,
     member_nodes/1,
     has_members_on/1
 ]).
@@ -156,6 +158,21 @@ purge_node(Node) ->
     %% TODO: Refactor `emqx_router_helper` to avoid this hack.
     erlang:whereis(?SERVER) =/= undefined andalso
         gen_server:call(?SERVER, {purge, Node}, infinity).
+
+-doc """
+Write the members of this node back to the shared subscription table when they are
+missing there.
+
+Other nodes can delete them while this node is alive. A core node purges the
+members of a node that it sees down for a while, for example during a network
+partition. A core node that rejoins the cluster to heal a partition loses the
+writes that it took during the partition.
+
+`emqx_router_helper' calls it on each reconcile.
+""".
+-spec reregister() -> ok.
+reregister() ->
+    gen_server:cast(?SERVER, reregister).
 
 -doc """
 Return the nodes that own at least one member in the shared subscription table,
@@ -519,6 +536,9 @@ handle_cast({unsubscribe, Group, Topic, SubPid}, State) ->
     handle_unsubscribe(Group, Topic, SubPid),
     update_stats(),
     {noreply, State};
+handle_cast(reregister, State) ->
+    handle_reregister(),
+    {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
     {noreply, State}.
@@ -589,6 +609,60 @@ handle_purge_node(Node) ->
     lists:foreach(
         fun(Record) -> mria:dirty_delete_object(?SHARED_SUBSCRIPTION, Record) end,
         Records
+    ).
+
+%% Run in this server, after subscribe and unsubscribe calls that came before, so it
+%% does not write back a member that was just unsubscribed.
+handle_reregister() ->
+    try
+        ByGroup = ets:foldl(
+            fun({{Group, Topic}, SubPid}, Acc) ->
+                maps:update_with(Group, fun(L) -> [{Topic, SubPid} | L] end, [{Topic, SubPid}], Acc)
+            end,
+            #{},
+            ?SHARED_SUBSCRIBER
+        ),
+        Count = maps:fold(
+            fun(Group, Subs, N) -> N + reregister_group(Group, Subs) end,
+            0,
+            ByGroup
+        ),
+        Count > 0 andalso
+            ?tp(warning, shared_subscription_reregistered, #{members => Count}),
+        ok
+    catch
+        Class:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "shared_subscription_reregister_failed",
+                exception => Class,
+                reason => Reason,
+                stacktrace => Stacktrace
+            })
+    end.
+
+%% Return the number of members written back for the group.
+reregister_group(Group, Subs) ->
+    Node = node(),
+    MS = [
+        {
+            #?SHARED_SUBSCRIPTION{group = Group, topic = '$1', subpid = '$2'},
+            [{'=:=', {node, '$2'}, Node}],
+            [{{'$1', '$2'}}]
+        }
+    ],
+    Registered = maps:from_keys(ets:select(?SHARED_SUBSCRIPTION, MS), true),
+    lists:foldl(
+        fun({Topic, SubPid} = Sub, N) ->
+            case maps:is_key(Sub, Registered) orelse not erlang:is_process_alive(SubPid) of
+                true ->
+                    N;
+                false ->
+                    ok = mria:dirty_write(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid)),
+                    N + 1
+            end
+        end,
+        0,
+        Subs
     ).
 
 update_stats() ->
