@@ -560,7 +560,7 @@ choose_timeout(Baseline) ->
 
 -spec am_core() -> boolean().
 am_core() ->
-    mria_config:whoami() =/= replicant.
+    mria_cluster:role() =/= replicant.
 
 -spec cores() -> [node()] | undefined.
 cores() ->

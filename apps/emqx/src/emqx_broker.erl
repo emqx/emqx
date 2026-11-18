@@ -1017,7 +1017,7 @@ use_syncer_process() ->
                 none ->
                     false;
                 Role ->
-                    Role =:= mria_config:whoami()
+                    Role =:= mria_cluster:role()
             end
     end.
 
