@@ -568,6 +568,9 @@ do_join_cluster(Node, JoinTo, Retries) ->
             ok;
         ignore ->
             ok;
+        {error, retry_later} when Retries > 0 ->
+            timer:sleep(100),
+            do_join_cluster(Node, JoinTo, Retries - 1);
         {error, "Node " ++ _} when Retries > 0 ->
             %% This clause tries to only match ""Node <nodename> has
             %% not fully booted yet. Please retry after it is
