@@ -60,9 +60,9 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 -doc """
-The clean-down tasks that are queued in an `emqx_cm_pool` worker on a replicant
-remove their channels from the global registry in one batch, not one call to a
-core node for each channel.
+An `emqx_cm_pool` worker on a replicant removes the down channels that are queued
+in its mailbox from the global registry in one batch, not with one call to a core
+node for each channel.
 """.
 t_batch_unregister(Config) ->
     Core = ?config(core, Config),
@@ -126,7 +126,7 @@ t_batch_unregister_history(Config) ->
 
 -doc """
 `node.channel_cleanup_batch_size` limits the channels of one registry call:
-a clean-down task stops taking queued tasks at this number.
+it is the batch size of the clean-down workers.
 """.
 t_batch_size_config(Config) ->
     Core = ?config(core, Config),
@@ -287,8 +287,23 @@ batch_counts() ->
         )
     ].
 
+%% Set the batch size, and restart the clean-down workers when it changes: a
+%% worker reads the batch size when it starts.
 set_batch_size(Node, Size) ->
-    ok = erpc:call(Node, emqx_config, put, [[node, channel_cleanup_batch_size], Size]).
+    Path = [node, channel_cleanup_batch_size],
+    %% The nodes of this suite do not load the schema of the `node` root.
+    case erpc:call(Node, emqx_config, get, [Path, ?MAX_BATCH_SIZE]) of
+        Size ->
+            ok;
+        _ ->
+            ok = erpc:call(Node, emqx_config, put, [Path, Size]),
+            ok = erpc:call(Node, supervisor, terminate_child, [emqx_cm_sup, emqx_cm_pool_sup]),
+            ?retry(100, 50, ?assertEqual([], pool_workers(Node))),
+            {ok, _} = erpc:call(Node, supervisor, restart_child, [emqx_cm_sup, emqx_cm_pool_sup]),
+            NWorkers = erpc:call(Node, emqx_vm, schedulers, []),
+            ?retry(100, 50, ?assertEqual(NWorkers, length(pool_workers(Node)))),
+            ok
+    end.
 
 connect(ClientId, Port) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}, {port, Port}]),

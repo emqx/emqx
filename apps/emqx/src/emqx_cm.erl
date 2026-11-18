@@ -82,6 +82,7 @@
 %% Internal export
 -export([
     stats_fun/0,
+    batch_size/0,
     clean_down/1,
     mark_channel_connected/1,
     mark_channel_disconnected/1,
@@ -128,10 +129,10 @@
     {?CHAN_REG_TAB, 'cluster_sessions.count', 'cluster_sessions.max'}
 ]).
 
-%% Max number of channel events that emqx_cm handles in one batch, and the number
-%% of channels at which a clean-down task stops taking the queued clean-down tasks.
-%% `node.channel_cleanup_batch_size` can lower it. A larger configured value, such
-%% as the default of an older release, is capped.
+%% Max number of channel events that emqx_cm handles in one batch, and the batch
+%% size of the `emqx_cm_cleaner` workers. `node.channel_cleanup_batch_size` can
+%% lower it. A larger configured value, such as the default of an older release,
+%% is capped.
 -define(MAX_BATCH_SIZE, 1000).
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
@@ -882,7 +883,7 @@ handle_down_pids([]) ->
     ok;
 handle_down_pids(Pids) ->
     lists:foreach(fun mark_channel_disconnected/1, Pids),
-    ok = emqx_pool:async_submit_to_pool(?CM_POOL, fun ?MODULE:clean_down/1, [Pids]).
+    ok = emqx_cm_cleaner:async_clean_down(Pids).
 
 collect_and_handle(Regs0, Down0) ->
     {Regs, Down} = collect_msgs(Regs0, Down0, batch_size()),
@@ -902,21 +903,21 @@ collect_msgs(Regs, Down, N) ->
     end.
 
 -doc """
-Clean up after channels that are down. This task runs in an `emqx_cm_pool` worker.
-It also takes the clean-down tasks that are queued behind it until there are
-`batch_size()` channels, and removes all of them from the global registry with one
-call. The last task that it takes can make the batch larger, up to two times
-`batch_size()`. On a replicant, the call is a round trip to a core node.
+The max number of channel events that `emqx_cm` handles in one batch, and the
+batch size of the `emqx_cm_cleaner` workers.
 """.
-clean_down(Pids) ->
-    %% emqx_cm_pool runs only this task, so the receive does not skip messages.
-    More = emqx_pool:take_async_tasks(fun ?MODULE:clean_down/1, batch_size() - length(Pids)),
-    clean_down_batch(Pids ++ More).
-
+-spec batch_size() -> pos_integer().
 batch_size() ->
     min(emqx:get_config([node, channel_cleanup_batch_size], ?MAX_BATCH_SIZE), ?MAX_BATCH_SIZE).
 
-clean_down_batch(Pids) ->
+-doc """
+Clean up after channels that are down. An `emqx_cm_cleaner` worker calls it with
+the channels of one batch, at most two times `batch_size()`. It removes all of
+them from the global registry with one call. On a replicant, that call is a round
+trip to a core node.
+""".
+-spec clean_down([pid()]) -> ok.
+clean_down(Pids) ->
     Chans = clean_down_subscribers(Pids, [], 0, undefined),
     case emqx_cm_registry:unregister_channels(Chans) of
         ok ->
