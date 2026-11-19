@@ -67,7 +67,10 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(Group, Config) when
-    Group =:= with_batch; Group =:= without_batch; Group =:= async_producer
+    Group =:= with_batch;
+    Group =:= without_batch;
+    Group =:= async_producer;
+    Group =:= acl
 ->
     ProxyHost = ?config(proxy_host, Config),
     ProxyPort = ?config(proxy_port, Config),
