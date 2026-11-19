@@ -51,10 +51,10 @@ namespace() -> "dashboard_sso".
 
 scopes() ->
     %% These two SSO admin endpoints require auth via the global
-    %% minirest default (basicAuth/bearerAuth). API key access to
-    %% dashboard SSO is rejected at the auth layer (api_key_authorize
-    %% in emqx_dashboard.erl) -- only login users reach the scope check.
-    %% The login user scope check consults this map.
+    %% minirest default (basicAuth/bearerAuth). A login user needs
+    %% `sso_management' in its effective scopes. An API key cannot hold
+    %% `sso_management', so a key with an explicit scope list is
+    %% rejected; a key without a scope list is not scope-restricted.
     %%
     %% ?SCOPE_PUBLIC marks SSO entry points that are reachable without
     %% a session: /sso/login/:backend and /sso/token_exchange are SSO

@@ -13,6 +13,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("esaml/include/esaml.hrl").
+-include_lib("emqx_utils/include/emqx_api_key_scopes.hrl").
 
 %% Keycloak integration test settings
 -define(KEYCLOAK_HOST, "172.100.239.120").
@@ -25,6 +26,9 @@
 -define(SP_CERT_DIR, ".ci/docker-compose-file/keycloak/sp_certs").
 
 -define(BASE_URL, "http://127.0.0.1:18083").
+-define(SCOPED_APP_STR, "saml_scoped_app").
+-define(SCOPED_APP, <<?SCOPED_APP_STR>>).
+-define(IDP_METADATA_PATH, "/idp/metadata").
 -define(SAML_HTTP_REDIRECT_BINDING,
     <<"urn:oasis:names:tc:SAML:2.0:bindings:URL-Encoding:DEFLATE">>
 ).
@@ -51,7 +55,8 @@ groups() ->
         ]},
         {api, [sequence], [
             t_sso_running_disabled,
-            t_saml_metadata_not_initialized
+            t_saml_metadata_not_initialized,
+            t_saml_metadata_access
         ]},
         {keycloak_integration, [sequence], [
             t_saml_init_with_keycloak,
@@ -80,8 +85,7 @@ init_per_suite(Config) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    %% SSO endpoints are denied for API Keys (scope deny list).
-    %% Use a dashboard admin Bearer Token instead.
+    %% Use a dashboard administrator Bearer Token.
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"admin_saml_test">>, <<"admin_pass_123!">>, ?ROLE_SUPERUSER, <<"admin for saml test">>
     ),
@@ -126,12 +130,16 @@ end_per_group(signature_combinations, Config) ->
 end_per_group(_, Config) ->
     Config.
 
+init_per_testcase(t_saml_metadata_access = Case, Config) ->
+    ct:pal("Starting test case: ~p", [Case]),
+    ?MODULE:Case({init, Config});
 init_per_testcase(Case, Config) ->
     ct:pal("Starting test case: ~p", [Case]),
     Config.
 
-end_per_testcase(Case, _Config) ->
+end_per_testcase(Case, Config) ->
     ct:pal("Finished test case: ~p", [Case]),
+    _ = Case =:= t_saml_metadata_access andalso ?MODULE:Case({'end', Config}),
     %% Cleanup any SAML backend created during test
     _ = emqx_dashboard_sso_manager:delete(saml),
     ok.
@@ -210,11 +218,124 @@ t_sso_running_disabled(_Config) ->
     ?assertEqual([], emqx_utils_json:decode(Result, [return_maps])),
     ok.
 
+-doc """
+An administrator gets `404 BACKEND_NOT_FOUND' from the SP metadata endpoint
+when SAML is not enabled, not an authorization error.
+""".
 t_saml_metadata_not_initialized(_Config) ->
-    %% Metadata endpoint should return error when SAML is not initialized
-    %% compatible_mode returns {ok, Code, Body} for all status codes
-    {ok, Code, _Body} = request(get, uri(["sso", "saml", "metadata"]), []),
-    ?assert(Code >= 400, lists:flatten(io_lib:format("Expected 4xx, got ~p", [Code]))),
+    {ok, Code, Body} = request(get, uri(["sso", "saml", "metadata"]), []),
+    ?assertEqual(404, Code, Body),
+    ?assertMatch(#{<<"code">> := <<"BACKEND_NOT_FOUND">>}, emqx_utils_json:decode(Body)),
+    ok.
+
+-doc """
+With SAML enabled, the SP metadata endpoint has the same access rules as
+the `/sso/:backend' configuration endpoint: an administrator gets the
+metadata XML, a viewer is rejected, an API key without a scope list is
+allowed, and an API key with a scope list is rejected, because an API key
+cannot hold `sso_management'. The ACS stays reachable without credentials.
+""".
+t_saml_metadata_access({init, Config}) ->
+    %% Serve a static IdP metadata document, so this case needs no Keycloak.
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, ?IDP_METADATA_PATH),
+    IdpMetadata = idp_metadata_xml(),
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            Req = cowboy_req:reply(200, #{<<"content-type">> => <<"text/xml">>}, IdpMetadata, Req0),
+            {ok, Req, State}
+        end
+    ),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"viewer_saml_test">>, <<"viewer_pass_123!">>, ?ROLE_VIEWER, <<"viewer for saml test">>
+    ),
+    {ok, _} = emqx_common_test_http:create_default_app(),
+    {ok, _} = emqx_mgmt_auth:create(
+        ?SCOPED_APP,
+        ?SCOPED_APP,
+        ?SCOPED_APP,
+        true,
+        infinity,
+        <<"api key with an explicit scope list">>,
+        ?ROLE_API_SUPERUSER,
+        [?SCOPE_MONITORING]
+    ),
+    [
+        {idp_metadata_port, Port},
+        {dashboard_config, {emqx:get_raw_config([dashboard]), emqx:get_config([dashboard])}}
+        | Config
+    ];
+t_saml_metadata_access({'end', Config}) ->
+    %% Restore the state from before the case for the Keycloak groups.
+    %% The SAML backend delete stops the esaml application, so start it again.
+    %% A deleted backend also leaves a `null' config entry, and another delete
+    %% of it records an error state in the SSO manager, which a later delete
+    %% then destroys. So restore the config too.
+    _ = emqx_dashboard_sso_manager:delete(saml),
+    {ok, _} = application:ensure_all_started(esaml),
+    {RawDashboard, Dashboard} = ?config(dashboard_config, Config),
+    emqx_config:put_raw([dashboard], RawDashboard),
+    emqx_config:put([dashboard], Dashboard),
+    _ = emqx_mgmt_auth:delete(?SCOPED_APP),
+    _ = emqx_common_test_http:delete_default_app(),
+    _ = emqx_dashboard_admin:remove_user(<<"viewer_saml_test">>),
+    emqx_utils_http_test_server:stop();
+t_saml_metadata_access(Config) ->
+    IdpMetadataUrl = iolist_to_binary(
+        io_lib:format("http://127.0.0.1:~b~s", [
+            ?config(idp_metadata_port, Config), ?IDP_METADATA_PATH
+        ])
+    ),
+    SamlConfig = #{
+        <<"backend">> => <<"saml">>,
+        <<"enable">> => true,
+        <<"dashboard_addr">> => <<"http://127.0.0.1:18083">>,
+        <<"idp_metadata_url">> => IdpMetadataUrl,
+        <<"sp_sign_request">> => false,
+        <<"idp_signs_envelopes">> => true,
+        <<"idp_signs_assertions">> => true
+    },
+    {ok, 200, _} = request(put, uri(["sso", "saml"]), SamlConfig),
+    ?assertMatch(#{enable := true, sp := _}, emqx_dashboard_sso_manager:lookup_state(saml)),
+    MetadataUrl = uri(["sso", "saml", "metadata"]),
+    ConfigUrl = uri(["sso", "saml"]),
+    %% Administrator: the SP metadata XML.
+    {ok, {{_, 200, _}, Headers, Body}} =
+        request_raw(get, MetadataUrl, auth_header()),
+    ?assertMatch("text/xml" ++ _, proplists:get_value("content-type", Headers)),
+    ?assertMatch({match, _}, re:run(Body, "EntityDescriptor")),
+    ?assertMatch({match, _}, re:run(Body, "/api/v5/sso/saml/acs")),
+    %% Viewer: rejected, same as the SAML configuration endpoint.
+    ViewerHeader = bearer_header(<<"viewer_saml_test">>, <<"viewer_pass_123!">>),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, ConfigUrl, ViewerHeader)),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, MetadataUrl, ViewerHeader)),
+    %% API key without a scope list: allowed, same as the SAML configuration endpoint.
+    ApiKeyHeader = emqx_common_test_http:default_auth_header(),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, request_raw(get, ConfigUrl, ApiKeyHeader)),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, request_raw(get, MetadataUrl, ApiKeyHeader)),
+    %% API key with a scope list: rejected, same as the SAML configuration endpoint.
+    ScopedHeader = emqx_common_test_http:auth_header(?SCOPED_APP_STR, ?SCOPED_APP_STR),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, ConfigUrl, ScopedHeader)),
+    ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, MetadataUrl, ScopedHeader)),
+    %% The scope map: metadata needs `sso_management', the ACS is public.
+    ?assertEqual(
+        {scope, ?SCOPE_SSO_MGMT},
+        emqx_mgmt_api_key_scopes:classify_path(<<"/sso/saml/metadata">>)
+    ),
+    ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_path(<<"/sso/saml/acs">>)),
+    %% ACS without credentials: the request reaches the handler, which rejects
+    %% the invalid assertion with `UNAUTHORIZED'. A missing login would give 401,
+    %% and a scope rejection would give `UNAUTHORIZED_ROLE'.
+    AcsBody = uri_string:compose_query([
+        {<<"SAMLResponse">>, base64:encode(<<"not valid xml">>)}
+    ]),
+    {ok, {{_, AcsCode, _}, _, AcsResp}} = httpc:request(
+        post,
+        {uri(["sso", "saml", "acs"]), [], "application/x-www-form-urlencoded", AcsBody},
+        [],
+        [{body_format, binary}]
+    ),
+    ?assertEqual(403, AcsCode, AcsResp),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED">>}, emqx_utils_json:decode(AcsResp)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -480,8 +601,33 @@ t_sig_combo_sp_sign_both_idp(_Config) ->
 uri(Parts) ->
     ?BASE_URL ++ "/" ++ filename:join(["api", "v5" | Parts]).
 
+auth_header() ->
+    persistent_term:get({?MODULE, auth_header}).
+
+bearer_header(Username, Password) ->
+    {ok, #{token := Token}} = emqx_dashboard_admin:sign_token(Username, Password),
+    {"Authorization", "Bearer " ++ binary_to_list(Token)}.
+
+request_raw(get, Url, AuthHeader) ->
+    httpc:request(get, {Url, [AuthHeader]}, [], [{body_format, binary}]).
+
+idp_metadata_xml() ->
+    {ok, Pem} = file:read_file(filename:join([code:lib_dir(emqx), "etc", "certs", "cert.pem"])),
+    [{'Certificate', Der, not_encrypted}] = public_key:pem_decode(Pem),
+    iolist_to_binary([
+        <<"<md:EntityDescriptor xmlns:md=\"urn:oasis:names:tc:SAML:2.0:metadata\" ">>,
+        <<"xmlns:ds=\"http://www.w3.org/2000/09/xmldsig#\" entityID=\"http://idp.example.com\">">>,
+        <<"<md:IDPSSODescriptor protocolSupportEnumeration=\"urn:oasis:names:tc:SAML:2.0:protocol\">">>,
+        <<"<md:KeyDescriptor use=\"signing\"><ds:KeyInfo><ds:X509Data><ds:X509Certificate>">>,
+        base64:encode(Der),
+        <<"</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor>">>,
+        <<"<md:SingleSignOnService Binding=\"urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST\" ">>,
+        <<"Location=\"http://idp.example.com/login\"/>">>,
+        <<"</md:IDPSSODescriptor></md:EntityDescriptor>">>
+    ]).
+
 request(Method, Url, Body) ->
-    AuthHeader = persistent_term:get({?MODULE, auth_header}),
+    AuthHeader = auth_header(),
     Opts = #{compatible_mode => true, httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, Url, [], AuthHeader, Body, Opts).
 
