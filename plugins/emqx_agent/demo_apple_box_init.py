@@ -416,7 +416,7 @@ def main() -> int:
     create_pipeline()
 
     print("\nDone.")
-    print(f"SPA UI:    {BASE_URL.rstrip('/')}/apple-box/ui")
+    print("Demo UI:   See Demo Pages in plugins/emqx_agent/README.md")
     print(f"Admin UI:  {BASE_URL.rstrip('/')}/ui")
     print(f"Pipeline:  {PIPELINE_ID}")
     return 0
