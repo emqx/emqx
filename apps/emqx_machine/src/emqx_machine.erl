@@ -35,9 +35,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("classy/include/classy.hrl").
--include("emqx_machine_rl.hrl").
+-include_lib("emqx/include/emqx_machine_rl.hrl").
 
--define(cluster_ready, emqx_machine_cluster).
+-define(ready_to_cluster, emqx_machine_ready_to_cluster).
 
 %% @doc EMQX boot entrypoint.
 start() ->
@@ -64,7 +64,7 @@ Return true if the machine has ran all necessary for the cluster run level.
 """.
 -spec is_cluster_ready() -> boolean().
 is_cluster_ready() ->
-    optvar:is_set(?cluster_ready).
+    classy_boot:run_level(ready) >= ?emqx_rl_joinable.
 
 -doc """
 Don't use in the new code.
@@ -74,7 +74,7 @@ which creates a strange circular dependency.
 """.
 -spec wait_cluster_ready(timeout()) -> ok | {error, stopping | timeout}.
 wait_cluster_ready(Timeout) ->
-    case optvar:read(?cluster_ready, Timeout) of
+    case optvar:read(?ready_to_cluster, Timeout) of
         {ok, true} ->
             ok;
         {ok, false} ->
@@ -127,21 +127,19 @@ register_business_hooks() ->
     ok.
 
 -doc false.
+%% This function contains common actions that must always occur: in
+%% live and test:
 on_run_level(enter, ?classy_rl_single) ->
     %% Set site metadata:
     classy_site_metadata:c_set(
         emqx,
         #{vsn => get_emqx_vsn()}
     );
-on_run_level(enter, ?emqx_rl_ready) ->
-    optvar:set(?cluster_ready, true);
-on_run_level(leave, ?emqx_rl_ready) ->
-    %% This will be the first hook to fire when decreasing the run
-    %% level. It may so happen that certain applications wait for the
-    %% optvar. Here we notify them so they can stop waiting and
-    %% trigger stop.
-    optvar:set(?cluster_ready, false),
-    optvar:unset(?cluster_ready);
+on_run_level(enter, ?emqx_rl_joinable) ->
+    optvar:set(?ready_to_cluster, true);
+on_run_level(leave, ?emqx_rl_joinable) ->
+    optvar:set(?ready_to_cluster, false),
+    optvar:unset(?ready_to_cluster);
 on_run_level(_, _) ->
     ok.
 
