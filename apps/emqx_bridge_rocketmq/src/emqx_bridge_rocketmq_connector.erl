@@ -285,21 +285,48 @@ destroy_allocated_channel_resources(ConnResId, ChanResId) ->
                 ChanResId == '_' orelse Id == ChanResId
             ->
                 ProducerGroup = mk_producer_group(Id, Topic),
-                _ = rocketmq:stop_and_delete_supervised_producers(Producers),
-                maybe
-                    #{?client_id := Table} ?= Resources,
-                    try
-                        _ = ets:delete(Table, ProducerGroup)
-                    catch
-                        error:badarg -> ok
-                    end
-                end,
-                deallocate(ConnResId, Key);
+                do_destroy_producer_cache(ConnResId, ProducerGroup, Producers, Key, Resources);
+            (ProducerGroup, Producers) when
+                is_binary(ProducerGroup)
+            ->
+                %% legacy, pre-hot upgrade allocation key...
+                case {ChanResId, ProducerGroup} of
+                    {'_', _} ->
+                        do_destroy_producer_cache(
+                            ConnResId,
+                            ProducerGroup,
+                            Producers,
+                            ProducerGroup,
+                            Resources
+                        );
+                    {_, <<ChanResId:(byte_size(ChanResId))/binary, "-", _/binary>>} ->
+                        do_destroy_producer_cache(
+                            ConnResId,
+                            ProducerGroup,
+                            Producers,
+                            ProducerGroup,
+                            Resources
+                        );
+                    {_, _} ->
+                        ok
+                end;
             (_, _) ->
                 ok
         end,
         Resources
     ).
+
+do_destroy_producer_cache(ConnResId, ProducerGroup, Producers, AllocationKey, Resources) ->
+    _ = rocketmq:stop_and_delete_supervised_producers(Producers),
+    maybe
+        #{?client_id := Table} ?= Resources,
+        try
+            _ = ets:delete(Table, ProducerGroup)
+        catch
+            error:badarg -> ok
+        end
+    end,
+    deallocate(ConnResId, AllocationKey).
 
 do_query(
     InstanceId,
