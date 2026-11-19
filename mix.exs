@@ -150,7 +150,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:ranch),
       # in conflict by grpc and eetcd
       common_dep(:gpb),
-      {:hackney, github: "emqx/hackney", tag: "1.18.1-1", override: true},
+      {:hackney, github: "emqx/hackney", tag: "1.18.1-2", override: true},
       # set by hackney (dependency)
       {:ssl_verify_fun, "1.1.7", override: true},
       # pinned to the emqx fork, which carries the current Mozilla CA bundle;
