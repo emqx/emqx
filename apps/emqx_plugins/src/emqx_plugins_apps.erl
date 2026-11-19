@@ -300,7 +300,7 @@ loaded_outside_package_hint(AppName, ExpectedEbinDir, LoadedEbinDir) ->
             iolist_to_binary([
                 "Plugin ",
                 OtherNameVsn,
-                " is loaded. Uninstall it or restart the node, then retry."
+                " is loaded. Uninstall it, then retry."
             ]);
         error ->
             iolist_to_binary([
