@@ -6,6 +6,7 @@
 
 -export([
     setup/0,
+    setup/1,
     teardown/0,
     reset/0,
     get_config/2,
@@ -16,12 +17,15 @@
 -define(CONFIG_KEY, {?MODULE, config}).
 
 setup() ->
+    setup(#{}).
+
+setup(Config) ->
     reset(),
     ok = meck:new(emqx_plugins, [passthrough, no_history]),
     ok = meck:new(emqx_mgmt_api_plugins, [passthrough, no_history]),
     ok = meck:expect(emqx_plugins, get_config, fun ?MODULE:get_config/2),
     ok = meck:expect(emqx_mgmt_api_plugins, put_plugin_config, fun ?MODULE:put_plugin_config/2),
-    ok = put_plugin_config(name_vsn(), #{}),
+    ok = put_plugin_config(name_vsn(), Config),
     ok = emqx_agent_config:init_config(),
     ok.
 

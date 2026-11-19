@@ -28,7 +28,9 @@ stop(_State) ->
     ok = emqx_agent_config:clear_config_schema().
 
 on_config_changed(OldConfig, NewConfig) ->
+    BuilderToolsEnabled = emqx_agent_tool:builder_tools_enabled(),
     ok = emqx_agent_config:update_config(OldConfig, NewConfig),
+    ok = emqx_agent_tool:sync_builder_tools(BuilderToolsEnabled),
     ok = emqx_agent_tool_registry:reconcile(),
     emqx_agent_tool_connections:reconcile().
 

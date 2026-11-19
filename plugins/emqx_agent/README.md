@@ -245,7 +245,9 @@ The root payload is represented as `Image .` and the PNG bytes are attached sepa
 
 ### Meta-Tools
 
-Meta-tools let users build pipelines that modify Agent configuration. They are ordinary tools, but are usually exposed only to trusted builder workflows.
+Meta-tools read and modify Agent configuration. The plugin does not register them by default.
+To enable them for a trusted builder workflow, set `enable_builder_tools = true` in the
+Agent plugin configuration.
 
 - `agent__create_tool`
 - `agent__update_tool`
@@ -397,7 +399,7 @@ The script creates the `apple-inspector` AI provider, a PostgreSQL connection, a
 a database table, and an active `apple-box-inspection` pipeline.
 Open the [Apple Box Conveyor page](http://127.0.0.1:8000/apple-box.html).
 
-Provision the Pipeline Builder demo:
+Enable the [meta-tools](#meta-tools) before provisioning the Pipeline Builder demo:
 
 ```bash
 python3 plugins/emqx_agent/demo_builder_init.py

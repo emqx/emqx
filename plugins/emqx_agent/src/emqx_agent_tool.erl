@@ -20,7 +20,7 @@
 -optional_callbacks([validate/1]).
 
 -export([init/0, deinit/0, on_message_publish/1]).
--export([discover_tool_modules/0]).
+-export([discover_tool_modules/0, sync_builder_tools/1, builder_tools_enabled/0]).
 
 -define(DEFAULT_INVOKE_TIMEOUT_MS, 30_000).
 
@@ -40,7 +40,39 @@ deinit() ->
 -spec discover_tool_modules() -> [module()].
 discover_tool_modules() ->
     AllModules = lists:usort(app_modules() ++ [M || {M, _} <- code:all_loaded()]),
-    [M || M <- AllModules, is_tool_module(M)].
+    EnabledModules =
+        case builder_tools_enabled() of
+            true -> AllModules;
+            _ -> AllModules -- builder_tool_modules()
+        end,
+    [M || M <- EnabledModules, is_tool_module(M)].
+
+builder_tools_enabled() ->
+    emqx_agent_config:parsed_config([enable_builder_tools], false).
+
+sync_builder_tools(WasEnabled) ->
+    case {WasEnabled, builder_tools_enabled()} of
+        {false, true} -> lists:foreach(fun(Mod) -> Mod:init() end, builder_tool_modules());
+        {true, false} -> lists:foreach(fun(Mod) -> Mod:deinit() end, builder_tool_modules());
+        _ -> ok
+    end.
+
+builder_tool_modules() ->
+    [
+        emqx_agent_tool_create_pipeline,
+        emqx_agent_tool_create_tool,
+        emqx_agent_tool_delete_pipeline,
+        emqx_agent_tool_delete_pipeline_step,
+        emqx_agent_tool_delete_tool,
+        emqx_agent_tool_insert_pipeline_step,
+        emqx_agent_tool_query_connections,
+        emqx_agent_tool_query_pipelines,
+        emqx_agent_tool_query_providers,
+        emqx_agent_tool_query_tools,
+        emqx_agent_tool_update_pipeline,
+        emqx_agent_tool_update_pipeline_step,
+        emqx_agent_tool_update_tool
+    ].
 
 app_modules() ->
     case application:get_key(emqx_agent, modules) of

@@ -90,14 +90,17 @@ do_handle_invoke(Request) ->
 query(#{<<"type">> := Type, <<"id">> := Id}) ->
     case emqx_agent_service:tool_get(Type, Id) of
         {ok, Tool} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Tool)}};
+            {ok, #{<<"item">> => emqx_agent_config_secrets:redact(Tool)}};
         {error, not_found} ->
             {error, <<"not found">>}
     end;
 query(#{<<"type">> := Type}) ->
     All = emqx_agent_service:tool_list(),
-    Items = [emqx_utils:redact(S) || S <- All, maps:get(<<"type">>, S, undefined) =:= Type],
+    Items = [
+        emqx_agent_config_secrets:redact(Tool)
+     || #{<<"type">> := ToolType} = Tool <- All, ToolType =:= Type
+    ],
     {ok, #{<<"items">> => Items}};
 query(_) ->
-    Items = [emqx_utils:redact(S) || S <- emqx_agent_service:tool_list()],
+    Items = lists:map(fun emqx_agent_config_secrets:redact/1, emqx_agent_service:tool_list()),
     {ok, #{<<"items">> => Items}}.

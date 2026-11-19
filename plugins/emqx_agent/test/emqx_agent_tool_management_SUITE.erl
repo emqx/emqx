@@ -46,7 +46,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_plugin_config_fixture:setup(#{<<"enable_builder_tools">> => true}),
     ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__create_tool">>, <<"id">> => ?SK_TOOL_ID
     }),

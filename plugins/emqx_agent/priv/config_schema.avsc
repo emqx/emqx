@@ -2,6 +2,7 @@
   "type": "record",
   "name": "AgentConfig",
   "fields": [
+    {"name": "enable_builder_tools", "type": "boolean", "default": false, "description": "$enable_builder_tools_desc"},
     {
       "name": "tools",
       "type": {
