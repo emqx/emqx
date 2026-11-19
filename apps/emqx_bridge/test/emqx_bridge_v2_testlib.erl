@@ -563,6 +563,10 @@ delete_kind_api(Kind, Type, Name, Opts) ->
     ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
     Res.
 
+delete_kind_api2(TCConfig) ->
+    #{kind := Kind, type := Type, name := Name} = get_common_values(TCConfig),
+    delete_kind_api(Kind, Type, Name).
+
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
 
@@ -1384,6 +1388,10 @@ t_create_via_http(Config, IsOnlyV2) ->
     ok.
 
 t_start_stop(Config, StopTracePoint) ->
+    t_start_stop(Config, StopTracePoint, _Opts = #{}).
+
+t_start_stop(Config, StopTracePoint, #{} = Opts) ->
+    SkipAtomLeakCheck = maps:get(skip_atom_leak_check, Opts, false),
     Kind = proplists:get_value(bridge_kind, Config, action),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
@@ -1410,7 +1418,8 @@ t_start_stop(Config, StopTracePoint) ->
                 )
             ),
             %% Check that the bridge probe API doesn't leak atoms.
-            AtomsBefore = erlang:system_info(atom_count),
+            AtomsBefore = all_atoms(),
+            AtomCountBefore = erlang:system_info(atom_count),
             %% Probe again; shouldn't have created more atoms.
             ProbeRes1 = probe_bridge_api(
                 Kind,
@@ -1420,8 +1429,20 @@ t_start_stop(Config, StopTracePoint) ->
             ),
 
             ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
-            AtomsAfter = erlang:system_info(atom_count),
-            ?assertEqual(AtomsBefore, AtomsAfter),
+            AtomsAfter = all_atoms(),
+            AtomCountAfter = erlang:system_info(atom_count),
+            case SkipAtomLeakCheck of
+                false ->
+                    ?assertEqual(
+                        AtomCountBefore,
+                        AtomCountAfter,
+                        #{new_atoms => AtomsAfter -- AtomsBefore}
+                    );
+                true when AtomCountBefore /= AtomCountAfter ->
+                    ct:print("WARNING: atom leak; new atoms:\n  ~p", [AtomsAfter -- AtomsBefore]);
+                true ->
+                    ok
+            end,
 
             ?assertMatch({ok, _}, create_kind_api(Config)),
 
@@ -2173,3 +2194,19 @@ clean_aggregated_upload_work_dir() ->
     Dir = filename:join([emqx:data_dir(), bridge]),
     _ = file:del_dir_r(Dir),
     ok.
+
+%% https://stackoverflow.com/a/34883331/2708711
+all_atoms() ->
+    do_all_atoms(_N = 0, []).
+
+idx_to_atom(N) ->
+    binary_to_term(<<131, 75, N:24>>).
+
+do_all_atoms(N, Acc) ->
+    try idx_to_atom(N) of
+        A ->
+            do_all_atoms(N + 1, [A | Acc])
+    catch
+        error:badarg ->
+            Acc
+    end.

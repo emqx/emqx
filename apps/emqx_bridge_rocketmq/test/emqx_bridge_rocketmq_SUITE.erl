@@ -129,7 +129,7 @@ common_init(ConfigT) ->
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
-                #{work_dir => emqx_cth_suite:work_dir(Config0)}
+                #{work_dir => emqx_cth_suite:work_dir(v1, Config0)}
             ),
             {Name, RocketMQConf} = rocketmq_config(BridgeType, Config0),
             RocketMQSSLConf = rocketmq_ssl_config(RocketMQConf, Config0),
