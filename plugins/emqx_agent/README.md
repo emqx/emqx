@@ -28,6 +28,49 @@ This makes EMQX a place where connected-device events can directly trigger safe 
 
 MQTT Agent uses MQTT topics to provide features. Agent topics use `$` prefixes so they are MQTT system topics and are not matched by ordinary `#` subscriptions.
 
+### MQTT Access Control (ACL)
+
+Before enabling MQTT Agent, configure MQTT authentication and authorization for `$cap/#`, `$sess/#`, and `$pipe/#`.
+Deny publish and subscribe access to these topics unless a client needs an explicit grant.
+The `$` prefix does not restrict access.
+
+Use authenticated usernames in the examples below. Do not give these clients superuser access.
+Place the rules before broader rules in `acl.conf`. If you use multiple authorization sources, make sure no earlier source grants broader access to these topics.
+
+#### Basic usage
+
+To trigger pipelines without monitoring Agent activity, allow each authenticated publisher to publish only to the event topics it needs.
+Deny all other publish and subscribe access to `$evt/#`, `$cap/#`, `$sess/#`, and `$pipe/#`.
+
+Suppose the `temperature-check` pipeline triggers on `$evt/factory/line-1/temperature`.
+Allow `temperature-sensor` to publish to that exact topic.
+
+```erlang
+{allow, {username, "temperature-sensor"}, publish, ["$evt/factory/line-1/temperature"]}.
+{deny, all, all, ["$evt/#", "$cap/#", "$sess/#", "$pipe/#"]}.
+```
+
+If other authenticated clients publish events, add a separate publish rule for each client and its required topics before the deny rule. Do not grant publish access to all of `$evt/#`.
+
+#### Monitor interactions or call tools
+
+- Give monitoring clients subscribe access only to the interactions they need to watch. Agent messages can contain application data.
+- Give tool callers publish access only to the request topics for the tool instances they need. Give them subscribe access to the corresponding response topics.
+- Keep session topics read-only for monitoring clients. If a client needs to send session frames directly, grant publish access only to the required session input topics.
+- Keep tool responses, session output, and pipeline events read-only for MQTT clients. If you use `message__request`, grant trusted MQTT responders publish access to the reply topics they need.
+
+To add monitoring or tool calls to the policy above, insert these rules before its deny rule. They let `agent-monitor` watch the `alerts` tool and the `temperature-check` pipeline. They let `alerts-caller` invoke only the `alerts` tool and subscribe to its replies.
+
+```erlang
+{allow, {username, "agent-monitor"}, subscribe, [
+    "$cap/message__publish/alerts/request/+",
+    "$cap/message__publish/alerts/response/+",
+    "$pipe/temperature-check/inst/+/events"
+]}.
+{allow, {username, "alerts-caller"}, publish, ["$cap/message__publish/alerts/request/+"]}.
+{allow, {username, "alerts-caller"}, subscribe, ["$cap/message__publish/alerts/response/+"]}.
+```
+
 ## Tools
 
 Tools are restricted actions that may be used directly by a pipeline step or provided to an LLM step of a pipeline.
