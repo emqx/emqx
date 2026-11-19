@@ -641,16 +641,21 @@ t_cleanup_resources(TCConfig) when is_list(TCConfig) ->
     Producers1 = GetProducers(),
     {204, _} = delete_rule_api(RuleId),
     {204, _} = delete_action_api(TCConfig),
-    Producers2 = GetProducers(),
-
-    Ctx = #{
-        producers0 => Producers0,
-        producers1 => Producers1,
-        producers2 => Producers2
-    },
-    ?assertMatch([_ | _], Producers1 -- Producers0, Ctx),
-    ?assertMatch([], Producers0 -- Producers2, Ctx),
-    ?assertMatch([], Producers2 -- Producers0, Ctx),
+    ?retry(
+        200,
+        10,
+        begin
+            Producers2 = GetProducers(),
+            Ctx = #{
+                producers0 => Producers0,
+                producers1 => Producers1,
+                producers2 => Producers2
+            },
+            ?assertMatch([_ | _], Producers1 -- Producers0, Ctx),
+            ?assertMatch([], Producers0 -- Producers2, Ctx),
+            ?assertMatch([], Producers2 -- Producers0, Ctx)
+        end
+    ),
     ok.
 
 %% Check that we are able to recreate the same action while the connector still exists.
