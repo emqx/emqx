@@ -265,7 +265,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, github: "emqx/cowlib", tag: "2.8.0-emqx-2", override: true}
+    do: {:cowlib, github: "emqx/cowlib", tag: "2.8.0-emqx-3", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
