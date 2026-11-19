@@ -272,7 +272,7 @@ Check the `file://` secrets in the config of a dry run.
 
 A dry run has a caller that waits for the result. So it fails with an error when a
 secret in `Conf` cannot read its file, instead of running with an empty secret. An
-error log names the files, as it does outside of a dry run.
+error log names the files and the alarm is raised, as outside of a dry run.
 
 - In a namespace, no `file://` secret is allowed.
 - In the global namespace, the secret loader decides which files can be read.
@@ -298,8 +298,11 @@ check_secret_files(Namespace, LogMeta, Conf) ->
                 Denied
             ),
             case Denied of
-                [] -> ok;
-                _ -> {error, denied_message(Denied)}
+                [] ->
+                    ok;
+                _ ->
+                    emqx_secret_loader:raise_denied_alarm(),
+                    {error, denied_message(Denied)}
             end
     end.
 
@@ -314,9 +317,9 @@ denied_message(Denied) ->
 -doc """
 Make a connector, an action or a source of a namespace load no secret from a file.
 
-Each `file://` secret in `Conf` is replaced with an empty secret, and an error log
-names the files. `Conf` of the global namespace is returned as it is: for it, the
-secret loader decides which files can be read.
+Each `file://` secret in `Conf` is replaced with an empty secret, an error log
+names the files, and the alarm is raised. `Conf` of the global namespace is
+returned as it is: for it, the secret loader decides which files can be read.
 """.
 -spec deny_secret_files(?global_ns | binary(), map(), Conf) -> Conf when Conf :: map().
 deny_secret_files(?global_ns, _LogMeta, Conf) ->
@@ -336,7 +339,8 @@ log_namespaced_secret_files(Namespace, LogMeta, Sources) ->
         namespace => Namespace,
         paths => [Path || <<"file://", Path/binary>> <- Sources],
         hint => ?NAMESPACED_SECRET_FILE_HINT
-    }).
+    }),
+    emqx_secret_loader:raise_denied_alarm().
 
 get_temp_conf(TypeAtom, CheckedConf) ->
     case CheckedConf of

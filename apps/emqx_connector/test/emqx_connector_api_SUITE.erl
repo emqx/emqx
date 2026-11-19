@@ -1973,16 +1973,31 @@ t_secret_file_allow_list(TCConfig) ->
     #{dir := Dir, inside := Inside, outside := Outside, content := Content} =
         setup_secret_files(?FUNCTION_NAME, TCConfig),
     set_secret_file_allow_list([iolist_to_binary([Dir, "/*"])], TCConfig),
+    reset_denied_alarm(TCConfig),
     ?assertMatch(
         {201, _},
         create(?CONNECTOR_TYPE, <<"allowed">>, kafka_connector_with_password(Inside), TCConfig)
     ),
+    ?assertEqual([Content], start_passwords(<<"allowed">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
     ?assertMatch(
         {201, _},
         create(?CONNECTOR_TYPE, <<"denied">>, kafka_connector_with_password(Outside), TCConfig)
     ),
-    ?assertEqual([Content], start_passwords(<<"allowed">>, TCConfig)),
+    %% Each call below reads the secret again. There is still one alarm.
     ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    [#{message := AlarmMessage}] = denied_alarms(TCConfig),
+    ?assertMatch({_, _}, binary:match(AlarmMessage, <<"error log">>)),
+    ?assertMatch({_, _}, binary:match(AlarmMessage, <<"Deactivate it manually">>)),
+    %% Nothing clears the alarm but the operator. The next denied read raises it again.
+    ?assertMatch({204, _}, force_deactivate_denied_alarm(TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertEqual([Content], start_passwords(<<"allowed">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
     %% The config keeps the value as it was set.
     ?assertEqual(
         Outside,
@@ -1998,6 +2013,8 @@ t_secret_file_allow_list(TCConfig) ->
     ?assertMatch({_, _}, binary:match(Message, OutsidePath)),
     ?assertMatch({_, _}, binary:match(Message, <<"node.secret_file_allow_list">>)),
     ?assertEqual([], start_passwords(all, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, kafka_connector_with_password(Inside), TCConfig)),
     ?assertEqual([Content], start_passwords(all, TCConfig)),
     ok.
@@ -2013,19 +2030,25 @@ t_namespaced_secret_file(TCConfig) ->
     TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(<<"ns1">>, TCConfig)} | TCConfig],
     WithFile = kafka_connector_with_password(File),
     WithPlain = kafka_connector_with_password(<<"plain">>),
+    reset_denied_alarm(TCConfig),
     ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_global">>, WithFile, TCConfig)),
-    ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
     ?assertEqual([Content], start_passwords(<<"in_global">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
     ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
     %% Update
     reset_start_history(TCConfig),
     ?assertMatch({200, _}, update(?CONNECTOR_TYPE, <<"in_ns1">>, WithPlain, TCConfigNS1)),
     ?assertEqual([<<"plain">>], start_passwords(<<"in_ns1">>, TCConfig)),
     reset_start_history(TCConfig),
+    reset_denied_alarm(TCConfig),
     ?assertMatch({200, _}, update(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
     ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
     %% Probe
     reset_start_history(TCConfig),
+    reset_denied_alarm(TCConfig),
     ?assertMatch(
         {400, #{
             <<"code">> := <<"TEST_FAILED">>,
@@ -2034,8 +2057,10 @@ t_namespaced_secret_file(TCConfig) ->
         probe(?CONNECTOR_TYPE, WithFile, TCConfigNS1)
     ),
     ?assertEqual([], start_passwords(all, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithPlain, TCConfigNS1)),
     ?assertEqual([<<"plain">>], start_passwords(all, TCConfig)),
+    reset_denied_alarm(TCConfig),
     reset_start_history(TCConfig),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithFile, TCConfig)),
     ?assertEqual([Content], start_passwords(all, TCConfig)),
@@ -2086,6 +2111,7 @@ t_namespaced_action_secret_file(TCConfig) ->
     ),
     ?assertEqual([Content], channel_private_keys(<<"in_global">>, TCConfig)),
     ?assertEqual([<<>>], channel_private_keys(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
     %% Probe
     reset_start_history(TCConfig),
     ?assertMatch(
@@ -2105,7 +2131,41 @@ t_namespaced_action_secret_file(TCConfig) ->
         probe_action(ActionConfig, TCConfig),
     ?assertMatch({_, _}, binary:match(Message, Path)),
     ?assertEqual([], channel_private_keys(all, TCConfig)),
+    reset_denied_alarm(TCConfig),
     ok.
+
+%% The active alarms for a denied read of a secret file, on the node of the test.
+denied_alarms(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    [
+        Alarm
+     || #{name := secret_file_read_denied} = Alarm <-
+            ?ON(Node, emqx_alarm:get_alarms(activated))
+    ].
+
+reset_denied_alarm(TCConfig) ->
+    Nodes =
+        case ?config(cluster_nodes, TCConfig) of
+            undefined -> [?config(node, TCConfig)];
+            ClusterNodes -> ClusterNodes
+        end,
+    lists:foreach(
+        fun(Node) -> ok = ?ON(Node, emqx_alarm:ensure_deactivated(secret_file_read_denied)) end,
+        Nodes
+    ).
+
+%% Deactivate the alarm as an operator does.
+force_deactivate_denied_alarm(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["alarms", "force_deactivate"]),
+            body => #{<<"name">> => <<"secret_file_read_denied">>},
+            auth_header => AuthHeader
+        })
+    end).
 
 create_action(Config, TCConfig) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),

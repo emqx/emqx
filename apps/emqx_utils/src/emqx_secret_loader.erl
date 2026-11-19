@@ -33,9 +33,10 @@ secret can read:
 Both rules apply to the file that is opened: the symbolic links in the path are
 resolved first, and that file is the one that is read.
 
-When the file is not allowed, the secret is an empty binary and an error log names
-the path. The caller gets no exception: a secret is unwrapped in many places, and
-most of them cannot handle one.
+When the file is not allowed, the secret is an empty binary, an error log names
+the path, and the alarm `secret_file_read_denied` is raised. The caller gets no
+exception: a secret is unwrapped in many places, and most of them cannot handle
+one.
 
 A caller that can report an error, for example a dry run, calls `check/1` before
 it uses the secret.
@@ -44,6 +45,7 @@ it uses the secret.
 %% API
 -export([load/1, check/1]).
 -export([file/1]).
+-export([raise_denied_alarm/0]).
 
 %% Internal exports
 -export([is_allowed/2]).
@@ -68,6 +70,13 @@ it uses the secret.
 -define(MAX_LINKS, 40).
 %% The length of the longest path that can be opened, as on Linux.
 -define(MAX_PATH, 4096).
+
+-define(ALARM, secret_file_read_denied).
+-define(ALARM_MESSAGE, <<
+    "A 'file://' secret was not allowed to read its file, so the secret is empty. "
+    "Find the denied reads in the error log: search for 'secret_file_read_denied'. "
+    "This alarm is not cleared automatically. Deactivate it manually after you fix the cause."
+>>).
 
 -spec load(source()) -> binary() | no_return().
 load({file, <<"file://", Path/binary>>}) ->
@@ -98,7 +107,28 @@ file(Filename0) ->
             read(RealName, Filename);
         {error, Denied} ->
             logger:log(error, Denied#{msg => "secret_file_read_denied"}),
+            raise_denied_alarm(),
             <<>>
+    end.
+
+-doc """
+Raise the alarm that tells that a secret was not allowed to read its file.
+
+The caller logs the denied read. The alarm has no detail of it, and nothing clears
+the alarm: no later event shows that the cause is fixed.
+
+Nothing is done when the alarm server does not run, as in a config check at boot.
+""".
+-spec raise_denied_alarm() -> ok.
+raise_denied_alarm() ->
+    case whereis(emqx_alarm) of
+        undefined ->
+            ok;
+        Pid when Pid =:= self() ->
+            ok;
+        _ ->
+            _ = emqx_alarm:safe_activate(?ALARM, #{}, ?ALARM_MESSAGE),
+            ok
     end.
 
 interpolate(Filename) ->

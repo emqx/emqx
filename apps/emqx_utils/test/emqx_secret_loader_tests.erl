@@ -343,6 +343,29 @@ load_test_() ->
                 ),
                 ?assertEqual(<<"cookie">>, load(Cookie))
             end}
+        end,
+        fun(#{file := File}) ->
+            {"a denied read raises the alarm", fun() ->
+                set_allow_list([]),
+                %% No alarm server, as in a config check at boot.
+                ?assertEqual(<<>>, load(File)),
+                with_alarm_server(fun() ->
+                    ?assertEqual(<<>>, load(File)),
+                    ?assertEqual(<<>>, load(File)),
+                    ?assertMatch(
+                        [
+                            {secret_file_read_denied, #{}, <<_/binary>>},
+                            {secret_file_read_denied, #{}, <<_/binary>>}
+                        ],
+                        activated_alarms()
+                    ),
+                    %% The check of a dry run leaves the alarm to its caller.
+                    ?assertMatch({error, _}, check(File)),
+                    set_allow_list([<<"**">>]),
+                    ?assertEqual(<<"secret">>, load(File)),
+                    ?assertEqual([], activated_alarms())
+                end)
+            end}
         end
     ]}.
 
@@ -432,6 +455,34 @@ read_files_tracer(Owner, Acc) ->
             read_files_tracer(Owner, [unicode:characters_to_list(File) | Acc]);
         {stop, Owner} ->
             Owner ! {read_files, lists:reverse(Acc)}
+    end.
+
+%% Run `Fun' with a process that stands for the alarm server.
+with_alarm_server(Fun) ->
+    Self = self(),
+    ok = meck:new(emqx_alarm, [no_link, no_history]),
+    ok = meck:expect(emqx_alarm, safe_activate, fun(Name, Details, Message) ->
+        Self ! {activated_alarm, {Name, Details, Message}},
+        ok
+    end),
+    Server = spawn(fun() ->
+        receive
+            stop -> ok
+        end
+    end),
+    true = register(emqx_alarm, Server),
+    try
+        Fun()
+    after
+        Server ! stop,
+        meck:unload(emqx_alarm)
+    end.
+
+activated_alarms() ->
+    receive
+        {activated_alarm, Alarm} -> [Alarm | activated_alarms()]
+    after 0 ->
+        []
     end.
 
 bin(IoData) ->
