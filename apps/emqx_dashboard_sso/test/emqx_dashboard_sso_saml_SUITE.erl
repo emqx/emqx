@@ -233,12 +233,11 @@ With SAML enabled, the SP metadata endpoint has the same access rules as
 the `/sso/:backend' configuration endpoint: an administrator gets the
 metadata XML, a viewer is rejected, an API key without a scope list is
 allowed, and an API key with a scope list is rejected, because an API key
-cannot hold `sso_management'.
+cannot hold `sso_management'. The ACS stays reachable without credentials.
 """.
 t_saml_metadata_access({init, Config}) ->
     %% Serve a static IdP metadata document, so this case needs no Keycloak.
-    {ok, {Port, Pid}} = emqx_utils_http_test_server:start_link(random, ?IDP_METADATA_PATH),
-    unlink(Pid),
+    {ok, {Port, _Pid}} = emqx_utils_http_test_server:start_link(random, ?IDP_METADATA_PATH),
     IdpMetadata = idp_metadata_xml(),
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
@@ -317,6 +316,26 @@ t_saml_metadata_access(Config) ->
     ScopedHeader = emqx_common_test_http:auth_header(?SCOPED_APP_STR, ?SCOPED_APP_STR),
     ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, ConfigUrl, ScopedHeader)),
     ?assertMatch({ok, {{_, 403, _}, _, _}}, request_raw(get, MetadataUrl, ScopedHeader)),
+    %% The scope map: metadata needs `sso_management', the ACS is public.
+    ?assertEqual(
+        {scope, ?SCOPE_SSO_MGMT},
+        emqx_mgmt_api_key_scopes:classify_path(<<"/sso/saml/metadata">>)
+    ),
+    ?assertEqual(public, emqx_mgmt_api_key_scopes:classify_path(<<"/sso/saml/acs">>)),
+    %% ACS without credentials: the request reaches the handler, which rejects
+    %% the invalid assertion with `UNAUTHORIZED'. A missing login would give 401,
+    %% and a scope rejection would give `UNAUTHORIZED_ROLE'.
+    AcsBody = uri_string:compose_query([
+        {<<"SAMLResponse">>, base64:encode(<<"not valid xml">>)}
+    ]),
+    {ok, {{_, AcsCode, _}, _, AcsResp}} = httpc:request(
+        post,
+        {uri(["sso", "saml", "acs"]), [], "application/x-www-form-urlencoded", AcsBody},
+        [],
+        [{body_format, binary}]
+    ),
+    ?assertEqual(403, AcsCode, AcsResp),
+    ?assertMatch(#{<<"code">> := <<"UNAUTHORIZED">>}, emqx_utils_json:decode(AcsResp)),
     ok.
 
 %%------------------------------------------------------------------------------
