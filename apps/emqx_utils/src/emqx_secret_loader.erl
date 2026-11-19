@@ -23,12 +23,15 @@ The only source is a file: a secret that is set to `file://<path>` reads its val
 from that file each time it is unwrapped. This module decides which files such a
 secret can read:
 
-- The path must match a pattern in `node.secret_file_allow_list`. The setting is
+- The file must match a pattern in `node.secret_file_allow_list`. The setting is
   read-only at runtime. `emqx_config` puts it in place before it checks the config
   at boot. Before that, every path is allowed.
 - The file that `node.cookie` points to is never read. Only the boot script reads
   it, before the node starts. The script passes its path to the node in the
   environment variable `EMQX_NODE_COOKIE_FILE`.
+
+Both rules apply to the file that is opened: the symbolic links in the path are
+resolved first, and that file is the one that is read.
 
 When the file is not allowed, the secret is an empty binary and an error log names
 the path. The caller gets no exception: a secret is unwrapped in many places, and
@@ -50,13 +53,21 @@ it uses the secret.
 -type source() :: {file, string() | binary()}.
 -type denied() :: #{
     path := binary(),
+    %% The file that the path leads to, when it is not `path` itself.
+    real_path => binary(),
     reason := node_cookie_file | not_in_allow_list,
     hint := binary()
 }.
 
+-include_lib("kernel/include/file.hrl").
+
 %% The pattern that allows every path.
 -define(ALLOW_ALL, <<"**">>).
 -define(COOKIE_FILE_ENV, "EMQX_NODE_COOKIE_FILE").
+%% The number of symbolic links that one path can go through, as on Linux.
+-define(MAX_LINKS, 40).
+%% The length of the longest path that can be opened, as on Linux.
+-define(MAX_PATH, 4096).
 
 -spec load(source()) -> binary() | no_return().
 load({file, <<"file://", Path/binary>>}) ->
@@ -72,16 +83,19 @@ read the file.
 """.
 -spec check(source()) -> ok | {error, denied()}.
 check({file, <<"file://", Path/binary>>}) ->
-    check_file(interpolate(Path));
+    check_result(check_file(interpolate(Path)));
 check({file, "file://" ++ Path}) ->
-    check_file(interpolate(Path)).
+    check_result(check_file(interpolate(Path))).
+
+check_result({ok, _Filename}) -> ok;
+check_result({error, _} = Error) -> Error.
 
 -spec file(file:filename_all()) -> binary() | no_return().
 file(Filename0) ->
     Filename = interpolate(Filename0),
     case check_file(Filename) of
-        ok ->
-            read(Filename);
+        {ok, RealName} ->
+            read(RealName, Filename);
         {error, Denied} ->
             logger:log(error, Denied#{msg => "secret_file_read_denied"}),
             <<>>
@@ -90,8 +104,9 @@ file(Filename0) ->
 interpolate(Filename) ->
     emqx_utils_schema:naive_env_interpolation(Filename).
 
-read(Filename) ->
-    case file:read_file(Filename) of
+%% An error names the path as it is in the config.
+read(RealName, Filename) ->
+    case file:read_file(RealName) of
         {ok, Secret} ->
             string:trim(Secret, trailing);
         {error, Reason} ->
@@ -102,37 +117,65 @@ read(Filename) ->
             })
     end.
 
+%% Return the name of the file to read. It is the file that the path leads to,
+%% so the file that is checked is the file that is read.
 check_file(Filename) when is_list(Filename) ->
-    case denied_reason(Filename) of
-        false ->
-            ok;
-        Reason ->
-            {error, #{
-                path => unicode:characters_to_binary(Filename),
-                reason => Reason,
-                hint => hint(Reason)
-            }}
+    AllowAll = lists:member(?ALLOW_ALL, allow_list()),
+    case {AllowAll, cookie_file()} of
+        {true, false} ->
+            %% No rule can deny the file, so there is no need to resolve the path.
+            {ok, Filename};
+        _ ->
+            check_real_file(Filename, AllowAll)
     end;
-check_file(_Filename) ->
+check_file(Filename) ->
     %% Not a valid file name. Reading it fails with the usual error.
-    ok.
+    {ok, Filename}.
 
-denied_reason(Filename) ->
-    case is_node_cookie_file(Filename) of
+check_real_file(Filename, AllowAll) ->
+    Components = components(Filename),
+    Real = real_components(Components),
+    case denied_reason(Filename, Real, AllowAll) of
+        false ->
+            {ok, real_name(Filename, Real)};
+        Reason ->
+            {error, with_real_path(denied(Filename, Reason), Components, Real)}
+    end.
+
+denied(Filename, Reason) ->
+    #{
+        path => unicode:characters_to_binary(Filename),
+        reason => Reason,
+        hint => hint(Reason)
+    }.
+
+denied_reason(Filename, Real, AllowAll) ->
+    case is_node_cookie_file(Filename, Real) of
         true ->
             node_cookie_file;
         false ->
-            case is_allowed(Filename, allow_list()) of
+            case AllowAll orelse is_real_allowed(Real, allow_list()) of
                 true -> false;
                 false -> not_in_allow_list
             end
     end.
 
+real_name(_Filename, {ok, Real}) -> join(Real);
+%% The path cannot be resolved. Reading it fails with the usual error.
+real_name(Filename, error) -> Filename.
+
+with_real_path(Report, Components, {ok, Real}) when Real =/= Components ->
+    Report#{real_path => unicode:characters_to_binary(join(Real))};
+with_real_path(Report, _Components, _Real) ->
+    Report.
+
 hint(node_cookie_file) ->
     <<"The file that 'node.cookie' points to cannot be used as a secret.">>;
 hint(not_in_allow_list) ->
     <<
-        "No pattern in 'node.secret_file_allow_list' matches the path. "
+        "No pattern in 'node.secret_file_allow_list' matches the file. "
+        "A pattern is compared with the real path of the file, in which the symbolic "
+        "links are resolved. "
         "Move the file, or add a pattern for it in emqx.conf and restart the node."
     >>.
 
@@ -141,15 +184,39 @@ hint(not_in_allow_list) ->
 allow_list() ->
     emqx_config:get([node, secret_file_allow_list], [?ALLOW_ALL]).
 
-is_node_cookie_file(Filename) ->
+cookie_file() ->
     case os:getenv(?COOKIE_FILE_ENV) of
         false -> false;
         "" -> false;
-        CookieFile -> resolve(components(Filename)) =:= resolve(components(CookieFile))
+        CookieFile -> CookieFile
+    end.
+
+%% The cookie file is recognized as a file, not as a name: a symbolic link or a hard
+%% link to it is the cookie file too.
+is_node_cookie_file(Filename, Real) ->
+    case cookie_file() of
+        false ->
+            false;
+        CookieFile ->
+            is_same_file(Filename, CookieFile) orelse
+                (Real =/= error andalso Real =:= real_components(components(CookieFile)))
+    end.
+
+is_same_file(Filename1, Filename2) ->
+    case {file_id(Filename1), file_id(Filename2)} of
+        {{ok, Id}, {ok, Id}} -> true;
+        _ -> false
+    end.
+
+%% The file system and the inode number identify a file. Links are followed.
+file_id(Filename) ->
+    case file:read_file_info(Filename, [raw]) of
+        {ok, #file_info{major_device = Device, inode = Inode}} -> {ok, {Device, Inode}};
+        {error, _} = Error -> Error
     end.
 
 -doc """
-Return `true` when a pattern in `Patterns` matches `Path`.
+Return `true` when a pattern in `Patterns` matches the file that `Path` leads to.
 
 A pattern is an absolute path in which:
 
@@ -157,21 +224,42 @@ A pattern is an absolute path in which:
 - `?` matches one character inside one path component;
 - `**`, as a whole component, matches any number of components, including none.
 
-`Path` is made absolute before it is compared. Symbolic links are not followed.
-A path that has a `..` component matches no pattern, because the file that it
-names depends on the symbolic links on the way. The one exception is the pattern
-`**` on its own, which allows every path.
+`Path` is made absolute, and its symbolic links and `..` components are resolved,
+before it is compared. So a pattern is compared with the real path of the file,
+and a symbolic link in an allowed directory does not give access to a file
+outside of it. The directory at the start of a pattern, up to its first wildcard,
+can have symbolic links too: the pattern is also tried with them resolved.
+A path that is too long to be opened matches no pattern.
+
+A file in a mounted secret volume is often a symbolic link to a file in a
+subdirectory of the volume. The pattern `<volume>/**` matches such a file, and
+`<volume>/*` does not.
+
+The pattern `**` on its own allows every path.
 """.
 -spec is_allowed(file:filename_all(), [binary() | string()]) -> boolean().
 is_allowed(Path, Patterns) ->
-    lists:member(?ALLOW_ALL, Patterns) orelse is_matched(components(Path), Patterns).
+    lists:member(?ALLOW_ALL, Patterns) orelse
+        is_real_allowed(real_components(components(Path)), Patterns).
 
-is_matched(Components, Patterns) ->
-    (not lists:member("..", Components)) andalso
-        lists:any(
-            fun(Pattern) -> match_components(pattern_components(Pattern), Components) end,
-            Patterns
-        ).
+is_real_allowed({ok, Real}, Patterns) ->
+    lists:any(fun(Pattern) -> match_pattern(pattern_components(Pattern), Real) end, Patterns);
+is_real_allowed(error, _Patterns) ->
+    false.
+
+match_pattern(Pattern, Real) ->
+    match_components(Pattern, Real) orelse match_real_pattern(Pattern, Real).
+
+match_real_pattern(Pattern, Real) ->
+    {Dir, Wildcards} = lists:splitwith(fun is_literal/1, Pattern),
+    case real_components(Dir) of
+        {ok, Dir} -> false;
+        {ok, RealDir} -> match_components(RealDir ++ Wildcards, Real);
+        error -> false
+    end.
+
+is_literal(Component) ->
+    not lists:any(fun(Char) -> Char =:= $* orelse Char =:= $? end, Component).
 
 %%--------------------------------------------------------------------
 %% Paths
@@ -192,13 +280,54 @@ split(Path) ->
         Components -> Components
     end.
 
-%% Remove the `..` components by name, as a shell does for `cd ..`.
-resolve(Components) ->
-    lists:reverse(lists:foldl(fun resolve/2, [], Components)).
+%% `filename:join/1` is not used here: its cost grows with the square of the
+%% number of components.
+join([]) ->
+    "/";
+join(Components) ->
+    lists:append([[$/ | Component] || Component <- Components]).
 
-resolve("..", []) -> [];
-resolve("..", [_ | Acc]) -> Acc;
-resolve(Component, Acc) -> [Component | Acc].
+%% Resolve the symbolic links and the `..` components of a path, one component at
+%% a time, as the operating system does when it opens the file. A component that
+%% does not exist is kept: the path can still be compared, and reading it fails.
+%% The result is `error` when the path cannot lead to a file.
+real_components(Components) ->
+    %% The path can come from an API request. The limit keeps the cost of a check
+    %% small: each component takes one call to the file server.
+    case path_length(Components) =< ?MAX_PATH of
+        true -> real_components(Components, [], ?MAX_LINKS);
+        false -> error
+    end.
+
+path_length(Components) ->
+    lists:foldl(fun(Component, Length) -> Length + length(Component) + 1 end, 0, Components).
+
+real_components([], Acc, _Links) ->
+    {ok, lists:reverse(Acc)};
+real_components([".." | Components], Acc, Links) ->
+    real_components(Components, parent(Acc), Links);
+real_components([Component | Components], Acc, Links) ->
+    case file:read_link_all(join(lists:reverse([Component | Acc]))) of
+        {ok, Target} when Links > 0 ->
+            real_link_target(Target, Components, Acc, Links - 1);
+        {ok, _Target} ->
+            %% Too many links: a loop.
+            error;
+        {error, _NotALink} ->
+            real_components(Components, [Component | Acc], Links)
+    end.
+
+real_link_target(Target, Components, Acc, Links) when is_list(Target) ->
+    case [C || C <- filename:split(Target), C =/= "."] of
+        ["/" | Absolute] -> real_components(Absolute ++ Components, [], Links);
+        Relative -> real_components(Relative ++ Components, Acc, Links)
+    end;
+real_link_target(_RawName, _Components, _Acc, _Links) ->
+    %% The target is not a valid file name in the encoding of the node.
+    error.
+
+parent([]) -> [];
+parent([_ | Acc]) -> Acc.
 
 to_list(Path) when is_binary(Path) -> unicode:characters_to_list(Path);
 to_list(Path) when is_list(Path) -> Path.

@@ -75,10 +75,13 @@ literal_test() ->
     ?assertNot(allowed(P, <<"/run/secrets/DB">>)),
     ?assert(allowed(<<"/secrets/密码/*"/utf8>>, <<"/secrets/密码/db"/utf8>>)).
 
+%% A `..' component is resolved before the path is compared.
 dot_dot_test() ->
-    ?assertNot(allowed(<<"/run/**">>, <<"/run/secrets/../db">>)),
+    ?assert(allowed(<<"/run/**">>, <<"/run/secrets/../db">>)),
+    ?assertNot(allowed(<<"/run/secrets/**">>, <<"/run/secrets/../db">>)),
     ?assertNot(allowed(<<"/run/**">>, <<"/run/secrets/../../etc/passwd">>)),
-    ?assertNot(allowed(<<"/**">>, <<"/run/secrets/../db">>)),
+    ?assert(allowed(<<"/etc/*">>, <<"/run/secrets/../../etc/passwd">>)),
+    ?assertNot(allowed(<<"/run/**">>, <<"/run/../../../etc/passwd">>)),
     %% A name that only starts with dots is a normal name.
     ?assert(allowed(<<"/run/**">>, <<"/run/secrets/..data/db">>)),
     ?assert(allowed(<<"**">>, <<"/run/secrets/../db">>)).
@@ -87,7 +90,7 @@ dot_dot_test() ->
 combining_character_test() ->
     ?assertNot(allowed(<<"/run/secrets/*">>, <<"/run/secrets/a/", 16#301/utf8, "b">>)),
     ?assert(allowed(<<"/run/secrets/*/*">>, <<"/run/secrets/a/", 16#301/utf8, "b">>)),
-    ?assertNot(allowed(<<"/run/**">>, <<"/run/secrets/../", 16#301/utf8, "b">>)).
+    ?assertNot(allowed(<<"/run/secrets/**">>, <<"/run/secrets/../", 16#301/utf8, "b">>)).
 
 relative_path_test() ->
     {ok, Cwd} = file:get_cwd(),
@@ -105,11 +108,18 @@ pattern_list_test() ->
 long_path_test_() ->
     Name = lists:duplicate(200_000, $a),
     Deep = lists:append(lists:duplicate(50_000, "/a")),
+    %% The longest paths that can be opened.
+    MaxName = lists:duplicate(4_000, $a),
+    MaxDeep = lists:append(lists:duplicate(2_000, "/a")),
     {timeout, 30, fun() ->
-        ?assertNot(allowed(<<"/*a*a*a*a*b">>, "/" ++ Name)),
-        ?assert(allowed(<<"/*a*a*a*a*">>, "/" ++ Name)),
-        ?assertNot(allowed(<<"/**/a/**/a/**/a/**/b">>, Deep)),
-        ?assert(allowed(<<"/**/a/**/a/**/a/**">>, Deep))
+        %% A path that is too long to be opened matches no pattern.
+        ?assertNot(allowed(<<"/*a*a*a*a*">>, "/" ++ Name)),
+        ?assertNot(allowed(<<"/**/a/**/a/**/a/**">>, Deep)),
+        ?assert(allowed(<<"**">>, Deep)),
+        ?assertNot(allowed(<<"/*a*a*a*a*b">>, "/" ++ MaxName)),
+        ?assert(allowed(<<"/*a*a*a*a*">>, "/" ++ MaxName)),
+        ?assertNot(allowed(<<"/**/a/**/a/**/a/**/b">>, MaxDeep)),
+        ?assert(allowed(<<"/**/a/**/a/**/a/**">>, MaxDeep))
     end}.
 
 %%--------------------------------------------------------------------
@@ -222,6 +232,117 @@ load_test_() ->
                 ?assertMatch({error, #{reason := node_cookie_file}}, check(File)),
                 ?assertEqual([], denied_logs())
             end}
+        end,
+
+        fun(#{dir := Dir}) ->
+            {"a file in a mounted secret volume is a link that stays in the volume", fun() ->
+                Volume = mounted_volume(Dir, "password", <<"mounted\n">>),
+                %% Each rule is on the file that is opened, which is two levels down.
+                set_allow_list([bin([Volume, "/**"])]),
+                ?assertEqual(<<"mounted">>, load(Volume ++ "/password")),
+                ?assertEqual([], denied_logs()),
+                set_allow_list([bin([Volume, "/password"])]),
+                ?assertEqual(<<"mounted">>, load(Volume ++ "/password")),
+                set_allow_list([bin([Volume, "/*"])]),
+                ?assertEqual([], read_files(fun() -> <<>> = load(Volume ++ "/password") end)),
+                RealPath = bin([Volume, "/..2026_11_19/password"]),
+                ?assertMatch(
+                    [#{reason := not_in_allow_list, real_path := RealPath}],
+                    denied_logs()
+                )
+            end}
+        end,
+        fun(#{dir := Dir, file := File}) ->
+            {"a link in an allowed directory to a file outside of it", fun() ->
+                Allowed = Dir ++ "/allowed",
+                ok = filelib:ensure_dir(Allowed ++ "/x"),
+                ok = file:make_symlink(File, Allowed ++ "/link"),
+                ok = file:make_symlink("..", Allowed ++ "/up"),
+                set_allow_list([bin([Allowed, "/**"])]),
+                ?assertEqual(
+                    [],
+                    read_files(fun() ->
+                        <<>> = load(Allowed ++ "/link"),
+                        <<>> = load(Allowed ++ "/up/secret"),
+                        <<>> = load(Allowed ++ "/../secret")
+                    end)
+                ),
+                FileBin = bin(File),
+                ?assertMatch(
+                    [
+                        #{reason := not_in_allow_list, real_path := FileBin},
+                        #{reason := not_in_allow_list, real_path := FileBin},
+                        #{reason := not_in_allow_list, real_path := FileBin}
+                    ],
+                    denied_logs()
+                ),
+                ?assertMatch({error, #{real_path := FileBin}}, check(Allowed ++ "/link"))
+            end}
+        end,
+        fun(#{dir := Dir, file := File}) ->
+            {"a link outside of an allowed directory to a file in it", fun() ->
+                ok = file:make_symlink(File, Dir ++ "/../" ++ filename:basename(Dir) ++ ".link"),
+                Link = Dir ++ ".link",
+                try
+                    set_allow_list([bin([Dir, "/*"])]),
+                    ?assertEqual([File], read_files(fun() -> <<"secret">> = load(Link) end)),
+                    ?assertEqual([], denied_logs())
+                after
+                    file:delete(Link)
+                end
+            end}
+        end,
+        fun(#{dir := Dir, file := File}) ->
+            {"the directory of a pattern can be a link", fun() ->
+                ok = file:make_symlink(Dir, Dir ++ "/alias"),
+                set_allow_list([bin([Dir, "/alias/*"])]),
+                ?assertEqual(<<"secret">>, load(Dir ++ "/alias/secret")),
+                ?assertEqual(<<"secret">>, load(File)),
+                ?assertEqual([], denied_logs())
+            end}
+        end,
+        fun(#{dir := Dir}) ->
+            {"a loop of links leads to no file", fun() ->
+                ok = file:make_symlink("loop", Dir ++ "/loop"),
+                set_allow_list([bin([Dir, "/**"])]),
+                ?assertEqual(<<>>, load(Dir ++ "/loop")),
+                ?assertMatch([#{reason := not_in_allow_list}], denied_logs())
+            end}
+        end,
+        fun(#{dir := Dir}) ->
+            {"a link to the node cookie file is the node cookie file", fun() ->
+                Cookie = Dir ++ "/cookie",
+                ok = file:write_file(Cookie, <<"cookie">>),
+                ok = file:make_symlink(Cookie, Dir ++ "/symlink"),
+                ok = file:make_symlink("symlink", Dir ++ "/symlink2"),
+                ok = file:make_link(Cookie, Dir ++ "/hardlink"),
+                os:putenv(?COOKIE_FILE_ENV, Dir ++ "/symlink"),
+                ?assertEqual(
+                    [],
+                    read_files(fun() ->
+                        <<>> = load(Cookie),
+                        <<>> = load(Dir ++ "/symlink"),
+                        <<>> = load(Dir ++ "/symlink2"),
+                        <<>> = load(Dir ++ "/hardlink")
+                    end)
+                ),
+                ?assertMatch(
+                    [
+                        #{reason := node_cookie_file},
+                        #{reason := node_cookie_file},
+                        #{reason := node_cookie_file},
+                        #{reason := node_cookie_file}
+                    ],
+                    denied_logs()
+                ),
+                %% A cookie file that does not exist is compared by its path.
+                os:putenv(?COOKIE_FILE_ENV, Dir ++ "/no-such-cookie"),
+                ?assertMatch(
+                    {error, #{reason := node_cookie_file}},
+                    check(Dir ++ "/./no-such-cookie")
+                ),
+                ?assertEqual(<<"cookie">>, load(Cookie))
+            end}
         end
     ]}.
 
@@ -271,6 +392,46 @@ denied_logs() ->
             [Report#{path := unicode:characters_to_list(Path)} | denied_logs()]
     after 0 ->
         []
+    end.
+
+%% A directory as a container platform mounts a secret volume: the file is a link
+%% to a file in a hidden directory, through a second link.
+mounted_volume(Dir, Name, Content) ->
+    Volume = Dir ++ "/volume",
+    Data = Volume ++ "/..2026_11_19",
+    ok = filelib:ensure_dir(Data ++ "/x"),
+    ok = file:write_file(Data ++ "/" ++ Name, Content),
+    ok = file:make_symlink("..2026_11_19", Volume ++ "/..data"),
+    ok = file:make_symlink("..data/" ++ Name, Volume ++ "/" ++ Name),
+    Volume.
+
+%% Run `Fun' and return the names of the files that it reads.
+read_files(Fun) ->
+    Self = self(),
+    Tracer = spawn_link(fun() -> read_files_tracer(Self, []) end),
+    _ = erlang:trace_pattern({file, read_file, 1}, true, []),
+    1 = erlang:trace(Self, true, [call, {tracer, Tracer}]),
+    try
+        Fun()
+    after
+        1 = erlang:trace(Self, false, [call]),
+        _ = erlang:trace_pattern({file, read_file, 1}, false, [])
+    end,
+    Ref = erlang:trace_delivered(Self),
+    receive
+        {trace_delivered, Self, Ref} -> ok
+    end,
+    Tracer ! {stop, Self},
+    receive
+        {read_files, Files} -> Files
+    end.
+
+read_files_tracer(Owner, Acc) ->
+    receive
+        {trace, Owner, call, {file, read_file, [File]}} ->
+            read_files_tracer(Owner, [unicode:characters_to_list(File) | Acc]);
+        {stop, Owner} ->
+            Owner ! {read_files, lists:reverse(Acc)}
     end.
 
 bin(IoData) ->
