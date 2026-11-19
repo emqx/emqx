@@ -5,6 +5,9 @@
 %% And there are a top level config handler maintains the overall config map.
 -module(emqx_config_handler).
 
+%% Config keys are converted to atoms on purpose, see `atom/1`.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
@@ -258,10 +261,10 @@ deep_put_handler([Key0 | KeyPath], Handlers, Mod) ->
 %% [k1, ?, ?], [k1, ?, k2] is not allow.
 check_handler_conflict(Handlers) ->
     Keys = filter_top_level_handlers(Handlers),
-    case lists:member(?WKEY, Keys) of
-        true when length(Keys) =:= 1 -> ok;
-        true -> {error, {conflict, Keys}};
-        false -> ok
+    case {lists:member(?WKEY, Keys), Keys} of
+        {true, [_]} -> ok;
+        {true, _} -> {error, {conflict, Keys}};
+        {false, _} -> ok
     end.
 
 filter_top_level_handlers(Handlers) ->
