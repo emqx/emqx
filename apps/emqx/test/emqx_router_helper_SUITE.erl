@@ -36,6 +36,7 @@ groups() ->
         t_replicant_to_replicant_dispatch,
         t_reregister_members,
         t_reregister_unsubscribed_member,
+        t_reregister_resubscribed_member,
         t_ensure_helper
     ],
     [
@@ -333,10 +334,17 @@ t_reregister_members(Config) ->
     ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic)),
     ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic2)),
     ?assertEqual([], emqx_shared_sub:subscribers(Group2, Topic3)),
-    ?retry(
-        100,
-        50,
-        ?assertEqual([], erpc:call(Replicant, emqx_shared_sub, subscribers, [?GROUP, Topic]))
+    %% All three deletions must reach the replicant before it reconciles again.
+    %% Otherwise, its first run can find only some of the members missing.
+    lists:foreach(
+        fun({G, T}) ->
+            ?retry(
+                100,
+                50,
+                ?assertEqual([], erpc:call(Replicant, emqx_shared_sub, subscribers, [G, T]))
+            )
+        end,
+        [{?GROUP, Topic}, {?GROUP, Topic2}, {Group2, Topic3}]
     ),
     ok = erpc:call(Replicant, sys, resume, [?HELPER]),
     {ok, [Event]} = snabbkaffe:receive_events(SRef),
@@ -363,28 +371,59 @@ t_reregister_members(Config) ->
 -doc """
 The worker that writes lost members back reads the member table of the shared
 subscription server, then writes outside the server. A member that is unsubscribed
-meanwhile can get its row back after the unsubscribe removed it. When the server
-confirms the members that the worker wrote, it removes such a member again, and
-keeps a member that is still subscribed.
+meanwhile can get its row back after the unsubscribe removed it. The worker asks
+the server which of the members that it wrote are unsubscribed, and removes their
+rows again. It keeps the row of a member that is still subscribed. When the removal
+fails, the worker tries again.
 """.
 t_reregister_unsubscribed_member(_Config) ->
     Topic = <<"t/rereg/confirm">>,
     Sub = start_shared_sub(node(), ?GROUP, Topic),
-    %% A live process that is not subscribed, with a row in the table: as a member
-    %% that was unsubscribed before the write of the worker reached the table.
+    %% A live process that is not subscribed: as a member that was unsubscribed
+    %% after the worker read the member table.
     Gone = spawn_link(fun() ->
         receive
             stop -> ok
         end
     end),
-    Row = {emqx_shared_subscription, ?GROUP, Topic, Gone},
-    ok = mria:dirty_write(emqx_shared_subscription, Row),
-    ?assertEqual(lists:sort([Sub, Gone]), lists:sort(emqx_shared_sub:subscribers(?GROUP, Topic))),
+    %% The first attempt to remove the row fails.
+    ?inject_crash(
+        #{?snk_kind := shared_subscription_update_rows, op := delete_object},
+        snabbkaffe_nemesis:recover_after(1)
+    ),
     Members = [{?GROUP, Topic, Sub}, {?GROUP, Topic, Gone}],
-    ok = gen_server:cast(emqx_shared_sub, {reregistered, Members}),
-    _ = sys:get_state(emqx_shared_sub),
+    ?assertEqual(ok, emqx_shared_sub:write_members(Members)),
     ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    Trace = snabbkaffe:collect_trace(0),
+    %% The row of the unsubscribed member was written, then removed at the second
+    %% attempt.
+    ?assertMatch(
+        [#{op := write, members := 2}, #{op := delete_object, members := 1}],
+        ?of_kind(shared_subscription_update_rows, Trace)
+    ),
+    ?assertMatch([_], ?of_kind(snabbkaffe_crash, Trace)),
     Gone ! stop,
+    exit(Sub, kill),
+    ?retry(100, 50, ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic))).
+
+-doc """
+The worker removes the row of a member that the server reported as unsubscribed.
+The member can subscribe again before the delete reaches the core node, and then
+the delete removes the row that the subscribe wrote. The worker asks the server
+again after the delete, and writes the row of such a member back.
+""".
+t_reregister_resubscribed_member(_Config) ->
+    Topic = <<"t/rereg/resub">>,
+    Sub = start_shared_sub(node(), ?GROUP, Topic),
+    %% The member is subscribed: as when it subscribed again after the answer of
+    %% the server.
+    ?assertEqual(ok, emqx_shared_sub:remove_rows([{?GROUP, Topic, Sub}])),
+    ?assertEqual([Sub], emqx_shared_sub:subscribers(?GROUP, Topic)),
+    %% The reconcile of this node can also write the row back, after this write.
+    ?assertMatch(
+        [#{op := delete_object, members := 1}, #{op := write, members := 1} | _],
+        ?of_kind(shared_subscription_update_rows, snabbkaffe:collect_trace(0))
+    ),
     exit(Sub, kill),
     ?retry(100, 50, ?assertEqual([], emqx_shared_sub:subscribers(?GROUP, Topic))).
 

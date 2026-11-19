@@ -58,7 +58,9 @@
 -export([
     subscribers/2,
     strategy/1,
-    initial_sticky_pick/1
+    initial_sticky_pick/1,
+    write_members/1,
+    remove_rows/1
 ]).
 -endif.
 
@@ -108,8 +110,15 @@
 
 %% Registered name of the process that writes lost members back.
 -define(REREGISTER_WORKER, emqx_shared_sub_reregister).
-%% How many members the worker writes before the server confirms them.
+%% How many members the worker writes in one call to a core node.
 -define(REREGISTER_BATCH_SIZE, 100).
+%% How long the worker waits before it tries again to remove rows.
+-define(REREGISTER_RETRY_DELAY, 5_000).
+
+-ifdef(TEST).
+-undef(REREGISTER_RETRY_DELAY).
+-define(REREGISTER_RETRY_DELAY, 100).
+-endif.
 
 -type redispatch_to() :: ?REDISPATCH_TO(emqx_types:group(), emqx_types:topic()).
 
@@ -178,7 +187,7 @@ writes that it took during the partition.
 
 The work runs in a separate process, one at a time, so that a slow write to a core
 node, or a wait for one, does not block the shared subscription server. The server
-only confirms the members that the process wrote, a batch at a time.
+only tells the process which of the members that it wrote are unsubscribed since.
 """.
 -spec reregister() -> ok.
 reregister() ->
@@ -554,6 +563,8 @@ handle_call({purge, Node}, _From, State) ->
     handle_purge_node(Node),
     update_stats(),
     {reply, ok, State};
+handle_call({unsubscribed, Members}, _From, State) ->
+    {reply, lists:filter(fun is_unsubscribed/1, Members), State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
     {reply, ignored, State}.
@@ -561,9 +572,6 @@ handle_call(Req, _From, State) ->
 handle_cast({unsubscribe, Group, Topic, SubPid}, State) ->
     handle_unsubscribe(Group, Topic, SubPid),
     update_stats(),
-    {noreply, State};
-handle_cast({reregistered, Members}, State) ->
-    handle_reregistered(Members),
     {noreply, State};
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", req => Msg}),
@@ -654,22 +662,12 @@ do_reregister() ->
             })
     end.
 
-%% Write the members a batch at a time, and tell the server after each batch, also
-%% when a write fails.
+%% Write the members a batch at a time.
 reregister_batches([], Count) ->
     Count;
 reregister_batches(Missing, Count) ->
     {Batch, Rest} = take_batch(?REREGISTER_BATCH_SIZE, Missing, []),
-    Records = [record(Group, Topic, SubPid) || {Group, Topic, SubPid} <- Batch],
-    try
-        %% A replicant sends the batch to a core node in one call. The core node
-        %% runs `mnesia:write/1`, so it does not need the code of this module.
-        ok = mria:async_dirty(?SHARED_SUB_SHARD, fun lists:foreach/2, [
-            fun mnesia:write/1, Records
-        ])
-    after
-        gen_server:cast(?SERVER, {reregistered, Batch})
-    end,
+    ok = write_members(Batch),
     reregister_batches(Rest, Count + length(Batch)).
 
 take_batch(N, [Member | Rest], Acc) when N > 0 ->
@@ -730,22 +728,60 @@ missing_members(Group, Topics, Acc) ->
         Topics
     ).
 
-%% The worker wrote these members back. It read the member table of this server
-%% before, so a member can be unsubscribed since, and the write of the worker can
-%% reach the core node after the delete of the unsubscribe. This runs in the server,
-%% after the unsubscribe: remove such a member again.
-handle_reregistered(Members) ->
-    lists:foreach(
-        fun({Group, Topic, SubPid}) ->
-            case ets:match_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}) of
-                [_] ->
-                    ok;
-                [] ->
-                    mria:dirty_delete_object(?SHARED_SUBSCRIPTION, record(Group, Topic, SubPid))
-            end
-        end,
-        Members
-    ).
+%% Write the rows of these members, then remove the rows of the members that are
+%% unsubscribed since the worker read the member table of the server: the write of
+%% the worker can reach the core node after the delete of that unsubscribe. This
+%% also runs when the write fails, because it can have reached the core node.
+write_members([]) ->
+    ok;
+write_members(Members) ->
+    Result = update_rows(write, Members),
+    ok = remove_rows(unsubscribed(Members)),
+    ok = Result.
+
+%% Remove the rows of members that are not subscribed.
+remove_rows([]) ->
+    ok;
+remove_rows(Gone) ->
+    case update_rows(delete_object, Gone) of
+        ok ->
+            %% A member can be subscribed again since the answer of the server, and
+            %% the delete can reach the core node after the write of that subscribe.
+            write_members(Gone -- unsubscribed(Gone));
+        {error, Reason} ->
+            %% No later run finds these rows, because their members are not in the
+            %% member table of this node. Keep them, and try again.
+            ?SLOG(warning, #{
+                msg => "shared_subscription_stale_members_not_removed",
+                members => length(Gone),
+                reason => Reason
+            }),
+            timer:sleep(?REREGISTER_RETRY_DELAY),
+            remove_rows(unsubscribed(Gone))
+    end.
+
+%% A replicant sends all the rows to a core node in one call. The core node runs
+%% the function of `mnesia`, so it does not need the code of this module.
+update_rows(Op, Members) ->
+    Records = [record(Group, Topic, SubPid) || {Group, Topic, SubPid} <- Members],
+    try
+        ?tp(shared_subscription_update_rows, #{op => Op, members => length(Members)}),
+        mria:async_dirty(?SHARED_SUB_SHARD, fun lists:foreach/2, [fun mnesia:Op/1, Records])
+    of
+        ok -> ok;
+        %% On a replicant, a failed call to the core node is the result.
+        Error -> {error, Error}
+    catch
+        Class:Reason -> {error, {Class, Reason}}
+    end.
+
+%% The members that are not subscribed now. The server answers after the subscribe
+%% and unsubscribe requests that it got before, so that their writes are done.
+unsubscribed(Members) ->
+    gen_server:call(?SERVER, {unsubscribed, Members}, infinity).
+
+is_unsubscribed({Group, Topic, SubPid}) ->
+    ets:match_object(?SHARED_SUBSCRIBER, {{Group, Topic}, SubPid}) =:= [].
 
 update_stats() ->
     emqx_stats:setstat(
