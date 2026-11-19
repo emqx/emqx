@@ -24,6 +24,7 @@
     has_deprecated_file/0,
     delete_override_conf_files/0,
     check_config/2,
+    check_config/3,
     fill_defaults/1,
     fill_defaults/2,
     normalize_raw_conf/1,

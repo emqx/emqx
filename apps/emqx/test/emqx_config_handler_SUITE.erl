@@ -123,6 +123,10 @@ get_config(TCConfig, KeyPath) when is_list(TCConfig) ->
 remove_config(TCConfig, KeyPath) ->
     emqx:remove_config(KeyPath, update_config_opts(TCConfig)).
 
+pre_config_update([secret_file_test], #{<<"secret">> := FileRef} = UpdateReq, _RawConf, _) ->
+    Secret = emqx_schema_secret:convert_secret(FileRef, #{}),
+    ets:insert(?pre_post_table, {pre_secret, emqx_secret:unwrap(Secret)}),
+    {ok, UpdateReq};
 pre_config_update([sysmon], UpdateReq, _RawConf, ExtraContext) ->
     ets:insert(?pre_post_table, {pre, #{extra_context => ExtraContext}}),
     {ok, UpdateReq};
@@ -157,6 +161,9 @@ propagated_pre_config_update(_ConfKeyPath, _UpdateReq, _RawConf, ExtraContext) -
     ets:insert(?pre_post_table, {propagated_pre, #{extra_context => ExtraContext}}),
     ok.
 
+post_config_update([secret_file_test], _UpdateReq, #{secret := Secret}, _OldConf, _AppEnvs, _) ->
+    ets:insert(?pre_post_table, {post_secret, emqx_secret:unwrap(Secret)}),
+    ok;
 post_config_update(
     [sysmon], _UpdateReq, _NewConf, _OldConf, _AppEnvs, ExtraContext
 ) ->
@@ -192,6 +199,18 @@ propagated_post_config_update(
     _ConfKeyPath, _UpdateReq, _NewConf, _OldConf, _AppEnvs, ExtraContext
 ) ->
     ets:insert(?pre_post_table, {propagated_post, #{extra_context => ExtraContext}}),
+    ok.
+
+%% The schema of `t_secret_file'. The validator records what it gets for the secret.
+roots() ->
+    [{secret_file_test, hoconsc:mk(hoconsc:ref(?MODULE, secret_file_test), #{})}].
+
+fields(secret_file_test) ->
+    [{secret, emqx_schema_secret:mk(#{validator => fun ?MODULE:validate_test_secret/2})}].
+
+validate_test_secret(Secret, Opts) ->
+    Result = emqx_schema_secret:unwrap_in_validator(Secret, Opts),
+    ets:insert(?pre_post_table, {validator_secret, Result}),
     ok.
 
 wait_for_new_pid() ->
@@ -413,6 +432,53 @@ t_check_failed(TCConfig) when is_list(TCConfig) ->
     New = get_raw_config(TCConfig, KeyPath),
     ?assertEqual(Origin, New),
     ok.
+
+%% An update of the global config can read the file of a `file://' secret, in the
+%% validators and in the callbacks. No step of an update of a namespace config can.
+t_secret_file() ->
+    [{matrix, true}].
+t_secret_file(matrix) ->
+    [[?global], [?namespace]];
+t_secret_file(TCConfig) when is_list(TCConfig) ->
+    File = filename:join(?config(priv_dir, TCConfig), "secret"),
+    ok = file:write_file(File, <<"secret">>),
+    KeyPath = [secret_file_test],
+    ok = emqx_config:add_allowed_namespaced_config_root(<<"secret_file_test">>),
+    ok = add_handler(KeyPath, ?MODULE),
+    on_exit(fun() -> emqx_config:erase(secret_file_test) end),
+    Update = fun(Opts) ->
+        ets:delete_all_objects(?pre_post_table),
+        Req = #{<<"secret">> => iolist_to_binary(["file://", File])},
+        Reads = emqx_common_test_helpers:file_reads(fun() ->
+            ?assertMatch(
+                {ok, _},
+                emqx_config_handler:update_config(?MODULE, KeyPath, {{update, Req}, Opts})
+            )
+        end),
+        {lists:sort(ets:tab2list(?pre_post_table)), [F || F <- Reads, F =:= File]}
+    end,
+    GlobalResult = {
+        [
+            {post_secret, <<"secret">>},
+            {pre_secret, <<"secret">>},
+            {validator_secret, {value, <<"secret">>}}
+        ],
+        [File, File, File]
+    },
+    case is_namespaced(TCConfig) of
+        false ->
+            ?assertEqual(GlobalResult, Update(#{persistent => false}));
+        true ->
+            ?assertEqual(
+                {
+                    [{post_secret, <<>>}, {pre_secret, <<>>}, {validator_secret, file}],
+                    []
+                },
+                Update(#{namespace => ?NS})
+            ),
+            %% The rule ends with the update of the namespace config.
+            ?assertEqual(GlobalResult, Update(#{persistent => false}))
+    end.
 
 t_stop(_Config) ->
     OldPid = erlang:whereis(emqx_config_handler),

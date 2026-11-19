@@ -345,6 +345,31 @@ load_test_() ->
             end}
         end,
         fun(#{file := File}) ->
+            {"no file is read for a config of a namespace", fun() ->
+                ?assertEqual(
+                    [],
+                    read_files(fun() ->
+                        <<>> = emqx_secret_loader:in_namespace(<<"ns1">>, fun() -> load(File) end)
+                    end)
+                ),
+                ?assertMatch(
+                    [#{path := Path, reason := namespace, namespace := <<"ns1">>}] when
+                        Path =:= File,
+                    denied_logs()
+                ),
+                ?assertMatch(
+                    {error, #{reason := namespace}},
+                    emqx_secret_loader:in_namespace(<<"ns1">>, fun() -> check(File) end)
+                ),
+                %% The rule ends with the function, also when the function fails.
+                ?assertError(
+                    oops,
+                    emqx_secret_loader:in_namespace(<<"ns1">>, fun() -> error(oops) end)
+                ),
+                ?assertEqual([File], read_files(fun() -> <<"secret">> = load(File) end))
+            end}
+        end,
+        fun(#{file := File}) ->
             {"a denied read raises the alarm", fun() ->
                 set_allow_list([]),
                 %% No alarm server, as in a config check at boot.

@@ -240,11 +240,12 @@ create_dry_run(Namespace, Type, Conf0, Callback) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     try
+        CheckOpts = emqx_schema_secret:check_opts(Namespace),
         CheckedConf1 =
             hocon_tconf:check_plain(
                 emqx_connector_schema,
                 RawConf,
-                #{atom_key => true, required => false}
+                CheckOpts#{atom_key => true, required => false}
             ),
         CheckedConf2 = get_temp_conf(TypeAtom, CheckedConf1),
         CheckedConf = CheckedConf2#{connector_type => TypeBin, connector_name => TmpName},

@@ -810,11 +810,12 @@ create_dry_run(Namespace, ConfRootKey, Type, Conf0) ->
     RawConf = #{ConfRootKeyBin => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     %% Check config
     try
+        CheckOpts = emqx_schema_secret:check_opts(Namespace),
         CheckedConf =
             hocon_tconf:check_plain(
                 emqx_bridge_v2_schema,
                 RawConf,
-                #{atom_key => true, required => false}
+                CheckOpts#{atom_key => true, required => false}
             ),
         #{<<"connector">> := ConnectorName} = Conf1,
         Name = maps:get(<<"name">>, Conf0, <<"dryrun">>),

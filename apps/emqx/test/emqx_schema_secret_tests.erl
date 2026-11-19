@@ -59,3 +59,32 @@ deny_file_sources_no_change_test() ->
     ?assertEqual({Conf, []}, emqx_schema_secret:deny_file_sources(Conf)),
     ?assertEqual([], emqx_schema_secret:file_sources(Conf)),
     ?assertEqual({undefined, []}, emqx_schema_secret:deny_file_sources(undefined)).
+
+%% A validator reads the file of a `file://' secret only in a check of the global config.
+unwrap_in_validator_test() ->
+    File = filename:join("/tmp", ?MODULE_STRING ++ "-" ++ os:getpid()),
+    ok = file:write_file(File, <<"from-file\n">>),
+    try
+        FileSecret = secret(iolist_to_binary(["file://", File])),
+        Unwrap = fun(Secret, Opts) -> emqx_schema_secret:unwrap_in_validator(Secret, Opts) end,
+        Global = emqx_schema_secret:check_opts(global),
+        Namespace = emqx_schema_secret:check_opts(<<"ns1">>),
+        %% A check with no options: at boot, of an API request body, in a dry run.
+        NoReads = emqx_common_test_helpers:file_reads(fun() ->
+            file = Unwrap(FileSecret, #{}),
+            file = Unwrap(FileSecret, #{maybe_obfuscated => true}),
+            file = Unwrap(FileSecret, Namespace)
+        end),
+        ?assertEqual([], NoReads),
+        Reads = emqx_common_test_helpers:file_reads(fun() ->
+            {value, <<"from-file">>} = Unwrap(FileSecret, Global)
+        end),
+        ?assertEqual([File], Reads),
+        %% A secret that is not from a file has its value in each check.
+        Plain = secret(<<"plain">>),
+        ?assertEqual({value, <<"plain">>}, Unwrap(Plain, #{})),
+        ?assertEqual({value, <<"plain">>}, Unwrap(Plain, Global)),
+        ?assertEqual({value, <<"raw">>}, Unwrap(<<"raw">>, #{}))
+    after
+        file:delete(File)
+    end.

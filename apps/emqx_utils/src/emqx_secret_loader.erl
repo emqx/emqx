@@ -29,9 +29,10 @@ secret can read:
 - The file that `node.cookie` points to is never read. Only the boot script reads
   it, before the node starts. The script passes its path to the node in the
   environment variable `EMQX_NODE_COOKIE_FILE`.
+- No file is read for a config of a namespace, see `in_namespace/2`.
 
-Both rules apply to the file that is opened: the symbolic links in the path are
-resolved first, and that file is the one that is read.
+The first two rules apply to the file that is opened: the symbolic links in the
+path are resolved first, and that file is the one that is read.
 
 When the file is not allowed, the secret is an empty binary, an error log names
 the path, and the alarm `secret_file_read_denied` is raised. The caller gets no
@@ -45,6 +46,7 @@ it uses the secret.
 %% API
 -export([load/1, check/1]).
 -export([file/1]).
+-export([in_namespace/2]).
 -export([raise_denied_alarm/0]).
 
 %% Internal exports
@@ -57,7 +59,9 @@ it uses the secret.
     path := binary(),
     %% The file that the path leads to, when it is not `path` itself.
     real_path => binary(),
-    reason := node_cookie_file | not_in_allow_list,
+    %% The namespace of the config, when the reason is `namespace`.
+    namespace => binary(),
+    reason := namespace | node_cookie_file | not_in_allow_list,
     hint := binary()
 }.
 
@@ -70,6 +74,9 @@ it uses the secret.
 -define(MAX_LINKS, 40).
 %% The length of the longest path that can be opened, as on Linux.
 -define(MAX_PATH, 4096).
+
+%% The process dictionary key for the namespace of `in_namespace/2`.
+-define(NAMESPACE, {?MODULE, namespace}).
 
 -define(ALARM, secret_file_read_denied).
 -define(ALARM_MESSAGE, <<
@@ -112,6 +119,27 @@ file(Filename0) ->
     end.
 
 -doc """
+Run `Fun` for a config of `Namespace`: in it, the calling process reads no file
+for a secret.
+
+`emqx_config_handler` uses it for an update of a namespace config, so no step of
+the update can read a file. The code that starts a connector, an action or a
+source of a namespace runs in other processes: it removes the `file://` secrets
+from the config before it uses the config.
+""".
+-spec in_namespace(binary(), fun(() -> Result)) -> Result.
+in_namespace(Namespace, Fun) when is_binary(Namespace) ->
+    Old = erlang:put(?NAMESPACE, Namespace),
+    try
+        Fun()
+    after
+        case Old of
+            undefined -> erlang:erase(?NAMESPACE);
+            _ -> erlang:put(?NAMESPACE, Old)
+        end
+    end.
+
+-doc """
 Raise the alarm that tells that a secret was not allowed to read its file.
 
 The caller logs the denied read. The alarm has no detail of it, and nothing clears
@@ -150,6 +178,17 @@ read(RealName, Filename) ->
 %% Return the name of the file to read. It is the file that the path leads to,
 %% so the file that is checked is the file that is read.
 check_file(Filename) when is_list(Filename) ->
+    case erlang:get(?NAMESPACE) of
+        undefined ->
+            check_global_file(Filename);
+        Namespace ->
+            {error, (denied(Filename, namespace))#{namespace => Namespace}}
+    end;
+check_file(Filename) ->
+    %% Not a valid file name. Reading it fails with the usual error.
+    {ok, Filename}.
+
+check_global_file(Filename) ->
     AllowAll = lists:member(?ALLOW_ALL, allow_list()),
     case {AllowAll, cookie_file()} of
         {true, false} ->
@@ -157,10 +196,7 @@ check_file(Filename) when is_list(Filename) ->
             {ok, Filename};
         _ ->
             check_real_file(Filename, AllowAll)
-    end;
-check_file(Filename) ->
-    %% Not a valid file name. Reading it fails with the usual error.
-    {ok, Filename}.
+    end.
 
 check_real_file(Filename, AllowAll) ->
     Components = components(Filename),
@@ -199,6 +235,8 @@ with_real_path(Report, Components, {ok, Real}) when Real =/= Components ->
 with_real_path(Report, _Components, _Real) ->
     Report.
 
+hint(namespace) ->
+    <<"A config of a namespace cannot use a 'file://' secret. Set the value directly.">>;
 hint(node_cookie_file) ->
     <<"The file that 'node.cookie' points to cannot be used as a secret.">>;
 hint(not_in_allow_list) ->

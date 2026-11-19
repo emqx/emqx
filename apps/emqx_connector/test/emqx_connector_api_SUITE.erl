@@ -2034,6 +2034,8 @@ t_namespaced_secret_file(TCConfig) ->
     ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_global">>, WithFile, TCConfig)),
     ?assertEqual([Content], start_passwords(<<"in_global">>, TCConfig)),
     ?assertEqual([], denied_alarms(TCConfig)),
+    %% From here to the end of the probes, nothing reads the file.
+    Spy = start_file_read_spy(TCConfig),
     ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
     ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
     ?assertMatch([_], denied_alarms(TCConfig)),
@@ -2060,6 +2062,7 @@ t_namespaced_secret_file(TCConfig) ->
     ?assertMatch([_], denied_alarms(TCConfig)),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithPlain, TCConfigNS1)),
     ?assertEqual([<<"plain">>], start_passwords(all, TCConfig)),
+    ?assertEqual([], secret_file_reads(Spy, File, TCConfig)),
     reset_denied_alarm(TCConfig),
     reset_start_history(TCConfig),
     ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithFile, TCConfig)),
@@ -2133,6 +2136,85 @@ t_namespaced_action_secret_file(TCConfig) ->
     ?assertEqual([], channel_private_keys(all, TCConfig)),
     reset_denied_alarm(TCConfig),
     ok.
+
+-doc """
+A schema validator reads the file of a `file://` secret only in an update or a probe
+of the global config. For a namespace, no step reads the file: not the check of the
+request body, not the update, not a probe. The validator of this connector type looks
+at the value of its secret.
+""".
+t_secret_file_in_validator(TCConfig) ->
+    #{inside := File} = setup_secret_files(?FUNCTION_NAME, TCConfig),
+    <<"file://", Path/binary>> = File,
+    TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(<<"ns1">>, TCConfig)} | TCConfig],
+    Type = <<"gcp_pubsub_producer">>,
+    WithFile = #{
+        <<"authentication">> => #{
+            <<"type">> => <<"service_account_json">>,
+            <<"service_account_json">> => File
+        }
+    },
+    %% The file does not have a service account in it.
+    Spy1 = start_file_read_spy(TCConfig),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                <<"value">> := <<"******">>
+            }
+        }},
+        create(Type, <<"in_global">>, WithFile, TCConfig)
+    ),
+    ?assertMatch([_ | _], secret_file_reads(Spy1, File, TCConfig)),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                <<"value">> := <<"******">>
+            }
+        }},
+        probe(Type, WithFile, TCConfig)
+    ),
+    reset_denied_alarm(TCConfig),
+    Spy2 = start_file_read_spy(TCConfig),
+    ?assertMatch({201, _}, create(Type, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertMatch({200, _}, update(Type, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe(Type, WithFile, TCConfigNS1)
+    ),
+    ?assertEqual([], secret_file_reads(Spy2, File, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
+    %% With a service account in the file, the global config takes it.
+    ServiceAccount = #{
+        <<"type">> => <<"service_account">>,
+        <<"project_id">> => <<"project">>,
+        <<"private_key_id">> => <<"key-id">>,
+        <<"private_key">> => <<"key">>,
+        <<"client_email">> => <<"test@project.iam.gserviceaccount.com">>
+    },
+    ok = file:write_file(Path, emqx_utils_json:encode(ServiceAccount)),
+    ?assertMatch({201, _}, create(Type, <<"in_global">>, WithFile, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ok.
+
+%% Start to record the files that the node of the test reads.
+start_file_read_spy(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(Node, emqx_common_test_helpers:start_file_read_spy()).
+
+%% Stop the spy, and return the reads of the file of `FileRef' since the spy started.
+secret_file_reads(Spy, <<"file://", Path/binary>>, TCConfig) ->
+    Node = ?config(node, TCConfig),
+    Reads = ?ON(Node, emqx_common_test_helpers:stop_file_read_spy(Spy)),
+    [Read || Read <- Reads, Read =:= binary_to_list(Path)].
 
 %% The active alarms for a denied read of a secret file, on the node of the test.
 denied_alarms(TCConfig) ->
