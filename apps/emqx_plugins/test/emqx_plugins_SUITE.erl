@@ -843,7 +843,7 @@ t_install_other_version_hint(_Config) ->
             msg := "plugin_app_loaded_outside_package",
             name := upgrader,
             hint :=
-                <<"Plugin upgrader-1.0.0 is loaded. Uninstall it or restart the node, then retry.">>
+                <<"Plugin upgrader-1.0.0 is loaded. Uninstall it, then retry.">>
         }},
         emqx_plugins:ensure_installed(V2, ?fresh_install)
     ),
