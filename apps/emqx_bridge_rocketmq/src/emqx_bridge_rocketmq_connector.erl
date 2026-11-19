@@ -299,7 +299,7 @@ destroy_allocated_channel_resources(ConnResId, ChanResId) ->
                             ProducerGroup,
                             Resources
                         );
-                    {_, <<ChanResId:(byte_size(ChanResId))/binary, "-", _/binary>>} ->
+                    {_, <<ChanResId:(byte_size(ChanResId))/binary, "_", _/binary>>} ->
                         do_destroy_producer_cache(
                             ConnResId,
                             ProducerGroup,
