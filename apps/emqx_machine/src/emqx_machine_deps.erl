@@ -51,13 +51,22 @@ Anything that can depend on something or be a dependency of something is a verte
 """.
 vertices() ->
     [
+        %% Business apps are starting:
         emqx_rl_boot,
+        %% Peers can join:
+        emqx_rl_joinable,
+        %% System is fully ready:
         emqx_rl_ready
     ].
 
 -doc """
 This function allows to restrict the closed interval of allowed run levels for a vertex.
 """.
+range(emqx_rl_joinable) ->
+    %% EMQX should become "joinable" (i.e. being able to accept joins
+    %% from other nodes) *before* reaching cluster RL - otherwise no
+    %% cluster will ever form:
+    {?min_level, ?classy_rl_cluster - 1};
 range(_) ->
     {?min_level, ?max_level}.
 
@@ -82,7 +91,8 @@ means "B depends on A".
 """.
 edges() ->
     [
-        {emqx_rl_boot, emqx_rl_ready, []}
+        {emqx_rl_boot, emqx_rl_ready, []},
+        {emqx_rl_boot, emqx_rl_joinable, []}
     ].
 
 -doc """
@@ -133,6 +143,7 @@ generate(Filename) ->
             [io_lib:format("-define(~s, ~s).~n", [A, B]) || {A, B} <- RunLevels],
             ~"""
             -endif.
+
             """
         ]
     ).
