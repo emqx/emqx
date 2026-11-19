@@ -212,7 +212,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.2", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2", override: true}
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2.1", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.18.1-2", override: true}
@@ -270,7 +270,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, github: "emqx/cowlib", tag: "2.14.0-emqx-1", override: true}
+    do: {:cowlib, github: "emqx/cowlib", tag: "2.14.0-emqx-2", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
