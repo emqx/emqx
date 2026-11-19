@@ -340,13 +340,6 @@ The main admin UI is served through the plugin API gateway:
 /api/v5/plugin_api/emqx_agent/ui
 ```
 
-Additional pages:
-
-```text
-/api/v5/plugin_api/emqx_agent/builder/ui
-/api/v5/plugin_api/emqx_agent/apple-box/ui
-```
-
 The same management surface is available through plugin API paths under `/api/v5/plugin_api/emqx_agent`:
 
 | Path | Purpose |
@@ -365,12 +358,19 @@ The same management surface is available through plugin API paths under `/api/v5
 
 ## Demo Pages
 
-The plugin includes two browser demos:
+The source tree includes two standalone browser demos. The plugin bundle does not include them.
 
-- **Pipeline Builder** at `/builder/ui`: a chat-style interface for building event-driven AI workflows.
-- **Apple Box Conveyor** at `/apple-box/ui`: an MQTT/AI workflow demo that simulates inspecting apple boxes.
+- **Pipeline Builder**: a chat-style interface for building event-driven AI workflows.
+- **Apple Box Conveyor**: an MQTT/AI workflow demo that simulates inspecting apple boxes.
 
-Provision demo resources from the repository root after EMQX is running with the plugin enabled. Both demos require an OpenAI-compatible API key:
+Serve the demo files locally from the repository root:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1 --directory plugins/emqx_agent/examples
+```
+
+Run EMQX with the plugin enabled before provisioning demo resources.
+Both demos require an OpenAI-compatible API key:
 
 ```bash
 export OPENAI_API_KEY='sk-...'
@@ -393,11 +393,9 @@ Provision the Apple Box Conveyor demo:
 python3 plugins/emqx_agent/demo_apple_box_init.py
 ```
 
-The script creates the `apple-inspector` AI provider, a PostgreSQL connection, apple-box tools, a database table, and an active `apple-box-inspection` pipeline. Open the UI at:
-
-```text
-/api/v5/plugin_api/emqx_agent/apple-box/ui
-```
+The script creates the `apple-inspector` AI provider, a PostgreSQL connection, apple-box tools,
+a database table, and an active `apple-box-inspection` pipeline.
+Open the [Apple Box Conveyor page](http://127.0.0.1:8000/apple-box.html).
 
 Provision the Pipeline Builder demo:
 
@@ -405,11 +403,12 @@ Provision the Pipeline Builder demo:
 python3 plugins/emqx_agent/demo_builder_init.py
 ```
 
-The script creates the builder AI provider, a PostgreSQL connection, builder meta-tools, a reply tool, a database table, and an active `pipeline-builder` pipeline. Open the UI at:
+The script creates the builder AI provider, a PostgreSQL connection, builder meta-tools,
+a reply tool, a database table, and an active `pipeline-builder` pipeline.
+Open the [Pipeline Builder page](http://127.0.0.1:8000/builder.html).
 
-```text
-/api/v5/plugin_api/emqx_agent/builder/ui
-```
+In either demo, set **Broker WS** to your EMQX MQTT WebSocket URL and select **Connect**.
+The default URL is `ws://localhost:8083/mqtt`.
 
 The Apple Box initializer recreates its named demo assets. The Pipeline Builder initializer and the teardown script delete all configured Agent pipelines, tools, and connections, including resources unrelated to the demos. To run the teardown script:
 
