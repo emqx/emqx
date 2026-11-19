@@ -314,6 +314,68 @@ t_init_zones_load_other_schema(Config) when is_list(Config) ->
         emqx_config:get([zones, default])
     ).
 
+%% `node.secret_file_allow_list' is in place before the config is checked at boot,
+%% so it applies to a `file://' secret that the check unwraps.
+t_init_load_secret_file_allow_list({init, Config}) ->
+    Config;
+t_init_load_secret_file_allow_list({'end', _Config}) ->
+    persistent_term:erase({?MODULE, secret_in_check}),
+    emqx_config:erase_all(),
+    ok = emqx_config:init_load(emqx_schema, <<"">>);
+t_init_load_secret_file_allow_list(Config) when is_list(Config) ->
+    Dir = ?config(priv_dir, Config),
+    File = filename:join(Dir, "secret"),
+    ok = file:write_file(File, <<"secret">>),
+    InitLoad = fun(NodeConf) ->
+        emqx_config:erase_all(),
+        persistent_term:erase({?MODULE, secret_in_check}),
+        Conf = #{
+            <<"node">> => NodeConf,
+            <<"secret_file_test">> => #{<<"secret">> => iolist_to_binary(["file://", File])}
+        },
+        Reads = emqx_common_test_helpers:file_reads(fun() ->
+            ok = emqx_config:init_load(?MODULE, emqx_utils_json:encode(Conf))
+        end),
+        {persistent_term:get({?MODULE, secret_in_check}), [F || F <- Reads, F =:= File]}
+    end,
+    %% An empty list: the check gets an empty secret, and the file is not read.
+    ?assertEqual({<<>>, []}, InitLoad(#{<<"secret_file_allow_list">> => []})),
+    ?assertEqual([], emqx_config:get([node, secret_file_allow_list])),
+    ?assertEqual(
+        {<<>>, []},
+        InitLoad(#{<<"secret_file_allow_list">> => [<<"/no/such/dir/*">>]})
+    ),
+    %% A pattern for the file, and the default of the schema, which allows every path.
+    Pattern = iolist_to_binary([Dir, "/*"]),
+    ?assertEqual(
+        {<<"secret">>, [File]},
+        InitLoad(#{<<"secret_file_allow_list">> => [Pattern]})
+    ),
+    ?assertEqual([Pattern], emqx_config:get([node, secret_file_allow_list])),
+    ?assertEqual({<<"secret">>, [File]}, InitLoad(#{})),
+    ?assertEqual([<<"**">>], emqx_config:get([node, secret_file_allow_list])).
+
+%% The schema of `t_init_load_secret_file_allow_list'. The validator stands for a
+%% config check that unwraps a secret.
+roots() ->
+    [node, secret_file_test].
+
+fields(node) ->
+    [
+        {secret_file_allow_list,
+            hoconsc:mk(hoconsc:array(typerefl:binary()), #{default => [<<"**">>]})}
+    ];
+fields(secret_file_test) ->
+    [
+        {secret,
+            emqx_schema_secret:mk(#{
+                validator => fun(Secret) ->
+                    persistent_term:put({?MODULE, secret_in_check}, emqx_secret:unwrap(Secret)),
+                    ok
+                end
+            })}
+    ].
+
 t_default_strict_mode_is_true(Config) when is_list(Config) ->
     emqx_config:erase_all(),
     %% Given an empty config that does not set mqtt.strict_mode

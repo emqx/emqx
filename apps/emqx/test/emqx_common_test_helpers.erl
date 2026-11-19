@@ -113,6 +113,8 @@
 
 -export([seed_defaults_for_all_roots_namespaced_cluster/2]).
 
+-export([file_reads/1, start_file_read_spy/0, stop_file_read_spy/1]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 -define(SECURITY_PROFILE_ENV_VAR, "EMQX_SECURITY_PROFILE").
 -define(DEFAULT_ADDRESS_CONF_KEY, [node, default_listener_address]).
@@ -1536,3 +1538,54 @@ seed_defaults_for_all_roots_namespaced_cluster(SchemaMod, Namespace) ->
         seed_defaults_for_all_roots_namespaced,
         [SchemaMod, Namespace]
     ).
+
+%%------------------------------------------------------------------------------
+%% File read spy
+%%------------------------------------------------------------------------------
+
+%% @doc Run `Fun' and return the names of the files that the node reads with
+%% `file:read_file' while it runs, in any process.
+-spec file_reads(fun(() -> _)) -> [file:filename()].
+file_reads(Fun) ->
+    Spy = start_file_read_spy(),
+    try
+        Fun()
+    after
+        ok
+    end,
+    stop_file_read_spy(Spy).
+
+%% @doc Start to record the files that the node reads with `file:read_file'.
+%% To watch a peer node, call this function and `stop_file_read_spy/1' on that node.
+-spec start_file_read_spy() -> pid().
+start_file_read_spy() ->
+    Spy = spawn(fun() -> file_read_spy([]) end),
+    _ = erlang:trace_pattern({file, read_file, '_'}, true, []),
+    _ = erlang:trace(all, true, [call, {tracer, Spy}]),
+    Spy.
+
+%% @doc Stop the spy and return the names of the files that were read.
+-spec stop_file_read_spy(pid()) -> [file:filename()].
+stop_file_read_spy(Spy) ->
+    _ = erlang:trace(all, false, [call]),
+    _ = erlang:trace_pattern({file, read_file, '_'}, false, []),
+    Ref = erlang:trace_delivered(all),
+    receive
+        {trace_delivered, all, Ref} -> ok
+    end,
+    Spy ! {stop, self()},
+    receive
+        {file_reads, Spy, Files} -> Files
+    after 5_000 ->
+        error(file_read_spy_timeout)
+    end.
+
+file_read_spy(Acc) ->
+    receive
+        {trace, _Pid, call, {file, read_file, [File | _]}} ->
+            file_read_spy([unicode:characters_to_list(File) | Acc]);
+        {stop, From} ->
+            From ! {file_reads, self(), lists:reverse(Acc)};
+        _Other ->
+            file_read_spy(Acc)
+    end.

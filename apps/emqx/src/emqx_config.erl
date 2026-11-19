@@ -544,12 +544,27 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
         end,
     RawConf3 = upgrade_raw_conf(SchemaMod, RawConf2),
     RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf3),
+    ok = init_secret_file_allow_list(RawConf),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf),
     maybe_init_default_zone(),
     load_namespaced_configs(),
+    ok.
+
+%% Put `node.secret_file_allow_list` in place before the config is checked, so that
+%% the setting applies to a `file://` secret that is unwrapped in the check. The
+%% check stores the checked value later. A value that is not a list of patterns
+%% allows no file: the check fails for it.
+init_secret_file_allow_list(#{<<"node">> := #{<<"secret_file_allow_list">> := AllowList}}) ->
+    Patterns =
+        case is_list(AllowList) of
+            true -> [Pattern || Pattern <- AllowList, is_binary(Pattern)];
+            false -> []
+        end,
+    ?MODULE:put([node, secret_file_allow_list], Patterns);
+init_secret_file_allow_list(#{}) ->
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->
