@@ -40,6 +40,18 @@
 -define(without_batch, without_batch).
 -define(with_batch, with_batch).
 
+%% taken from `rocketmq_producers`
+-record(state, {
+    topic,
+    client_id,
+    workers,
+    producer_opts,
+    producers_ref = #{},
+    producer_group,
+    broker_datas,
+    ref_topic_route_interval = 5000
+}).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -208,6 +220,11 @@ create_connector_api(TCConfig, Overrides) ->
 create_action_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+update_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_bridge_api(TCConfig, Overrides)
     ).
 
 delete_action_api(TCConfig) ->
@@ -655,6 +672,38 @@ t_cleanup_resources(TCConfig) when is_list(TCConfig) ->
             ?assertMatch([], Producers0 -- Producers2, Ctx),
             ?assertMatch([], Producers2 -- Producers0, Ctx)
         end
+    ),
+    ok.
+
+%% reproduces https://github.com/emqx/emqx/issues/20134
+t_strategy_update(TCConfig) ->
+    Topic = ~"TopicTest",
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, #{~"status" := ~"connected"}} = create_action_api(TCConfig, #{
+        ~"parameters" => #{
+            ~"topic" => Topic,
+            ~"strategy" => ~"roundrobin"
+        }
+    }),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(#{clientid => Topic}),
+    emqtt:publish(C, RuleTopic, ~"hey", [{qos, 1}]),
+    ?assertMatch(
+        {200, #{
+            ~"status" := ~"connected",
+            ~"parameters" := #{~"strategy" := ~"${clientid}"}
+        }},
+        update_action_api(TCConfig, #{
+            ~"parameters" => #{
+                ~"topic" => Topic,
+                ~"strategy" => ~"${clientid}"
+            }
+        })
+    ),
+    emqtt:publish(C, RuleTopic, ~"hey", [{qos, 1}]),
+    ?assertMatch(
+        [#state{producer_opts = #{partitioner := key_dispatch}}],
+        [sys:get_state(P) || {_, P, _, _} <- supervisor:which_children(rocketmq_producers_sup)]
     ),
     ok.
 
