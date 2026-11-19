@@ -689,6 +689,10 @@ t_strategy_update(TCConfig) ->
     C = start_client(#{clientid => Topic}),
     emqtt:publish(C, RuleTopic, ~"hey", [{qos, 1}]),
     ?assertMatch(
+        [#state{producer_opts = #{partitioner := roundrobin}}],
+        [sys:get_state(P) || {_, P, _, _} <- supervisor:which_children(rocketmq_producers_sup)]
+    ),
+    ?assertMatch(
         {200, #{
             ~"status" := ~"connected",
             ~"parameters" := #{~"strategy" := ~"${clientid}"}
