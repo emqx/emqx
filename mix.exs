@@ -183,7 +183,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, "2.7.0", override: true}
+  def common_dep(:gun), do: {:gun, "2.8.0", override: true}
   # in conflict by cowboy_swagger and cowboy
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-5", override: true}
 
@@ -198,7 +198,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.2", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2", override: true}
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-6", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
@@ -266,7 +266,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.21.0", override: true}
+    do: {:cowlib, "2.22.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
