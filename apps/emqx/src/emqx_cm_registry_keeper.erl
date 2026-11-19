@@ -293,7 +293,7 @@ do_run_chunk(Cursor, State0) ->
     %% A gone-node verdict is valid for one chunk only. The node can restart
     %% before the next chunk, and the rows of its new channels must stay.
     {NewNext, State1} = run_chunk_loop(
-        Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0#{gone_nodes := sets:new()}
+        Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0#{gone_nodes := sets:new([{version, 2}])}
     ),
     case NewNext of
         '$end_of_table' ->
