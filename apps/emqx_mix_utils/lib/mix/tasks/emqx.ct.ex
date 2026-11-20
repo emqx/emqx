@@ -455,6 +455,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       mod_bin = Path.basename(beam_path, ".beam")
       mod_bin in real_modules
     end)
+    |> Stream.reject(&loads_nif?/1)
     |> Stream.map(fn beam_path ->
       mod_bin = Path.basename(beam_path, ".beam")
       mod = String.to_atom(mod_bin)
@@ -464,6 +465,16 @@ defmodule Mix.Tasks.Emqx.Ct do
     |> Task.await_many(:infinity)
 
     info("Cover compiled project modules.")
+  end
+
+  # A NIF module holds only stubs, so it has nothing to cover. A cover-compiled copy is a
+  # reload of a module whose NIF library is already loaded, and a Rustler library rejects
+  # that with `{upgrade, "Upgrade not supported by this NIF library."}`.
+  defp loads_nif?(beam_path) do
+    case :beam_lib.chunks(to_charlist(beam_path), [:imports]) do
+      {:ok, {_mod, [imports: imports]}} -> {:erlang, :load_nif, 2} in imports
+      _ -> false
+    end
   end
 
   defp do_cover_compile_file_async({mod, beam_path}) do
