@@ -51,8 +51,9 @@ Most of the time, you just need to:
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("classy/include/classy.hrl").
+-include("emqx_machine_rl.hrl").
 
--export([start/2, start/3, check_business_apps/0, wait_business_apps/1, stop/1]).
+-export([start/2, start/3, stop/1]).
 
 -export([work_dir/1, work_dir/2, clean_work_dir/1, maybe_clean_work_dir/2]).
 
@@ -180,23 +181,13 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 6. Pre-boot. Start system apps:
     ClassyApps = start_apps(SystemSpecs, SuiteOpts),
     emqx_machine:register_system_hooks(),
-    classy:on_run_level(on_run_level(ManagedSpecs), 100),
+    classy:on_run_level(
+        on_run_level(ManagedSpecs),
+        #{prio => 0, timeout => infinity}
+    ),
     % 7. Boot:
     ok = classy:start_system(),
     ClassyApps ++ wait_business_apps(WaitStarted).
-
--spec check_business_apps() -> boolean().
-check_business_apps() ->
-    optvar:is_set(?rest_started).
-
--spec wait_business_apps(timeout()) -> [appname()].
-wait_business_apps(Timeout) ->
-    case optvar:read(?rest_started, Timeout) of
-        {ok, Apps} ->
-            Apps;
-        timeout ->
-            []
-    end.
 
 on_run_level(RestSpecs) ->
     fun(Action, Level) ->
@@ -210,7 +201,7 @@ on_run_level(RestSpecs) ->
             }
         ),
         case {Action, Level} of
-            {enter, ?classy_rl_cluster} ->
+            {enter, ?emqx_rl_boot} ->
                 Result = ?tp_span(
                     info,
                     test_starting_business_apps,
@@ -218,7 +209,7 @@ on_run_level(RestSpecs) ->
                     unsafe_start_appspecs(RestSpecs)
                 ),
                 optvar:set(?rest_started, Result);
-            {leave, ?classy_rl_cluster} ->
+            {leave, ?emqx_rl_boot} ->
                 maybe
                     {ok, Started} ?= optvar:peek(?rest_started),
                     ?tp_span(
@@ -232,6 +223,15 @@ on_run_level(RestSpecs) ->
             _ ->
                 ok
         end
+    end.
+
+-spec wait_business_apps(timeout()) -> [appname()].
+wait_business_apps(Timeout) ->
+    case optvar:read(?rest_started, Timeout) of
+        {ok, Apps} ->
+            Apps;
+        timeout ->
+            []
     end.
 
 load_apps(Apps) ->
@@ -555,14 +555,13 @@ A safe way to stop applications that imitates behavior of emqx_machine.
 """.
 -spec stop(_StartedApps :: [appname()]) ->
     ok.
-stop(Apps) ->
+stop(_Apps) ->
     optvar:unset(?rest_started),
     try
         classy:stop_system()
     catch
         _:_ -> ok
     end,
-    ok = stop_apps(Apps),
     clean_suite_state().
 
 -doc """

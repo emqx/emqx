@@ -97,8 +97,11 @@ register_system_hooks() ->
     _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
-    %% Staged application start:
-    _ = classy:on_run_level(fun ?MODULE:on_run_level/2, 0),
+    %% Common actions
+    _ = classy:on_run_level(
+        fun ?MODULE:on_run_level/2,
+        #{prio => 0, timeout => infinity}
+    ),
     %% Fallback, allows to connect to legacy nodes:
     _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
     _ = classy:fallback_get_meta(fun mria_classy_migration:fallback_get_meta/2, 0),
@@ -122,7 +125,7 @@ register_system_hooks() ->
 register_business_hooks() ->
     _ = classy:on_run_level(
         fun ?MODULE:manage_business_apps/2,
-        #{prio => 100, timeout => infinity}
+        #{prio => 0, timeout => infinity}
     ),
     ok.
 
