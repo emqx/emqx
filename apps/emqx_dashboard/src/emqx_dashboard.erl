@@ -316,7 +316,7 @@ audit_rbac_denied(Req, AuthType, Source) ->
 return_unauthorized(Code, Message) ->
     {401,
         #{
-            <<"WWW-Authenticate">> =>
+            <<"www-authenticate">> =>
                 <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
