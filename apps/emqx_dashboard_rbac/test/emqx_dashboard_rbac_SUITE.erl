@@ -658,6 +658,31 @@ t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
         login_scope_check(Username, alarms)
     ).
 
+%% `$denied' keeps API keys out. It is not a scope that a login user can
+%% hold, so a handler declared only `$denied' follows the unmapped rule:
+%% a user without an explicit scope list is allowed, and a user with one
+%% is denied. Before, every login user was denied, so a `$denied' endpoint
+%% that needs a login answered 403 even to administrators.
+t_check_login_user_scopes_denied_is_api_key_only(_) ->
+    %% `/schemas/:name' is declared `$denied'. In production it skips
+    %% authorization (`security => []'), but the predicate does not look
+    %% at that, so the handler serves as a `$denied' endpoint here.
+    {HandlerInfo, _} = dispatch(endpoint_path(schema)),
+    ?assertEqual(
+        {scopes, [?SCOPE_DENIED]},
+        emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo)
+    ),
+    Admin = <<"login_user_scopes_denied_admin">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Admin, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>),
+    ?assertEqual(true, login_scope_check(Admin, schema)),
+    Viewer = <<"login_user_scopes_denied_viewer">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Viewer, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>),
+    ?assertEqual(true, login_scope_check(Viewer, schema)),
+    Restricted = <<"login_user_scopes_denied_restricted">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Restricted, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>),
+    {ok, ok} = emqx_dashboard_admin:set_user_scopes(Restricted, [?SCOPE_CONNECTIONS]),
+    ?assertEqual(false, login_scope_check(Restricted, schema)).
+
 %%--------------------------------------------------------------------
 %% SSO users: explicit scopes are consulted via the reconstructed
 %% ?SSO_USERNAME(Backend, Name) admin record key.
@@ -1276,6 +1301,7 @@ endpoint_path({change_mfa, Target}) -> <<"/users/", Target/binary, "/mfa">>;
 endpoint_path(clients) -> <<"/clients">>;
 endpoint_path({client, ClientId}) -> <<"/clients/", ClientId/binary>>;
 endpoint_path(alarms) -> <<"/alarms">>;
+endpoint_path(schema) -> <<"/schemas/hotconf">>;
 endpoint_path(unmapped) -> unmapped.
 
 %% Match a concrete request path against the dashboard's dispatch table

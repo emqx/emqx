@@ -86,6 +86,10 @@ parse_dashboard_role(Role) ->
 %% gap cannot grant a deliberately restricted user an endpoint nobody
 %% scoped.
 %%
+%% `$denied' keeps API keys out of login-only endpoints. It is not a
+%% scope that a login user can hold, so this check ignores it. A handler
+%% that declares only `$denied' follows the unmapped rule above.
+%%
 %% This differs from API keys: emqx_mgmt_auth:check_scopes/2 allows
 %% unmapped handlers even for a key with an explicit scope list. CT
 %% t_all_endpoints_covered_by_scopes guards against accidentally
@@ -136,7 +140,7 @@ serialize_role(#{?role := Role, ?namespace := Namespace}) when is_binary(Namespa
     <<"ns:", Namespace/binary, "::", Role/binary>>.
 
 check_login_user_scopes_strict(Username, HandlerInfo) ->
-    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
+    case classify_handler_for_login_user(HandlerInfo) of
         %% Explicitly public endpoint — allow regardless of scopes.
         public ->
             true;
@@ -157,6 +161,20 @@ check_login_user_scopes_strict(Username, HandlerInfo) ->
             %% holding any one of them grants access.
             Scopes = emqx_dashboard_admin:effective_scopes_of(Username),
             emqx_mgmt_api_key_scopes:any_scope_granted(Declared, Scopes)
+    end.
+
+%% `$denied' applies to API keys only. Drop it from the declared scopes,
+%% so that a handler declared only `$denied' is unmapped for a login
+%% user, instead of mapped to a scope that no user holds.
+classify_handler_for_login_user(HandlerInfo) ->
+    case emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo) of
+        {scopes, Declared} ->
+            case [S || S <- Declared, not emqx_mgmt_api_key_scopes:is_denied_scope(S)] of
+                [] -> not_found;
+                Scopes -> {scopes, Scopes}
+            end;
+        Other ->
+            Other
     end.
 
 %% Whitelist of self-service handlers that may skip the login-user
