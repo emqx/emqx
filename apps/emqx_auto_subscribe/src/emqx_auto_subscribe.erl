@@ -7,6 +7,7 @@
 -behaviour(emqx_config_backup).
 
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -behaviour(emqx_config_handler).
 
@@ -72,15 +73,53 @@ post_config_update([?ROOT_KEY], _Req, NewConf, _OldConf, _AppEnvs) ->
 %%------------------------------------------------------------------------------
 
 on_client_connected(ClientInfo, ConnInfo, {TopicHandler, Options}) ->
-    case erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]) of
+    GlobalTopics = erlang:apply(TopicHandler, handle, [ClientInfo, ConnInfo, Options]),
+    case merge_topics(GlobalTopics, maps:get(auto_subscribe, ClientInfo, []), ClientInfo) of
         [] ->
             ok;
-        TopicTables ->
-            _ = self() ! {subscribe, TopicTables},
+        Topics ->
+            self() ! {subscribe, Topics},
             ok
     end;
 on_client_connected(_, _, _) ->
     ok.
+
+merge_topics(GlobalTopics, [], _ClientInfo) ->
+    GlobalTopics;
+merge_topics(GlobalTopics, Entries, #{zone := Zone}) ->
+    FilterMode = emqx_config:get_zone_conf(Zone, [mqtt, subscription_message_filter], disable),
+    DynamicTopics = lists:foldl(
+        fun({RawTopic, Opts} = Entry, Acc) ->
+            try
+                ok = emqx_packet:check_subscribe(
+                    #{}, [Entry], #{subscription_message_filter => FilterMode}
+                ),
+                {Topic, _} = emqx_topic:parse(base_topic(RawTopic, FilterMode), Opts),
+                true = emqx_topic:validate(Topic),
+                %% The channel must parse the original filter, not an already stripped prefix.
+                maps:put(Topic, Entry, Acc)
+            catch
+                error:Reason ->
+                    ?SLOG(warning, #{
+                        msg => invalid_auto_subscribe_entry, entry => Entry, reason => Reason
+                    }),
+                    Acc
+            end
+        end,
+        #{},
+        Entries
+    ),
+    [
+        Entry
+     || {Topic, _} = Entry <- GlobalTopics,
+        not maps:is_key(base_topic(Topic, FilterMode), DynamicTopics)
+    ] ++
+        maps:values(DynamicTopics).
+
+base_topic(Topic, enable) ->
+    emqx_subscription_filter:normalize_topic_filter(Topic);
+base_topic(Topic, _) ->
+    Topic.
 
 %%------------------------------------------------------------------------------
 %% Telemetry

@@ -20,6 +20,7 @@ options:
   -b|--base:         Specify the current release base branch, can be one of
                      rel-M.N.P      (a release in code freeze, e.g. rel-6.0.4)
                      cloud-XY       (for an X.Y.Z-cloud.N tag, e.g. cloud-63)
+                     preview-XY     (existing Cloud release branch, e.g. preview-63)
                      release-60
                      release-61
                      release-62
@@ -49,8 +50,8 @@ patch, so the line branch is not merged into the freeze branch:
 Cutting straight from the release branch is still supported, for a line that
 is not using a freeze branch.
 
-A Cloud release (X.Y.Z-cloud.N) is cut on the cloud-XY branch of its
-line, for example 6.3.3-cloud.1 on cloud-63. Its packages are built and
+A Cloud release (X.Y.Z-cloud.N) is cut on the cloud-XY or existing preview-XY
+branch of its line, for example 6.3.3-cloud.1 on preview-63. Its packages are built and
 uploaded, but they are not published to GA channels.
 EOF
 }
@@ -164,11 +165,16 @@ freeze_branch() {
 WORK_BRANCH=''
 assert_work_branch() {
     local tag="$1"
-    local release_branch freeze_branch base_branch
+    local release_branch freeze_branch base_branch preview_branch
     release_branch="$(rel_branch "$tag")"
     freeze_branch="$(freeze_branch "$tag")"
     base_branch="${BASE_BR:-$(git branch --show-current)}"
-    if [ "$base_branch" != "$release_branch" ] && [ "$base_branch" != "$freeze_branch" ]; then
+    preview_branch=''
+    if [[ "$tag" == *-cloud.* ]]; then
+        preview_branch="preview-${release_branch#cloud-}"
+    fi
+    if [ "$base_branch" != "$release_branch" ] && [ "$base_branch" != "$freeze_branch" ] &&
+        [ "$base_branch" != "$preview_branch" ]; then
         logerr "Base branch: $base_branch"
         if [ -n "$freeze_branch" ]; then
             logerr "A release tag must be cut on the freeze branch $freeze_branch, or on $release_branch"
