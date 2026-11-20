@@ -245,7 +245,7 @@ create_challenge(Username, ClientNonce, ServerNonce, Salt, Iterations, Fingerpri
         iterations = Iterations,
         credential_fingerprint = Fingerprint,
         expires_at = erlang:system_time(millisecond) + ?CHALLENGE_TTL_MS,
-        extra = #{created_at => created_at()}
+        extra = #{created_at => erlang:system_time(microsecond)}
     },
     case put(Challenge) of
         ok ->
@@ -372,7 +372,7 @@ delete_oldest_challenges(Username) ->
         }
     ],
     Open = lists:sort([
-        {ExpiresAt, maps:get(created_at, Extra, {0, 0}), Id}
+        {ExpiresAt, maps:get(created_at, Extra, 0), Id}
      || {ExpiresAt, Extra, Id} <- mnesia:select(?TAB, Spec, write)
     ]),
     NumToDelete = length(Open) - (?MAX_CHALLENGES_PER_USERNAME - 1),
@@ -383,10 +383,6 @@ delete_oldest_challenges(Username) ->
         false ->
             ok
     end.
-
-%% Creation order of a challenge on this node, finer than `expires_at'.
-created_at() ->
-    {erlang:system_time(microsecond), erlang:unique_integer([monotonic, positive])}.
 
 format_put_result({atomic, ok}) ->
     ok;
