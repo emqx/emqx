@@ -1317,6 +1317,41 @@ t_handle_call_takeover_end(_) ->
     {shutdown, takenover, [], _, _Chan} =
         emqx_channel:handle_call({takeover, 'end'}, Chan1).
 
+%% The channel resumed a session, and another connection tries to take the
+%% session over before the channel handles `continue'. The takeover is refused,
+%% and the channel finishes the resumption on `continue'.
+t_handle_call_takeover_begin_during_resumption(_) ->
+    Session = session(#{subscriptions => #{<<"t">> => ?DEFAULT_SUBOPTS}}),
+    ok = meck:expect(emqx_cm, open_session, fun(_, _, _, _) ->
+        {ok, #{session => Session, present => true, replay => replay_ctx}}
+    end),
+    RemoteMsg = emqx_message:make(<<"remote">>, ?QOS_1, <<"t">>, <<"remote">>),
+    ok = meck:expect(emqx_cm, takeover_session_end, fun(replay_ctx) ->
+        {ok, [{deliver, <<"t">>, RemoteMsg}]}
+    end),
+    {continue, _Replies, Chan0} =
+        emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), channel(#{conn_state => idle})),
+    ConnInfo = emqx_channel:info(conninfo, Chan0),
+    Chan1 = emqx_channel:set_field(conninfo, ConnInfo#{expiry_interval => 60000}, Chan0),
+    ?assertMatch(
+        {reply, {error, session_resuming}, Chan1},
+        emqx_channel:handle_call({takeover, 'begin'}, Chan1)
+    ),
+    {ok, [{outgoing, Packets}, {event, updated}], _Chan2} =
+        emqx_channel:handle_info(continue, Chan1),
+    ?assertMatch([?PUBLISH_PACKET(_, <<"t">>, _, <<"remote">>)], Packets).
+
+%% A takeover refused because the session is still resuming gives CONNACK
+%% `server_busy'.
+t_handle_in_connect_session_resuming(_) ->
+    ok = meck:expect(emqx_cm, open_session, fun(_, _, _, _) ->
+        {error, session_resuming}
+    end),
+    ConnPkt = (connpkt())#mqtt_packet_connect{proto_ver = ?MQTT_PROTO_V5, properties = #{}},
+    {shutdown, server_busy, ?CONNACK_PACKET(?RC_SERVER_BUSY, 0, Props), _Chan} =
+        emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle})),
+    ?assertMatch(#{'Reason-String' := <<"SESSION_RESUMING">>}, Props).
+
 t_handle_call_takeover_kick(_) ->
     Packet = ?DISCONNECT_PACKET(?RC_SESSION_TAKEN_OVER),
     {shutdown, takenover, ok, Packet, _Chan} =
