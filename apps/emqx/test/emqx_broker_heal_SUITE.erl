@@ -11,6 +11,11 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include("emqx_cm.hrl").
+-include("emqx_shared_sub.hrl").
+
+-define(GROUP, <<"heal_group">>).
+-define(TOPIC, <<"t/heal">>).
+-define(SHARE, <<"$share/heal_group/t/heal">>).
 
 suite() -> [{timetrap, {minutes, 2}}].
 
@@ -153,3 +158,110 @@ t_heal_on_replicant_bootstrap(Config) ->
         end,
         []
     ).
+
+%% This testcase verifies that the clients write their shared
+%% subscriptions to the cluster again when the heal is triggered. It
+%% emulates the loss of shared subscription members that occurs after
+%% a network partition is healed: the member tables of the nodes keep
+%% the members, and the cluster table does not.
+t_heal_shared_sub_on_core_partition(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    [N1 | Rest] = Nodes = emqx_cth_cluster:start(Cluster),
+    Clients = [connect(Node) || Node <- Nodes],
+    [?assertMatch({ok, _, [1]}, emqtt:subscribe(Conn, ?SHARE, 1)) || Conn <- Clients],
+    %% 1. Verify that all nodes have the 4 members:
+    Members = wait_shared_members(4, Nodes),
+    %% 2. Emulate the loss of the members from the cluster:
+    ?assertEqual(
+        {atomic, ok},
+        erpc:call(N1, mria, clear_table, [?SHARED_SUBSCRIPTION])
+    ),
+    ?assertEqual([], wait_shared_members(0, Nodes)),
+    %% 3. Trigger heal:
+    ok = erpc:call(N1, emqx_broker_heal, on_autoheal, [{[N1], [Rest]}]),
+    %% 4. Clients should write the same members again:
+    ?assertEqual(Members, wait_shared_members(4, Nodes)),
+    %% 5. A message to the group should reach one member:
+    _ = erpc:call(N1, emqx, publish, [emqx_message:make(<<"heal">>, 1, ?TOPIC, <<"1">>)]),
+    ?assertMatch([_], receive_publishes(2_000)),
+    [emqtt:stop(Conn) || Conn <- Clients],
+    Config.
+
+%% This testcase verifies that the clients of a replicant write their
+%% shared subscriptions to the cluster again after mria re-bootstrap.
+t_heal_shared_sub_on_replicant_bootstrap(Config) ->
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            Cluster = proplists:get_value(cluster, Config),
+            NClients = 10,
+            [C1, C2, R1, _] = Nodes = emqx_cth_cluster:start(Cluster),
+            #{shards_in_sync := Shards} = erpc:call(R1, mria_rlog, status, []),
+            %% Connect a number of clients to R1:
+            Clients = [connect(R1) || _ <- lists:seq(1, NClients)],
+            [?assertMatch({ok, _, [1]}, emqtt:subscribe(Conn, ?SHARE, 1)) || Conn <- Clients],
+            Members = wait_shared_members(NClients, Nodes),
+            %% Shut down mria upstream on the cores:
+            [
+                ?assertMatch(
+                    ok,
+                    erpc:call(N, supervisor, terminate_child, [mria_sup, mria_rlog_sup])
+                )
+             || N <- [C1, C2]
+            ],
+            %% While the upstream is down, clear the table to imitate
+            %% the purge of the members of a replicant that is down:
+            ?assertEqual(
+                {atomic, ok},
+                erpc:call(C1, mria, clear_table, [?SHARED_SUBSCRIPTION])
+            ),
+            ?assertEqual([], wait_shared_members(0, [C1, C2])),
+            %% Restart replication. R1 should re-boostrap, and its
+            %% clients should write their members again:
+            [
+                erpc:call(
+                    N,
+                    fun() ->
+                        ?assertMatch(
+                            {ok, _},
+                            erpc:call(N, supervisor, restart_child, [mria_sup, mria_rlog_sup])
+                        ),
+                        ok = mria_rlog:wait_for_shards(Shards, 5_000)
+                    end
+                )
+             || N <- [C1, C2]
+            ],
+            ?assertEqual(Members, wait_shared_members(NClients, Nodes)),
+            [emqtt:stop(Conn) || Conn <- Clients],
+            Config
+        end,
+        []
+    ).
+
+connect(Node) ->
+    {ok, Conn} = emqtt:start_link([{port, emqx_cth_cluster:get_tcp_mqtt_port(Node)}]),
+    {ok, _} = emqtt:connect(Conn),
+    Conn.
+
+%% Wait until every node has the same `N` members of the group, and return them.
+wait_shared_members(N, Nodes) ->
+    ?retry(
+        500,
+        30,
+        begin
+            [Members | _] =
+                All = [
+                    lists:sort(erpc:call(Node, emqx_shared_sub, subscribers, [?GROUP, ?TOPIC]))
+                 || Node <- Nodes
+                ],
+            ?assertEqual(N, length(Members)),
+            ?assertEqual([Members || _ <- Nodes], All),
+            Members
+        end
+    ).
+
+receive_publishes(Timeout) ->
+    receive
+        {publish, Msg} -> [Msg | receive_publishes(Timeout)]
+    after Timeout -> []
+    end.

@@ -111,7 +111,8 @@ groups() ->
         {connect_packet_limit, [], [
             t_transport_refuses_oversized_connect,
             t_packet_size_raised_after_connect,
-            t_pipelined_publish_larger_than_connect_limit
+            t_pipelined_publish_larger_than_connect_limit,
+            t_publish_larger_than_max_packet_size
         ]}
     ].
 
@@ -1452,6 +1453,42 @@ t_pipelined_publish_larger_than_connect_limit(Config) ->
         [P || #mqtt_packet{header = #mqtt_packet_header{type = ?PUBLISH}} = P <- Packets]
     ),
     ok = raw_close(Socket).
+
+-doc """
+A PUBLISH larger than `mqtt.max_packet_size` after CONNECT closes the
+connection with `frame_too_large`, whichever refuses it: the transport (gen_tcp
+reports `emsgsize`, ssl `{invalid_packet, _}`) or the socket backend's stream
+parser. The client's bytes are not in the exit reason.
+""".
+t_publish_larger_than_max_packet_size(Config) ->
+    {_Limit, MaxSize} = connect_packet_size_limits(),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Connect = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = Topic})),
+    Publish = emqx_frame:serialize(
+        ?PUBLISH_PACKET(?QOS_0, Topic, undefined, binary:copy(<<"x">>, MaxSize + 1))
+    ),
+    CountBefore = listener_shutdown_count(Config, frame_too_large),
+    Socket = raw_connect(Config),
+    ok = raw_send(Socket, Connect),
+    [#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}}] = recv_packets(Socket, 1),
+    {ok, {ok, #{reason := {shutdown, Reason}}}} = ?wait_async_action(
+        begin
+            ok = raw_send(Socket, Publish),
+            ?assertEqual(ok, wait_socket_closed(Socket))
+        end,
+        #{?snk_kind := terminate, reason := {shutdown, #{cause := frame_too_large}}},
+        5000
+    ),
+    ?assertMatch(#{cause := frame_too_large, limit := MaxSize}, Reason),
+    case ?config(connect_refusal, Config) of
+        {transport, TransportError} ->
+            ?assertMatch(#{transport_error := TransportError}, Reason);
+        parser ->
+            ?assertNot(is_map_key(transport_error, Reason), Reason)
+    end,
+    ?WAIT(
+        ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, frame_too_large)), 5
+    ).
 
 connect_packet_size_limits() ->
     Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),

@@ -29,6 +29,7 @@
 
 -export([
     subscriber_down/1,
+    heal_subscriptions/0,
     purge_node/1
 ]).
 
@@ -570,6 +571,35 @@ do_unsubscribe_down(Topic, SubPid, SubOpts) ->
         #share{group = Group, topic = RealTopic} ->
             emqx_shared_sub:unsubscribe_down(Group, RealTopic, SubPid)
     end.
+
+%%--------------------------------------------------------------------
+%% Heal after a network partition
+%%--------------------------------------------------------------------
+
+-doc """
+Write the shared subscriptions of the calling process to the cluster again.
+
+The cluster can lose them while the subscriber stays connected. When a network
+partition between core nodes heals, the core node that rejoins takes the tables of
+the other side. The shared subscriptions that were made through this core node
+during the partition are then gone from the cluster.
+
+Routes need no such repair with routing schema v3: each node owns its routes, and
+Mria publishes them again.
+""".
+-spec heal_subscriptions() -> ok.
+heal_subscriptions() ->
+    SubPid = self(),
+    lists:foreach(
+        fun
+            (#share{group = Group, topic = RealTopic}) ->
+                %% Writes the same record again, so it is safe when nothing is lost.
+                ok = emqx_shared_sub:subscribe(Group, RealTopic, SubPid);
+            (_Topic) ->
+                ok
+        end,
+        lookup_value(?SUBSCRIPTION, SubPid, [])
+    ).
 
 %%--------------------------------------------------------------------
 %% Node Cleanup APIs
