@@ -1,0 +1,2 @@
+#!/bin/sh
+rm -rf shelltest/find-prev-rel-tag.fixture
