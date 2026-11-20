@@ -3900,7 +3900,8 @@ handle_heal_partition(
         undefined ->
             ok;
         _ ->
-            emqx_cm_registry:register_channel(ClientId)
+            emqx_cm_registry:register_channel(ClientId),
+            emqx_broker:heal_subscriptions()
     end.
 
 connect_attrs(Packet, Channel) ->
