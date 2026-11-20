@@ -244,7 +244,8 @@ create_challenge(Username, ClientNonce, ServerNonce, Salt, Iterations, Fingerpri
         salt = Salt,
         iterations = Iterations,
         credential_fingerprint = Fingerprint,
-        expires_at = erlang:system_time(millisecond) + ?CHALLENGE_TTL_MS
+        expires_at = erlang:system_time(millisecond) + ?CHALLENGE_TTL_MS,
+        extra = #{created_at => created_at()}
     },
     case put(Challenge) of
         ok ->
@@ -335,40 +336,57 @@ valid_nonce_char(_) -> false.
 
 -spec put(challenge()) ->
     ok | {error, capacity | challenge_id_collision | {storage_unavailable, term()}}.
-put(#emqx_dashboard_scram_challenge{username = Username} = Challenge) ->
+put(#emqx_dashboard_scram_challenge{} = Challenge) ->
     case ets:info(?TAB, size) of
         Size when is_integer(Size), Size >= ?MAX_CHALLENGES ->
             {error, capacity};
         Size when is_integer(Size) ->
-            case local_username_challenge_count(Username) >= ?MAX_CHALLENGES_PER_USERNAME of
-                true -> {error, capacity};
-                false -> put_if_available(Challenge)
-            end;
+            put_if_available(Challenge);
         undefined ->
             {error, {storage_unavailable, table_not_found}}
     end.
-
-local_username_challenge_count(Username) ->
-    ets:select_count(?TAB, [
-        {
-            {emqx_dashboard_scram_challenge, '_', Username, '_', '_', '_', '_', '_', '_', '_'},
-            [],
-            [true]
-        }
-    ]).
 
 put_if_available(#emqx_dashboard_scram_challenge{id = Id} = Challenge) ->
     Result = mria:sync_transaction(?DASHBOARD_SHARD, fun() -> put_transaction(Id, Challenge) end),
     format_put_result(Result).
 
-put_transaction(Id, Challenge) ->
+put_transaction(Id, #emqx_dashboard_scram_challenge{username = Username} = Challenge) ->
     case mnesia:read(?TAB, Id, write) of
         [] ->
+            ok = delete_oldest_challenges(Username),
             mnesia:write(Challenge),
             ok;
         _ ->
             mnesia:abort(challenge_id_collision)
     end.
+
+%% Keep at most `?MAX_CHALLENGES_PER_USERNAME' open challenges for one
+%% username: before a new one is stored, delete the oldest ones so that
+%% one slot is free.  Runs inside the put transaction.
+delete_oldest_challenges(Username) ->
+    Spec = [
+        {
+            {emqx_dashboard_scram_challenge, '$1', Username, '_', '_', '_', '_', '_', '$2', '$3'},
+            [],
+            [{{'$2', '$3', '$1'}}]
+        }
+    ],
+    Open = lists:sort([
+        {ExpiresAt, maps:get(created_at, Extra, {0, 0}), Id}
+     || {ExpiresAt, Extra, Id} <- mnesia:select(?TAB, Spec, write)
+    ]),
+    NumToDelete = length(Open) - (?MAX_CHALLENGES_PER_USERNAME - 1),
+    case NumToDelete > 0 of
+        true ->
+            {Oldest, _} = lists:split(NumToDelete, Open),
+            lists:foreach(fun({_, _, Id}) -> mnesia:delete({?TAB, Id}) end, Oldest);
+        false ->
+            ok
+    end.
+
+%% Creation order of a challenge on this node, finer than `expires_at'.
+created_at() ->
+    {erlang:system_time(microsecond), erlang:unique_integer([monotonic, positive])}.
 
 format_put_result({atomic, ok}) ->
     ok;

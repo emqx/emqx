@@ -174,45 +174,97 @@ t_wrong_proof_counts_as_password_failure(_) ->
 
 t_scram_challenge_limit_per_username(_) ->
     ClientNonce = <<"clientNonce1234567890">>,
+    Limit = 16,
     Challenges = [
         begin
             {ok, Challenge} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+            ?assert(open_challenge_count(?USERNAME) =< Limit),
             Challenge
         end
-     || _ <- lists:seq(1, 16)
+     || _ <- lists:seq(1, Limit + 4)
     ],
+    ?assertEqual(Limit, open_challenge_count(?USERNAME)),
+    [First | _] = Challenges,
+    Last = lists:last(Challenges),
+    %% The newest challenge carries the same salt and iterations as the first.
+    ?assertEqual(maps:get(salt, First), maps:get(salt, Last)),
+    ?assertEqual(maps:get(iterations, First), maps:get(iterations, Last)),
+    %% The oldest challenges were replaced; the first one no longer verifies.
     ?assertEqual(
-        {error, capacity},
-        emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce)
+        {error, password_error},
+        verify_challenge_with_password(ClientNonce, First)
     ),
-    ?assertEqual(
-        16,
-        length(
-            mnesia:dirty_match_object(
-                emqx_dashboard_scram_challenge,
-                #emqx_dashboard_scram_challenge{username = ?USERNAME, _ = '_'}
+    ?assertMatch({ok, _}, verify_challenge_with_password(ClientNonce, Last)).
+
+t_http_scram_challenge_limit_per_username(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    lists:foreach(
+        fun(_) ->
+            ?assertMatch(
+                {ok, 200, #{<<"challenge_id">> := _, <<"salt">> := _}},
+                request_api(
+                    post,
+                    api_path(["login", "challenge"]),
+                    no_auth_header,
+                    #{username => ?USERNAME, client_nonce => ClientNonce}
+                )
             )
-        )
+        end,
+        lists:seq(1, 20)
     ),
-    _ = Challenges,
-    First = hd(Challenges),
-    Salt = base64:decode(maps:get(salt, First)),
-    ServerNonce = maps:get(server_nonce, First),
+    ?assertEqual(16, open_challenge_count(?USERNAME)),
+    {ok, 200, Challenge} = request_api(
+        post,
+        api_path(["login", "challenge"]),
+        no_auth_header,
+        #{username => ?USERNAME, client_nonce => ClientNonce}
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"token">> := _}},
+        request_api(
+            post,
+            api_path(["login", "verify"]),
+            no_auth_header,
+            http_verify_body(ClientNonce, Challenge, http_proof(ClientNonce, Challenge), #{})
+        )
+    ).
+
+t_scram_challenge_for_missing_user_stores_nothing(_) ->
+    Username = <<"unknown_scram_user">>,
+    ClientNonce = <<"clientNonce1234567890">>,
+    lists:foreach(
+        fun(_) ->
+            {ok, _} = emqx_dashboard_login:scram_challenge(Username, ClientNonce)
+        end,
+        lists:seq(1, 20)
+    ),
+    ?assertEqual(0, open_challenge_count(Username)),
+    ?assertEqual(0, ets:info(emqx_dashboard_scram_challenge, size)).
+
+open_challenge_count(Username) ->
+    length(
+        mnesia:dirty_match_object(
+            emqx_dashboard_scram_challenge,
+            #emqx_dashboard_scram_challenge{username = Username, _ = '_'}
+        )
+    ).
+
+verify_challenge_with_password(ClientNonce, Challenge) ->
+    ServerNonce = maps:get(server_nonce, Challenge),
     Proof = emqx_dashboard_scram:client_proof(
         ?USERNAME,
         ClientNonce,
         ServerNonce,
-        Salt,
-        maps:get(iterations, First),
+        base64:decode(maps:get(salt, Challenge)),
+        maps:get(iterations, Challenge),
         ?PASSWORD
     ),
-    {ok, _} = emqx_dashboard_login:scram_verify(
-        maps:get(challenge_id, First),
+    emqx_dashboard_login:scram_verify(
+        maps:get(challenge_id, Challenge),
         <<ClientNonce/binary, ServerNonce/binary>>,
         Proof,
         ?NO_MFA_TOKEN
-    ),
-    ?assertMatch({ok, _}, emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce)).
+    ).
 
 t_scram_login_locked_after_challenge(_) ->
     ClientNonce = <<"clientNonce1234567890">>,
