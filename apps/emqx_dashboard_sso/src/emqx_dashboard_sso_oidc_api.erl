@@ -46,7 +46,7 @@ namespace() -> "dashboard_sso".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false, translate_body => false}).
 
-scopes() -> ?SCOPE_DENIED.
+scopes() -> ?SCOPE_DENY_API_KEY.
 
 paths() ->
     [

@@ -450,10 +450,10 @@ t_bootstrap_file_with_scopes_invalid(_) ->
         read_bootstrap_scopes(<<"scope-mixed">>)
     ),
 
-    %% The internal `$denied` scope is NOT in scope_catalog/0; if a user
+    %% The internal `$deny_api_key` scope is NOT in scope_catalog/0; if a user
     %% writes it the loader must drop it like any other unknown name.
     DeniedBin = iolist_to_binary([
-        "scope-denied:secret-2:administrator:$denied,", ?SCOPE_AUDIT, "\n"
+        "scope-denied:secret-2:administrator:$deny_api_key,", ?SCOPE_AUDIT, "\n"
     ]),
     ok = file:write_file(File, DeniedBin),
     update_file(File),

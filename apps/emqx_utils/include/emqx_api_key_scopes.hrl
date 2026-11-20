@@ -48,7 +48,9 @@
 
 %% Endpoints that API Keys must never access (dashboard login/SSO/
 %% API Key self-management).  Not exposed to users.
--define(SCOPE_DENIED, <<"$denied">>).
+%% It restricts API keys only: login users never hold it, and the
+%% login-user scope check ignores it.
+-define(SCOPE_DENY_API_KEY, <<"$deny_api_key">>).
 
 %% Sentinel for paths that are intentionally unscoped: pre-login entry
 %% points (/login, /sso/login/:backend, ...) and meta endpoints that

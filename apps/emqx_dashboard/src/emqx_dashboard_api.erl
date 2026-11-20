@@ -783,7 +783,7 @@ maybe_check_privilege_mutex(Role, RawScopes) ->
 
 %% Login users may hold ANY of the API key catalog scopes plus the
 %% four login-only scopes. Any name outside this combined set is a
-%% typo or an attempt to assign $denied — reject.
+%% typo or an attempt to assign $deny_api_key — reject.
 validate_scope_names(Scopes) ->
     Catalogue = [N || #{name := N} <- emqx_scope_catalog:scope_catalog()],
     Allowed = Catalogue ++ ?LOGIN_ONLY_SCOPES,

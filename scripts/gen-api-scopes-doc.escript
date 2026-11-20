@@ -91,7 +91,7 @@ collect_scope_map(Modules) ->
 
 collect_mod(Mod, Paths, ScopeName, AccMap, AccDenied) when is_binary(ScopeName) ->
     case ScopeName of
-        <<"$denied">> ->
+        <<"$deny_api_key">> ->
             Entries = [{P, Mod} || P <- Paths],
             {AccMap, AccDenied ++ Entries};
         _ ->
@@ -105,7 +105,7 @@ collect_mod(Mod, Paths, ScopeMapSpec, AccMap, AccDenied) when is_map(ScopeMapSpe
             case maps:get(Path, ScopeMapSpec, undefined) of
                 undefined ->
                     {AMap, ADenied};
-                <<"$denied">> ->
+                <<"$deny_api_key">> ->
                     {AMap, [{Path, Mod} | ADenied]};
                 Scope ->
                     Existing = maps:get(Scope, AMap, []),
@@ -154,7 +154,7 @@ format_scope(Name, PathMods) ->
 format_denied(PathMods) ->
     Sorted = lists:sort(PathMods),
     [
-        "## `$denied` (API Key access blocked)\n\n",
+        "## `$deny_api_key` (API Key access blocked)\n\n",
         "| Endpoint | Module |\n",
         "|----------|--------|\n",
         [io_lib:format("| `~s` | `~s` |\n", [P, M]) || {P, M} <- Sorted],
