@@ -17,7 +17,14 @@ permissions:
   contents: read
 
 jobs:
+  verify-release-tag:
+    uses: ./.github/workflows/verify_release_tag.yaml
+    with:
+      ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+      require_ga: ${{ (github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts }}
+
   upload:
+    needs: verify-release-tag
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -31,14 +38,19 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ needs.verify-release-tag.outputs.ref }}
+      - name: Fetch the release tag object
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          VERIFIED_TAG_OBJECT: ${{ needs.verify-release-tag.outputs.tag_object }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
+          if [ -n "$VERIFIED_TAG_OBJECT" ]; then
+            test "$(git rev-parse "refs/tags/$TAG")" = "$VERIFIED_TAG_OBJECT"
+          fi
       - name: Detect profile
         id: profile
         run: |
@@ -70,22 +82,6 @@ jobs:
           path: _manifest_tool
           sparse-checkout: scripts/rel/package_manifests.py
           sparse-checkout-cone-mode: false
-      - name: Fetch the release tag object
-        continue-on-error: true
-        env:
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: git fetch --no-tags --depth=1 --force origin "+refs/tags/${TAG}:refs/tags/${TAG}"
-      - name: Configure trusted SSH release signers
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          allowed_signers="$RUNNER_TEMP/release-allowed-signers"
-          for user in zmstone id hjianbo; do
-            keys="$(gh api "users/${user}/ssh_signing_keys" --jq ".[] | \"${user} \(.key)\"")"
-            test -n "$keys"
-            echo "$keys"
-          done > "$allowed_signers"
-          git config gpg.ssh.allowedSignersFile "$allowed_signers"
       - name: Generate GitHub App token for emqx-package-manifests
         id: app-token
         if: steps.gate.outputs.publish == 'true'
@@ -107,9 +103,11 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
           VERSION: ${{ steps.profile.outputs.version }}
+          VERIFIED_TAG_OBJECT: ${{ needs.verify-release-tag.outputs.tag_object }}
         run: |
           python3 _manifest_tool/scripts/rel/package_manifests.py \
             --packages-dir packages --version "$VERSION" --tag "$TAG" --publish \
+            --verified-tag-object "$VERIFIED_TAG_OBJECT" \
             --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
       - name: Dry-run package manifests
         if: steps.gate.outputs.publish != 'true' && github.event_name == 'workflow_dispatch'
@@ -117,9 +115,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           VERSION: ${{ steps.profile.outputs.version }}
+          VERIFIED_TAG_OBJECT: ${{ needs.verify-release-tag.outputs.tag_object }}
         run: |
           python3 _manifest_tool/scripts/rel/package_manifests.py \
-            --packages-dir packages --version "$VERSION" --tag "$TAG"
+            --packages-dir packages --version "$VERSION" --tag "$TAG" \
+            --verified-tag-object "$VERIFIED_TAG_OBJECT"
       - name: update to emqx.io
         if: steps.gate.outputs.publish == 'true'
         run: |
