@@ -61,6 +61,8 @@ end_per_group(_GroupName, Config) ->
 end_per_suite(Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps),
+    emqx_connector_info:clean_cache(),
+    emqx_action_info:clean_cache(),
     ok.
 
 init_per_testcase(TestCase, TCConfig) ->
