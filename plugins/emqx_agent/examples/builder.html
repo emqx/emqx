@@ -160,39 +160,16 @@
                 border-radius: var(--radius);
                 line-height: 1.55;
                 word-break: break-word;
+                white-space: pre-wrap;
             }
             .msg.user .msg-bubble {
                 background: var(--accent);
                 color: #000;
-                white-space: pre-wrap;
             }
             .msg.assistant .msg-bubble {
                 background: var(--surface);
                 border: 1px solid var(--border);
                 color: var(--text);
-            }
-            .msg-bubble pre {
-                background: var(--bg);
-                border: 1px solid var(--border);
-                border-radius: 4px;
-                padding: 8px 10px;
-                overflow-x: auto;
-                margin: 6px 0;
-                font: inherit;
-                font-size: 12px;
-            }
-            .msg-bubble code {
-                background: var(--bg);
-                padding: 1px 4px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            .msg-bubble pre code {
-                background: none;
-                padding: 0;
-            }
-            .msg-bubble strong {
-                font-weight: 700;
             }
             .msg-ts {
                 font-size: 10px;
@@ -440,34 +417,6 @@ It should be done via explicit step, do not send it as part of the llm inspectio
                 return new Date().toTimeString().slice(0, 8);
             }
 
-            function esc(s) {
-                return String(s)
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;");
-            }
-
-            function renderMarkdown(text) {
-                // fenced code blocks
-                text = text.replace(
-                    /```(\w*)\n?([\s\S]*?)```/g,
-                    (_, lang, code) =>
-                        "<pre><code>" + esc(code.trim()) + "</code></pre>",
-                );
-                // inline code
-                text = text.replace(
-                    /`([^`]+)`/g,
-                    (_, c) => "<code>" + esc(c) + "</code>",
-                );
-                // bold
-                text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-                // newlines outside pre blocks
-                const parts = text.split(/(<pre\b[\s\S]*?<\/pre>)/);
-                return parts
-                    .map((p, i) => (i % 2 === 0 ? p.replace(/\n/g, "<br>") : p))
-                    .join("");
-            }
-
             function addMsg(role, text) {
                 removeEmpty();
                 const chat = document.getElementById("chat");
@@ -475,11 +424,7 @@ It should be done via explicit step, do not send it as part of the llm inspectio
                 div.className = "msg " + role;
                 const bubble = document.createElement("div");
                 bubble.className = "msg-bubble";
-                if (role === "assistant") {
-                    bubble.innerHTML = renderMarkdown(text);
-                } else {
-                    bubble.textContent = text;
-                }
+                bubble.textContent = text;
                 const stamp = document.createElement("div");
                 stamp.className = "msg-ts";
                 stamp.textContent = ts();
