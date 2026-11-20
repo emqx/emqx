@@ -33,6 +33,18 @@
             }
           },
           {
+            "name": "cacertfile",
+            "type": "string",
+            "default": "",
+            "$ui": {
+              "component": "input",
+              "flex": 24,
+              "required": false,
+              "label": "$cacertfile_label",
+              "description": "$cacertfile_desc"
+            }
+          },
+          {
             "name": "pool_size",
             "type": "int",
             "default": 8,

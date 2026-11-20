@@ -210,12 +210,62 @@ t_https_trusts_node_trusted_certs(Config) ->
             {ok, #{<<"protocol">> := <<"emqx-rule-udf/1">>}}, emqx_rule_udf_client:server_info()
         )
     after
-        case Previous of
-            {ok, Path} -> application:set_env(emqx, trusted_certs_path, Path);
-            undefined -> application:unset_env(emqx, trusted_certs_path)
-        end,
+        restore_trusted_certs(Previous),
         cowboy:stop_listener(?MODULE)
     end.
+
+restore_trusted_certs({ok, Path}) -> application:set_env(emqx, trusted_certs_path, Path);
+restore_trusted_certs(undefined) -> application:unset_env(emqx, trusted_certs_path).
+
+t_https_trusts_configured_cacertfile(Config) ->
+    #{cacertfile := CAFile} = TLS = gen_tls_files(?config(priv_dir, Config)),
+    {ok, ProxyURL} = start_proxy(Config, #{tls => TLS}),
+    Previous = application:get_env(emqx, trusted_certs_path),
+    try
+        ok = application:unset_env(emqx, trusted_certs_path),
+        ?assertMatch(
+            {400, #{<<"code">> := <<"BAD_CONFIG">>}},
+            set_server(Config, #{<<"url">> => ProxyURL, <<"cacertfile">> => <<"/no/such.pem">>})
+        ),
+        {204, _} = set_server(Config, #{
+            <<"url">> => ProxyURL, <<"cacertfile">> => list_to_binary(CAFile)
+        }),
+        ?assertMatch({ok, #{<<"protocol">> := _}}, emqx_rule_udf_client:server_info())
+    after
+        restore_trusted_certs(Previous),
+        cowboy:stop_listener(?MODULE)
+    end.
+
+t_bad_response_body_is_truncated(Config) ->
+    Name = <<"big-reply.py">>,
+    {200, _} = save(Name, ?UPPER_SRC),
+    Big = emqx_utils_json:encode(#{<<"unexpected">> => binary:copy(<<"x">>, 100_000)}),
+    {ok, ProxyURL} = start_proxy(Config, #{call_reply => Big}),
+    try
+        {204, _} = set_server(Config, #{<<"url">> => ProxyURL}),
+        {error, #{reason := bad_response, body := Body}} =
+            emqx_rule_udf_client:try_call(Name, [<<"a">>]),
+        ?assert(byte_size(Body) =< 300, byte_size(Body))
+    after
+        cowboy:stop_listener(?MODULE)
+    end.
+
+t_stuck_pool_does_not_block_config_update(Config) ->
+    Name = <<"stuck.py">>,
+    {200, _} = save(Name, ?UPPER_SRC),
+    %% A suspended process handles no exit signal but `kill', so a plain stop of
+    %% the pool supervisor (`shutdown => infinity') would wait forever.
+    {_, PoolSup, _, _} = lists:keyfind(
+        {ehttpc_pool_sup, emqx_rule_udf_http}, 1, supervisor:which_children(ehttpc_sup)
+    ),
+    true = erlang:suspend_process(PoolSup),
+    ?assertMatch({204, _}, set_server(Config, #{<<"pool_size">> => 3})),
+    ?assertNot(is_process_alive(PoolSup)),
+    ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])).
+
+t_token_is_not_kept_in_plain_text(_Config) ->
+    State = io_lib:format("~p", [sys:get_state(emqx_rule_udf_client)]),
+    ?assertEqual(nomatch, string:find(State, binary_to_list(?SERVER_TOKEN))).
 
 t_invalid_config_update_keeps_client(Config) ->
     Name = <<"keep.py">>,
@@ -388,9 +438,14 @@ set_server(Config, Changes) ->
     ).
 
 %% An HTTP proxy to the function server. With `forget', it deletes a function
-%% before it forwards a request for it. With `tls', it serves HTTPS.
+%% before it forwards a request for it. With `tls', it serves HTTPS. With
+%% `call_reply', it answers every call with that 200 body.
 start_proxy(Config, Opts) ->
-    State = #{server_url => server_url(Config), forget => maps:get(forget, Opts, false)},
+    State = #{
+        server_url => server_url(Config),
+        forget => maps:get(forget, Opts, false),
+        call_reply => maps:get(call_reply, Opts, undefined)
+    },
     Dispatch = cowboy_router:compile([{'_', [{'_', ?MODULE, State}]}]),
     ProtoOpts = #{env => #{dispatch => Dispatch}},
     case Opts of
@@ -413,12 +468,17 @@ gen_tls_files(Dir) ->
         subject => #{name => "localhost"},
         extensions => #{subject_alt_name => [{dns, "localhost"}]}
     }),
-    CAFile = filename:join(Dir, "udf-ca.pem"),
+    %% Unique names: `ssl' caches PEM files by path.
+    Id = integer_to_list(erlang:unique_integer([positive])),
+    CAFile = filename:join(Dir, "udf-ca-" ++ Id ++ ".pem"),
     ok = emqx_cth_tls:write_pem(CAFile, CACert),
-    {CertFile, KeyFile} = emqx_cth_tls:write_cert(Dir, "udf-server", Server),
+    {CertFile, KeyFile} = emqx_cth_tls:write_cert(Dir, "udf-server-" ++ Id, Server),
     #{cacertfile => CAFile, certfile => CertFile, keyfile => KeyFile}.
 
 %% cowboy handler of the proxy
+init(Req0, #{call_reply := Reply} = State) when is_binary(Reply) ->
+    {ok, cowboy_req:reply(200, #{<<"content-type">> => <<"application/json">>}, Reply, Req0),
+        State};
 init(Req0, #{server_url := ServerURL, forget := Forget} = State) ->
     Path = binary_to_list(cowboy_req:path(Req0)),
     {ok, Body, Req} = cowboy_req:read_body(Req0),

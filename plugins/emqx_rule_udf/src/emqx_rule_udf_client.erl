@@ -43,6 +43,8 @@ changes.
 -define(POOL, emqx_rule_udf_http).
 -define(PT_CLIENT, {?MODULE, client}).
 -define(DEFAULT_URL, <<"http://127.0.0.1:8080">>).
+-define(POOL_STOP_TIMEOUT, 5_000).
+-define(MAX_ERROR_BODY_BYTES, 256).
 
 -type client() :: #{
     base_path := binary(),
@@ -116,7 +118,7 @@ do_call(Client, Name, Sha256, Body) ->
         {ok, 200, #{<<"result">> := Result}} ->
             {ok, Result};
         {ok, 200, Other} ->
-            {error, #{reason => bad_response, body => Other}};
+            {error, #{reason => bad_response, body => truncate(Other)}};
         {error, _} = Error ->
             Error
     end.
@@ -219,9 +221,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    _ = persistent_term:erase(?PT_CLIENT),
-    _ = ehttpc_sup:stop_pool(?POOL),
-    ok.
+    stop_pool().
 
 %%--------------------------------------------------------------------
 %% Config
@@ -257,10 +257,29 @@ apply_config(RawConfig, #{server := OldServer} = State) ->
 is_pool_running() ->
     persistent_term:get(?PT_CLIENT, undefined) =/= undefined.
 
+%% The pool supervisor has `shutdown => infinity'. A worker that does not stop
+%% would block the config update, so kill the pool after a timeout.
 stop_pool() ->
     _ = persistent_term:erase(?PT_CLIENT),
-    _ = ehttpc_sup:stop_pool(?POOL),
-    ok.
+    PoolSup = pool_sup_pid(),
+    {Stopper, MRef} = spawn_monitor(fun() -> exit(ehttpc_sup:stop_pool(?POOL)) end),
+    receive
+        {'DOWN', MRef, process, Stopper, _} -> ok
+    after ?POOL_STOP_TIMEOUT ->
+        ?LOG(warning, #{msg => "udf_http_pool_stop_timeout", timeout_ms => ?POOL_STOP_TIMEOUT}),
+        is_pid(PoolSup) andalso exit(PoolSup, kill),
+        receive
+            {'DOWN', MRef, process, Stopper, _} -> ok
+        end
+    end.
+
+%% `ehttpc_sup' names the pool child `{ehttpc_pool_sup, Pool}'.
+pool_sup_pid() ->
+    Children = supervisor:which_children(ehttpc_sup),
+    case lists:keyfind({ehttpc_pool_sup, ?POOL}, 1, Children) of
+        {_, Pid, _, _} when is_pid(Pid) -> Pid;
+        _ -> undefined
+    end.
 
 %% A failed update keeps the old settings, so it must keep the old pool too.
 restore_pool(undefined) ->
@@ -280,9 +299,12 @@ parse_config(RawConfig) ->
         {ok, PoolSize} ?= pos_int(<<"pool_size">>, Server, 8, 1024),
         {ok, ConnectTimeout} ?= pos_int(<<"connect_timeout_ms">>, Server, 5000, 600_000),
         {ok, RequestTimeout} ?= pos_int(<<"request_timeout_ms">>, Server, 2000, 600_000),
+        {ok, CACertFile} ?= parse_cacertfile(maps:get(<<"cacertfile">>, Server, <<>>)),
         {ok, #{
             uri => URI,
-            token => maps:get(<<"token">>, Server, <<>>),
+            %% Wrapped, so the token stays out of crash reports of this process.
+            token => wrap_token(maps:get(<<"token">>, Server, <<>>)),
+            cacertfile => CACertFile,
             pool_size => PoolSize,
             connect_timeout => ConnectTimeout,
             request_timeout => RequestTimeout
@@ -299,6 +321,17 @@ parse_url(URL) ->
             {error, #{reason => bad_url, url => URL, detail => Reason}}
     end.
 
+%% The file is local to each node, so each node checks its own copy.
+parse_cacertfile(<<>>) ->
+    {ok, ?CACERTFILE_SYSTEM_DEFAULT};
+parse_cacertfile(Path) when is_binary(Path) ->
+    case filelib:is_regular(Path) of
+        true -> {ok, Path};
+        false -> {error, #{reason => bad_config, field => <<"cacertfile">>, detail => not_a_file}}
+    end;
+parse_cacertfile(Other) ->
+    {error, #{reason => bad_config, field => <<"cacertfile">>, value => Other}}.
+
 pos_int(Key, Map, Default, Max) ->
     case maps:get(Key, Map, Default) of
         N when is_integer(N), N >= 1, N =< Max ->
@@ -311,7 +344,7 @@ start_pool(#{uri := #{scheme := Scheme, host := Host, port := Port} = URI} = Ser
     {Transport, TransportOpts} =
         case Scheme of
             http -> {tcp, []};
-            https -> {tls, tls_opts(Host)}
+            https -> {tls, tls_opts(maps:get(cacertfile, Server))}
         end,
     PoolOpts = [
         {host, Host},
@@ -328,7 +361,7 @@ start_pool(#{uri := #{scheme := Scheme, host := Host, port := Port} = URI} = Ser
         {ok, _} ->
             Client = #{
                 base_path => string:trim(bin(maps:get(path, URI, <<>>)), trailing, "/"),
-                token => wrap_token(maps:get(token, Server)),
+                token => maps:get(token, Server),
                 timeout => maps:get(request_timeout, Server)
             },
             persistent_term:put(?PT_CLIENT, Client);
@@ -337,17 +370,14 @@ start_pool(#{uri := #{scheme := Scheme, host := Host, port := Port} = URI} = Ser
     end.
 
 %% `system_default' trusts the CAs in `node.trusted_certs', or the OS CAs when
-%% it is not set.
-tls_opts(Host) ->
+%% it is not set. With `verify_peer', `ssl' sends the URL host as SNI and checks
+%% it against the server certificate.
+tls_opts(CACertFile) ->
     emqx_tls_lib:to_client_opts(tls, #{
         enable => true,
         verify => verify_peer,
-        cacertfile => ?CACERTFILE_SYSTEM_DEFAULT,
-        server_name_indication => sni(Host)
+        cacertfile => CACertFile
     }).
-
-sni(Host) when is_tuple(Host) -> disable;
-sni(Host) -> str(Host).
 
 wrap_token(<<>>) -> undefined;
 wrap_token(Token) -> emqx_secret:wrap(Token).
@@ -390,6 +420,16 @@ handle_response(Status, RespBody) ->
             {error, #{status => Status, reason => bad_response_body}}
     end.
 
+%% A reply can be up to `max_response_bytes' long: keep errors and logs short.
+%% `Term' is decoded JSON, so it encodes.
+truncate(Term) ->
+    Bin = emqx_utils_json:encode(Term),
+    case byte_size(Bin) > ?MAX_ERROR_BODY_BYTES of
+        %% `string:slice' counts characters, so the result stays valid UTF-8.
+        true -> <<(string:slice(Bin, 0, ?MAX_ERROR_BODY_BYTES))/binary, "...">>;
+        false -> Bin
+    end.
+
 auth_header(undefined) ->
     [];
 auth_header(Token) ->
@@ -397,6 +437,3 @@ auth_header(Token) ->
 
 bin(B) when is_binary(B) -> B;
 bin(L) when is_list(L) -> unicode:characters_to_binary(L).
-
-str(B) when is_binary(B) -> binary_to_list(B);
-str(L) when is_list(L) -> L.
