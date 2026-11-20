@@ -48,6 +48,7 @@
 -export([new_id/1]).
 -export([get_stream/2, put_stream/3, del_stream/2, fold_streams/3, fold_streams/4, n_streams/1]).
 -export([get_seqno/2, put_seqno/3]).
+-export([get_qos2_rejected/1, set_qos2_rejected/2]).
 -export([get_rank/2, put_rank/3, del_rank/2, fold_ranks/3, fold_ranks/4]).
 -export([
     get_subscription_state/2,
@@ -113,7 +114,8 @@
         ?last_alive_at => emqx_persistent_session_ds:timestamp(),
         ?expiry_interval => non_neg_integer(),
         ?peername => emqx_types:peername(),
-        ?protocol => protocol()
+        ?protocol => protocol(),
+        qos2_rejected => #{emqx_persistent_session_ds:seqno() => true}
     }.
 
 -type seqno_type() ::
@@ -287,6 +289,19 @@ checkpoint_ref(#{?checkpoint_ref := Dirty}) ->
 -spec get_guard(t()) -> guard() | undefined.
 get_guard(#{?collection_guard := Guard}) ->
     Guard.
+
+%% Rejections beyond the contiguous QoS 2 completion position must survive
+%% reconnects. Old sessions have no such metadata and default to an empty map.
+-spec get_qos2_rejected(t()) -> #{emqx_persistent_session_ds:seqno() => true}.
+get_qos2_rejected(Rec) ->
+    case get_meta(qos2_rejected, Rec) of
+        undefined -> #{};
+        Rejected -> Rejected
+    end.
+
+-spec set_qos2_rejected(#{emqx_persistent_session_ds:seqno() => true}, t()) -> t().
+set_qos2_rejected(Rejected, Rec) ->
+    set_meta(qos2_rejected, Rejected, Rec).
 
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.
 get_created_at(Rec) ->

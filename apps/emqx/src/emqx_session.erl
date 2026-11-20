@@ -66,6 +66,7 @@
     publish/4,
     puback/4,
     pubrec/3,
+    pubrec_error/4,
     pubrel/3,
     pubcomp/4,
     replay/3
@@ -212,6 +213,11 @@
 -callback pubrec(emqx_types:packet_id(), t()) ->
     {ok, emqx_types:message(), t()}
     | {error, emqx_types:reason_code()}.
+
+%% Complete an exchange after a successful pubrec/2 transition whose PUBREC
+%% reason code was negative. This may complete QoS 2 messages out of order.
+-callback pubrec_error(clientinfo(), emqx_types:packet_id(), t()) ->
+    {ok, message(), replies(), t()} | {error, emqx_types:reason_code()}.
 
 -callback pubrel(emqx_types:packet_id(), t()) ->
     {ok, t()}
@@ -421,6 +427,18 @@ pubrel(_ClientInfo, PacketId, Session) ->
     case ?IMPL(Session):pubrel(PacketId, Session) of
         {ok, _Session} = Ok ->
             Ok;
+        {error, _} = Error ->
+            Error
+    end.
+
+-spec pubrec_error(clientinfo(), emqx_types:packet_id(), emqx_types:reason_code(), t()) ->
+    {ok, replies(), t()} | {error, emqx_types:reason_code()}.
+pubrec_error(ClientInfo, PacketId, ReasonCode, Session) ->
+    case ?IMPL(Session):pubrec_error(ClientInfo, PacketId, Session) of
+        {ok, Msg, Replies, Session1} ->
+            _ = on_delivery_completed(Msg, ReasonCode, ClientInfo, Session1),
+            _ = on_maybe_delivery_completed_qos0(Replies, ClientInfo, Session1),
+            {ok, Replies, Session1};
         {error, _} = Error ->
             Error
     end.
