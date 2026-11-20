@@ -81,12 +81,15 @@ setup_vm() ->
     os:set_signal(sigterm, handle),
     ok = set_backtrace_depth().
 
-%% Set up classy and mria. Returns app closure (for testing)
+%% Set up classy and mria. Return the closure of started apps.
 -spec start_sys_apps(file:filename()) -> [atom()].
 start_sys_apps(DataDir) ->
+    %% Prepare classy directory:
     ClassyDir = filename:join(DataDir, "classy"),
     application:set_env(classy, table_dir, ClassyDir),
     ok = filelib:ensure_path(ClassyDir),
+    %% Prepare mnesia directory:
+    ok = application:set_env(mnesia, dir, filename:join([DataDir, "mnesia"])),
     %% Start classy app in dormant mode, which enables registration of hooks:
     {ok, Started1} = application:ensure_all_started(classy),
     %% Start mria in dormant mode:

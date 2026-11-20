@@ -142,8 +142,14 @@ start(Apps, SuiteOpts) ->
 Start applications with a clean slate.
 Provided appspecs will be merged with defaults defined in `default_appspec/1`.
 
-This function attempts to start applications in a way similar to emqx_machine,
-utilizing classy run_level logic.
+This function attempts to start applications in a way similar to
+emqx_machine, utilizing the classy run_level logic.
+
+
+NOTE: The return value is the list of *system* apps, i.e. ones not
+managed by classy. That includes mria, classy and their dependencies.
+The rest of "business" apps don't appear in the list, as they are
+managed by `on_run_level` hook.
 """.
 -spec start(timeout(), [appname() | appspec()], SuiteOpts) ->
     StartedApps :: [appname()]
@@ -162,13 +168,11 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 2. Load every app so that stuff scanning attributes of loaded modules works
     ok = lists:foreach(fun load_appspec/1, AppSpecs),
     % 3. Verify that we're running with a clean state.
-    ok = filelib:ensure_dir(filename:join(WorkDir, foo)),
+    ok = filelib:ensure_path(WorkDir),
     ok = verify_clean_suite_state(SuiteOpts),
     % 4. Setup directories for persistent data:
     ok = emqx_common_test_helpers:load(mnesia),
-    ok = application:set_env(mnesia, dir, filename:join([WorkDir, mnesia])),
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
-    application:set_env(classy, table_dir, filename:join([WorkDir, classy])),
     % 5. Separate applications into "system" and "managed" groups.
     % "Managed" applications are not started immediately, but instead
     % passed to classy hook that manages them depending on the run
@@ -179,15 +183,15 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     ],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
     % 6. Pre-boot. Start system apps:
-    ClassyApps = start_apps(SystemSpecs, SuiteOpts),
-    emqx_machine:register_system_hooks(),
+    SysApps = emqx_machine:start_sys_apps(WorkDir),
     classy:on_run_level(
         on_run_level(ManagedSpecs),
         #{prio => 0, timeout => infinity}
     ),
     % 7. Boot:
     ok = classy:start_system(),
-    ClassyApps ++ wait_business_apps(WaitStarted).
+    _ = wait_business_apps(WaitStarted),
+    SysApps.
 
 on_run_level(RestSpecs) ->
     fun(Action, Level) ->
@@ -553,15 +557,15 @@ inhibit_config_loader(_App, #{}) ->
 -doc """
 A safe way to stop applications that imitates behavior of emqx_machine.
 """.
--spec stop(_StartedApps :: [appname()]) ->
+-spec stop(_StartedSysApps :: [appname()]) ->
     ok.
-stop(_Apps) ->
-    optvar:unset(?rest_started),
+stop(SysApps) ->
     try
         classy:stop_system()
     catch
         _:_ -> ok
     end,
+    stop_apps(SysApps),
     clean_suite_state().
 
 -doc """
