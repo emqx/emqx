@@ -241,6 +241,95 @@ t_scram_login_locked_after_challenge(_) ->
         )
     ).
 
+t_scram_wrong_proof_while_locked(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    {ok, Challenge} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+    LockedUntil = set_lock(),
+    ?assertEqual(
+        {error, login_locked},
+        scram_verify(ClientNonce, Challenge, <<"wrongP@ss1">>)
+    ),
+    ?assertEqual([], user_attempts(?USERNAME)),
+    ?assertEqual({ok, LockedUntil}, emqx_dashboard_admin:get_login_lock(?USERNAME)).
+
+t_scram_wrong_nonce_while_locked(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    {ok, Challenge} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+    ServerNonce = maps:get(server_nonce, Challenge),
+    Proof = client_proof(ClientNonce, Challenge, ?PASSWORD),
+    LockedUntil = set_lock(),
+    ?assertEqual(
+        {error, login_locked},
+        emqx_dashboard_login:scram_verify(
+            maps:get(challenge_id, Challenge),
+            <<"otherNonce1234567890", ServerNonce/binary>>,
+            Proof,
+            ?NO_MFA_TOKEN
+        )
+    ),
+    ?assertEqual([], user_attempts(?USERNAME)),
+    ?assertEqual({ok, LockedUntil}, emqx_dashboard_admin:get_login_lock(?USERNAME)).
+
+t_scram_requests_while_locked_not_counted(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    LockedUntil = set_lock(),
+    MaxAttempts = emqx_config:get([dashboard, unsuccessful_login_max_attempts], 5),
+    lists:foreach(
+        fun(_) ->
+            {ok, Challenge} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+            ?assertEqual(
+                {error, login_locked},
+                scram_verify(ClientNonce, Challenge, <<"wrongP@ss1">>)
+            )
+        end,
+        lists:seq(1, MaxAttempts + 1)
+    ),
+    ?assertEqual([], user_attempts(?USERNAME)),
+    ?assertEqual({ok, LockedUntil}, emqx_dashboard_admin:get_login_lock(?USERNAME)).
+
+t_scram_login_after_lock_cleared(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    _ = set_lock(),
+    {ok, Challenge1} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+    ?assertEqual(
+        {error, login_locked},
+        scram_verify(ClientNonce, Challenge1, ?PASSWORD)
+    ),
+    {ok, _} = emqx_dashboard_admin:clear_login_lock(?USERNAME),
+    {ok, Challenge2} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+    {ok, Result} = scram_verify(ClientNonce, Challenge2, ?PASSWORD),
+    ?assert(is_binary(maps:get(token, Result))).
+
+t_http_scram_wrong_proof_while_locked(_) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    LockedUntil = set_lock(),
+    {ok, 200, Challenge} = request_api(
+        post,
+        api_path(["login", "challenge"]),
+        no_auth_header,
+        #{username => ?USERNAME, client_nonce => ClientNonce}
+    ),
+    Salt = base64:decode(maps:get(<<"salt">>, Challenge)),
+    WrongProof = emqx_dashboard_scram:client_proof(
+        ?USERNAME,
+        ClientNonce,
+        maps:get(<<"server_nonce">>, Challenge),
+        Salt,
+        maps:get(<<"iterations">>, Challenge),
+        <<"wrongP@ss1">>
+    ),
+    ?assertMatch(
+        {ok, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+        request_api(
+            post,
+            api_path(["login", "verify"]),
+            no_auth_header,
+            http_verify_body(ClientNonce, Challenge, WrongProof, #{})
+        )
+    ),
+    ?assertEqual([], user_attempts(?USERNAME)),
+    ?assertEqual({ok, LockedUntil}, emqx_dashboard_admin:get_login_lock(?USERNAME)).
+
 t_http_password_login_disabled(_) ->
     emqx_config:put([dashboard, password_login], scram_only),
     ?assertMatch(
@@ -524,3 +613,32 @@ http_verify_body(ClientNonce, Challenge, Proof, Extra) ->
         },
         Extra
     ).
+
+set_lock() ->
+    LockedUntil = erlang:system_time(second) + 60,
+    {ok, _} = emqx_dashboard_admin:set_login_lock(?USERNAME, LockedUntil),
+    LockedUntil.
+
+client_proof(ClientNonce, Challenge, Password) ->
+    emqx_dashboard_scram:client_proof(
+        ?USERNAME,
+        ClientNonce,
+        maps:get(server_nonce, Challenge),
+        base64:decode(maps:get(salt, Challenge)),
+        maps:get(iterations, Challenge),
+        Password
+    ).
+
+scram_verify(ClientNonce, Challenge, Password) ->
+    ServerNonce = maps:get(server_nonce, Challenge),
+    emqx_dashboard_login:scram_verify(
+        maps:get(challenge_id, Challenge),
+        <<ClientNonce/binary, ServerNonce/binary>>,
+        client_proof(ClientNonce, Challenge, Password),
+        ?NO_MFA_TOKEN
+    ).
+
+user_attempts(Username) ->
+    mnesia:dirty_select(login_attempts, [
+        {#login_attempts{key = {Username, '_'}, extra = '_'}, [], ['$_']}
+    ]).
