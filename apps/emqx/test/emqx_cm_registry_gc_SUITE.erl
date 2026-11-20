@@ -145,8 +145,9 @@ t_treats_aborted_is_peer_alive_as_keep(_) ->
     ok.
 
 %% mria:is_peer_alive/1 must be called at most once per unique remote node
-%% per sweep, regardless of how many rows point at that node.
-t_caches_is_peer_alive_per_sweep(_) ->
+%% per chunk, regardless of how many rows point at that node. The forced
+%% sweep is one chunk.
+t_caches_is_peer_alive_per_chunk(_) ->
     FakeNode = 'fake-cached@127.0.0.1',
     N = 50,
     %% NB: do not pass `no_history' here; we assert call count below.
@@ -163,6 +164,38 @@ t_caches_is_peer_alive_per_sweep(_) ->
     Counters = emqx_cm_registry_keeper:force_sweep_stale_pids(),
     ?assertMatch(#{deleted_remote_orphan := N}, Counters),
     ?assertEqual(1, meck:num_calls(mria, is_peer_alive, ['_'])),
+    ok.
+
+%% A node is reported gone in the first chunk of a scheduled sweep, then
+%% rejoins. The sweep checks the node again in a later chunk and keeps the
+%% rows that point at it.
+t_rechecks_gone_node_in_later_chunk(_) ->
+    FakeNode = 'fake-rejoin@127.0.0.1',
+    %% 3 chunks of rows, all on one node
+    N = 150,
+    meck:new(mria, [passthrough]),
+    meck:expect(mria, is_peer_alive, 1, meck:seq([{ok, false}, {ok, true}])),
+    ClientIds = [<<"rejoin-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, N)],
+    Pid = fake_remote_pid(FakeNode),
+    lists:foreach(
+        fun(ClientId) ->
+            ok = mria:dirty_write(?CHAN_REG_TAB, #channel{chid = ClientId, pid = Pid})
+        end,
+        ClientIds
+    ),
+    ?check_trace(
+        begin
+            {_, {ok, #{deleted_remote_orphan := Deleted}}} = ?wait_async_action(
+                emqx_cm_registry_keeper:ensure_started(),
+                #{?snk_kind := cm_registry_gc_finished},
+                5000
+            ),
+            ?assertEqual(50, Deleted),
+            ?assertEqual(N - 50, length([Id || Id <- ClientIds, all_pids(Id) =:= [Pid]])),
+            ?assertEqual(2, meck:num_calls(mria, is_peer_alive, ['_']))
+        end,
+        []
+    ),
     ok.
 
 %% Two back-to-back force sweeps must both return cleanly. gen_server:call
