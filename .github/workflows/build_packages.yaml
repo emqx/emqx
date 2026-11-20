@@ -310,10 +310,19 @@ jobs:
       env:
         PROFILE: ${{ matrix.profile }}
         REF_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref_name }}
+        LATEST_RELEASE_LINE: ${{ vars.LATEST_RELEASE_LINE }}
         AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
         AWS_CLOUDFRONT_ID: ${{ secrets.AWS_CLOUDFRONT_ID }}
       run: |
         set -eu
-        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
-        aws s3 cp --recursive packages/plugins s3://$AWS_S3_BUCKET/emqx-plugins/$REF_NAME/
-        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*" "/emqx-plugins/$REF_NAME/*"
+        if ! [[ "${LATEST_RELEASE_LINE:-}" =~ ^[1-9][0-9]*\.[0-9]+$ ]]; then
+          echo "::error::LATEST_RELEASE_LINE must be MAJOR.MINOR, e.g. 6.3"
+          exit 1
+        fi
+        aws s3 cp --recursive "packages/$PROFILE" "s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME"
+        aws s3 cp --recursive packages/plugins "s3://$AWS_S3_BUCKET/emqx-plugins/$REF_NAME/"
+        printf '%s\n' "$LATEST_RELEASE_LINE" > "$RUNNER_TEMP/latest"
+        aws s3 cp "$RUNNER_TEMP/latest" "s3://$AWS_S3_BUCKET/emqx-ee/latest" \
+          --content-type text/plain --cache-control no-cache
+        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" \
+          --paths "/emqx-ee/$REF_NAME/*" "/emqx-plugins/$REF_NAME/*" "/emqx-ee/latest"
