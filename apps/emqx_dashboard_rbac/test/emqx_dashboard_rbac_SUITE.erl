@@ -658,18 +658,18 @@ t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
         login_scope_check(Username, alarms)
     ).
 
-%% `$denied' keeps API keys out. It is not a scope that a login user can
-%% hold, so a handler declared only `$denied' follows the unmapped rule:
+%% `$deny_api_key' keeps API keys out. It is not a scope that a login user can
+%% hold, so a handler declared only `$deny_api_key' follows the unmapped rule:
 %% a user without an explicit scope list is allowed, and a user with one
-%% is denied. Before, every login user was denied, so a `$denied' endpoint
+%% is denied. Before, every login user was denied, so a `$deny_api_key' endpoint
 %% that needs a login answered 403 even to administrators.
 t_check_login_user_scopes_denied_is_api_key_only(_) ->
-    %% `/schemas/:name' is declared `$denied'. In production it skips
+    %% `/schemas/:name' is declared `$deny_api_key'. In production it skips
     %% authorization (`security => []'), but the predicate does not look
-    %% at that, so the handler serves as a `$denied' endpoint here.
+    %% at that, so the handler serves as a `$deny_api_key' endpoint here.
     {HandlerInfo, _} = dispatch(endpoint_path(schema)),
     ?assertEqual(
-        {scopes, [?SCOPE_DENIED]},
+        {scopes, [?SCOPE_DENY_API_KEY]},
         emqx_mgmt_api_key_scopes:classify_handler(HandlerInfo)
     ),
     Admin = <<"login_user_scopes_denied_admin">>,

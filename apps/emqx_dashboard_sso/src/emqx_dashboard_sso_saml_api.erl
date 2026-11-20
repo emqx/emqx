@@ -44,7 +44,7 @@ check_api_schema(Params, Meta) ->
         Params, Meta, <<"application/x-www-form-urlencoded">>
     ).
 
-scopes() -> ?SCOPE_DENIED.
+scopes() -> ?SCOPE_DENY_API_KEY.
 
 paths() ->
     [
@@ -84,7 +84,7 @@ schema("/sso/saml/metadata") ->
             %% relationship. Mark it `security => []' so minirest
             %% bypasses auth — without this, the dashboard JWT path
             %% reaches `check_login_user_scopes', the handler maps to
-            %% `?SCOPE_DENIED' via `scopes/0', and bearer admins get
+            %% `?SCOPE_DENY_API_KEY' via `scopes/0', and bearer admins get
             %% 403. The companion endpoint `/sso/saml/acs' is already
             %% marked public for the same reason.
             security => []

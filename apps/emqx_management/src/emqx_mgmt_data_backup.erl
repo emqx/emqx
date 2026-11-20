@@ -219,7 +219,7 @@ build_all_table_set_names() ->
     ).
 
 %% Table sets that contain credentials/identities an API key must never be able
-%% to read or write through data backup, mirroring the `?SCOPE_DENIED' guard
+%% to read or write through data backup, mirroring the `?SCOPE_DENY_API_KEY' guard
 %% on /users and /api_key endpoints.
 -spec sensitive_table_set_names() -> [binary()].
 sensitive_table_set_names() ->
