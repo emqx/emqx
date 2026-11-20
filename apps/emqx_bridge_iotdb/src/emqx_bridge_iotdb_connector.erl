@@ -282,7 +282,7 @@ sql_union_selector({value, Value}) ->
             %% Note: This clause is only used for the connectors_probe API
             %% because it executes translation twice:
             %%   1. `emqx_dashboard_swagger:filter_check_request_and_translate_body/2`
-            %%   2. `emqx_connector_resource:create_dry_run/2`
+            %%   2. `emqx_connector_resource:create_dry_run/3`
             %% In the first translate, the dialect value is binary() and converted to atom,
             sql_union_selector({value, Value#{<<"dialect">> => atom_to_binary(Atom)}})
     end.

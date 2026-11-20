@@ -4,7 +4,11 @@
 -module(emqx_config).
 
 -compile({no_auto_import, [get/0, get/1, put/2, erase/1]}).
--elvis([{elvis_style, god_modules, disable}]).
+-elvis([
+    {elvis_style, god_modules, disable},
+    %% Config keys are converted to atoms on purpose, see `unsafe_atom/1`.
+    {elvis_style, no_common_caveats_call, disable}
+]).
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
@@ -20,6 +24,7 @@
     has_deprecated_file/0,
     delete_override_conf_files/0,
     check_config/2,
+    check_config/3,
     fill_defaults/1,
     fill_defaults/2,
     normalize_raw_conf/1,
@@ -438,9 +443,7 @@ force_put(KeyPath0, Config, Safety) ->
             safe -> KeyPath0;
             unsafe -> [unsafe_atom(Key) || Key <- KeyPath0]
         end,
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
+    Putter = fun emqx_utils_maps:deep_force_put/3,
     do_put(?CONF, Putter, KeyPath, Config).
 
 -spec get_default_value(emqx_utils_maps:config_key_path()) -> {ok, term()} | {error, term()}.
@@ -497,9 +500,7 @@ put_raw(Config) ->
 -spec put_raw(emqx_utils_maps:config_key_path(), term()) -> ok.
 put_raw(KeyPath0, Config) ->
     KeyPath = [bin(K) || K <- KeyPath0],
-    Putter = fun(Path, Map, Value) ->
-        emqx_utils_maps:deep_force_put(Path, Map, Value)
-    end,
+    Putter = fun emqx_utils_maps:deep_force_put/3,
     do_put(?RAW_CONF, Putter, KeyPath, Config).
 
 -spec put_namespaced(binary(), map()) -> ok.
@@ -544,12 +545,27 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
         end,
     RawConf3 = upgrade_raw_conf(SchemaMod, RawConf2),
     RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf3),
+    ok = init_secret_file_allow_list(RawConf),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     save_to_app_env(AppEnvs),
     ok = save_to_config_map(CheckedConf, RawConf),
     maybe_init_default_zone(),
     load_namespaced_configs(),
+    ok.
+
+%% Put `node.secret_file_allow_list` in place before the config is checked, so that
+%% the setting applies to a `file://` secret that is unwrapped in the check. The
+%% check stores the checked value later. A value that is not a list of patterns
+%% allows no file: the check fails for it.
+init_secret_file_allow_list(#{<<"node">> := #{<<"secret_file_allow_list">> := AllowList}}) ->
+    Patterns =
+        case is_list(AllowList) of
+            true -> [Pattern || Pattern <- AllowList, is_binary(Pattern)];
+            false -> []
+        end,
+    ?MODULE:put([node, secret_file_allow_list], Patterns);
+init_secret_file_allow_list(#{}) ->
     ok.
 
 upgrade_raw_conf(SchemaMod, RawConf) ->

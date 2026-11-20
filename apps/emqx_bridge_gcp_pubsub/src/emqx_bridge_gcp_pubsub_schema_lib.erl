@@ -50,18 +50,19 @@ authentication_field() ->
 service_account_json_validator(Val0, Opts) ->
     MaybeObfuscated = maps:get(maybe_obfuscated, Opts, false),
     Redacted = emqx_utils_redact:redacted_value(),
-    case emqx_secret:unwrap(Val0) of
-        Redacted when MaybeObfuscated ->
+    case emqx_schema_secret:unwrap_in_validator(Val0, Opts) of
+        file ->
+            %% A `file://` secret whose file is not read in this check.
+            ok;
+        {value, Redacted} when MaybeObfuscated ->
             %% we'll deobfuscate in the http api handler
             ok;
-        Val ->
+        {value, Val} ->
             do_service_account_json_validator(Val)
     end.
 
 do_service_account_json_validator(Val) ->
-    %% `Val' may be a secret reference (e.g. `file://...'); unwrap it before
-    %% decoding so file-based service account credentials validate correctly.
-    case emqx_utils_json:safe_decode(emqx_secret:unwrap(Val)) of
+    case emqx_utils_json:safe_decode(Val) of
         {ok, Map} ->
             ExpectedKeys = [
                 <<"type">>,
@@ -130,9 +131,11 @@ fields(auth_service_account_json) ->
             })},
         {service_account_json,
             %% Use a secret schema so file-based references (`file://...') are
-            %% wrapped into a file-reading secret; the validator then unwraps
-            %% and reads the file content. A plain binary field would pass the
-            %% literal `file://...' to the validator and fail as "not a json".
+            %% wrapped into a file-reading secret. The validator reads the file
+            %% content only in some checks of the global config, see
+            %% `emqx_schema_secret:unwrap_in_validator/2'. A plain binary field
+            %% would pass the literal `file://...' to the validator and fail as
+            %% "not a json".
             emqx_schema_secret:mk(
                 #{
                     required => false,
