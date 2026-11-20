@@ -83,9 +83,10 @@ t_02_smoke_iterate(Config) ->
 %% were written in order.
 t_03_dirty_append_ordering(Config) ->
     DB = ?FUNCTION_NAME,
-    DBOpts = emqx_utils_maps:deep_merge(opts(Config), #{
-        transaction => #{idle_flush_interval => 1000, flush_interval => 1000}
-    }),
+    DBOpts = emqx_utils_maps:deep_merge(
+        opts(Config),
+        #{transactions => #{idle_flush_interval => 1000, flush_interval => 1000}}
+    ),
     ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
     %% Add a few batches async-ly:
     Topic = [<<"t">>],
