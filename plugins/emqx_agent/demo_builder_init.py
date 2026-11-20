@@ -553,9 +553,8 @@ def main() -> int:
     print("==> Creating pipeline")
     create_pipeline()
 
-    ui_base = BASE_URL.rstrip("/").replace("/api/v5/plugin_api/emqx_agent", "")
     print("\nDone.")
-    print(f"Builder UI:  {ui_base}/api/v5/plugin_api/emqx_agent/builder/ui")
+    print("Demo UI:        See Demo Pages in plugins/emqx_agent/README.md")
     print(f"Request topic:  $evt/builder/request  (payload: {{\"message\": \"...\"}})")
     print(f"Reply topic:    builder/reply")
     return 0

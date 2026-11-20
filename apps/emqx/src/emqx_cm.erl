@@ -128,8 +128,11 @@
     {?CHAN_REG_TAB, 'cluster_sessions.count', 'cluster_sessions.max'}
 ]).
 
-%% Batch drain
--define(BATCH_SIZE, 1000).
+%% Max number of channel events that emqx_cm handles in one batch, and the number
+%% of channels at which a clean-down task stops taking the queued clean-down tasks.
+%% `node.channel_cleanup_batch_size` can lower it. A larger configured value, such
+%% as the default of an older release, is capped.
+-define(MAX_BATCH_SIZE, 1000).
 
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
@@ -215,8 +218,11 @@ unregister_channel(ClientId, ChanPid) when ?IS_CLIENTID(ClientId) ->
     do_unregister_channel({ClientId, ChanPid}).
 
 %% @private
-do_unregister_channel({_ClientId, ChanPid} = Chan) ->
+do_unregister_channel(Chan) ->
     ok = emqx_cm_registry:unregister_channel(Chan),
+    unregister_channel_local(Chan).
+
+unregister_channel_local({_ClientId, ChanPid} = Chan) ->
     true = ets:delete(?CHAN_CONN_TAB, ChanPid),
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan),
@@ -879,8 +885,7 @@ handle_down_pids(Pids) ->
     ok = emqx_pool:async_submit_to_pool(?CM_POOL, fun ?MODULE:clean_down/1, [Pids]).
 
 collect_and_handle(Regs0, Down0) ->
-    BatchSize = emqx:get_config([node, channel_cleanup_batch_size], ?BATCH_SIZE),
-    {Regs, Down} = collect_msgs(Regs0, Down0, BatchSize),
+    {Regs, Down} = collect_msgs(Regs0, Down0, batch_size()),
     ok = handle_reg_pids(Regs),
     ok = handle_down_pids(Down).
 
@@ -896,25 +901,72 @@ collect_msgs(Regs, Down, N) ->
         {Regs, Down}
     end.
 
-clean_down([]) ->
-    ok;
-clean_down([Pid | Pids]) ->
-    ok = clean_down2(Pid),
-    clean_down(Pids).
+-doc """
+Clean up after channels that are down. This task runs in an `emqx_cm_pool` worker.
+It also takes the clean-down tasks that are queued behind it until there are
+`batch_size()` channels, and removes all of them from the global registry with one
+call. The last task that it takes can make the batch larger, up to two times
+`batch_size()`. On a replicant, the call is a round trip to a core node.
+""".
+clean_down(Pids) ->
+    %% emqx_cm_pool runs only this task, so the receive does not skip messages.
+    More = emqx_pool:take_async_tasks(fun ?MODULE:clean_down/1, batch_size() - length(Pids)),
+    clean_down_batch(Pids ++ More).
 
-clean_down2(Pid) when is_pid(Pid) ->
-    ok = emqx_broker_helper:clean_down(Pid),
-    try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
-        ClientId ->
-            do_clean_down(ClientId, Pid)
-    catch
-        error:badarg ->
-            ok
-    end.
+batch_size() ->
+    min(emqx:get_config([node, channel_cleanup_batch_size], ?MAX_BATCH_SIZE), ?MAX_BATCH_SIZE).
 
-do_clean_down(ClientId, ChanPid) ->
+clean_down_batch(Pids) ->
+    Chans = clean_down_subscribers(Pids, [], 0, undefined),
+    case emqx_cm_registry:unregister_channels(Chans) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            %% Delete the local rows anyway. The registry keeper removes
+            %% the registry rows of local pids that are dead.
+            ?SLOG(error, #{
+                msg => "failed_to_unregister_channels",
+                reason => Reason,
+                count => length(Chans)
+            })
+    end,
+    lists:foreach(fun do_clean_down/1, Chans).
+
+%% Clean up the subscriptions of the down channels. Return the channels that are
+%% still registered on this node, in the order of `Pids`. A failure for one channel
+%% must not stop the clean-down of the other channels of the batch.
+clean_down_subscribers([], Chans, NErrors, Example) ->
+    NErrors > 0 andalso
+        ?SLOG(error, #{
+            msg => "failed_to_clean_down_subscribers",
+            count => NErrors,
+            example => Example
+        }),
+    lists:reverse(Chans);
+clean_down_subscribers([Pid | Pids], Chans0, NErrors0, Example0) when is_pid(Pid) ->
+    {NErrors, Example} =
+        try
+            ok = emqx_broker_helper:clean_down(Pid),
+            {NErrors0, Example0}
+        catch
+            Class:Reason:Stacktrace when NErrors0 =:= 0 ->
+                {1, {Class, Reason, Stacktrace}};
+            _:_ ->
+                {NErrors0 + 1, Example0}
+        end,
+    Chans =
+        try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
+            ClientId ->
+                [{ClientId, Pid} | Chans0]
+        catch
+            error:badarg ->
+                Chans0
+        end,
+    clean_down_subscribers(Pids, Chans, NErrors, Example).
+
+do_clean_down({ClientId, _ChanPid} = Chan) ->
     try
-        do_unregister_channel({ClientId, ChanPid})
+        unregister_channel_local(Chan)
     catch
         error:badarg -> ok
     end,

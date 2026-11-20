@@ -26,6 +26,10 @@
     on_format_query_result/1
 ]).
 
+-ifdef(TEST).
+-export([map_batch_result/1]).
+-endif.
+
 %% -------------------------------------------------------------------------------------------------
 %% resource callbacks
 %% -------------------------------------------------------------------------------------------------
@@ -77,7 +81,12 @@ on_start(InstId, Config) ->
                 redis_bridge_connector_start_error,
                 #{error => Error}
             ),
-            throw({unhealthy_target, Reason});
+            case emqx_redis:is_auth_error(Reason) of
+                true ->
+                    throw({unhealthy_target, Reason});
+                false ->
+                    Error
+            end;
         {error, _} = Error ->
             ?tp(
                 redis_bridge_connector_start_error,
@@ -144,9 +153,9 @@ on_batch_query(
                 redis_bridge_connector_send,
                 #{batch_data => BatchData, batch => true, mode => sync}
             ),
-            [{ChannelID, _} | _] = BatchData,
+            [{ChannelId, _} | _] = BatchData,
             emqx_trace:rendered_action_template(
-                ChannelID,
+                ChannelId,
                 #{
                     commands => #emqx_trace_format_func_data{
                         function = fun trace_format_commands/1,
@@ -167,7 +176,7 @@ on_batch_query(
                     result => Result
                 }
             ),
-            Result;
+            map_batch_result(Result);
         {error, Reason} ->
             {error, Reason}
     end.
@@ -180,6 +189,14 @@ on_format_query_result({ok, Msg}) ->
     #{result => ok, message => Msg};
 on_format_query_result(Res) ->
     Res.
+
+map_batch_result({ok, Results}) when is_list(Results) ->
+    Results;
+map_batch_result({error, Results}) when is_list(Results) ->
+    Results;
+map_batch_result(Result) ->
+    %% e.g.: {error, {recoverable_error, no_connection}}
+    Result.
 
 %% -------------------------------------------------------------------------------------------------
 %% private helpers
@@ -200,11 +217,7 @@ try_render_message([], _Channels, Acc) ->
     {ok, lists:reverse(Acc)}.
 
 query(InstId, Query, RedisConnSt) ->
-    case emqx_redis:on_query(InstId, Query, RedisConnSt) of
-        {ok, _} = Ok -> Ok;
-        {error, no_connection} -> {error, {recoverable_error, no_connection}};
-        {error, _} = Error -> Error
-    end.
+    emqx_redis:on_query(InstId, Query, RedisConnSt).
 
 proc_command_template(CommandTemplate, Msg) ->
     lists:reverse(

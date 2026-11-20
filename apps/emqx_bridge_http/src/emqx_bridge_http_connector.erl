@@ -1187,6 +1187,7 @@ transform_result(Result) ->
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= nxdomain;
+            Reason =:= einval;
             Reason =:= timeout;
             Reason =:= normal;
             Reason =:= closed;

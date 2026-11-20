@@ -9,9 +9,6 @@ REST API for the agent subsystem.
 
 Resources:
   /agent/ui                       — serve the main agent UI
-  /agent/apple-box/ui             — serve the apple-box demo UI
-  /agent/apple-box/img/:file      — serve apple-box demo images
-  /agent/builder/ui               — serve the builder UI
   /agent/assets/:file             — serve bundled UI assets
   /agent/ui/assets/:file          — serve bundled UI assets
   /agent/providers                — list configured AI providers
@@ -67,12 +64,6 @@ handle(Method, Path0, Request) ->
 
 dispatch(get, [<<"ui">>], Params) ->
     '/agent/ui'(get, Params);
-dispatch(get, [<<"apple-box">>, <<"ui">>], Params) ->
-    '/agent/apple-box/ui'(get, Params);
-dispatch(get, [<<"apple-box">>, <<"img">>, File], Params) ->
-    '/agent/apple-box/img/:file'(get, Params#{bindings => #{file => File}});
-dispatch(get, [<<"builder">>, <<"ui">>], Params) ->
-    '/agent/builder/ui'(get, Params);
 dispatch(get, [<<"assets">>, File], _Params) ->
     serve_ui_asset(File);
 dispatch(get, [<<"ui">>, <<"assets">>, File], _Params) ->
@@ -148,29 +139,6 @@ normalize_plugin_response(Status) when is_integer(Status) ->
 
 '/agent/ui'(get, _Params) ->
     serve_html("index.html").
-
-'/agent/apple-box/ui'(get, _Params) ->
-    serve_html("apple-box.html").
-
-'/agent/builder/ui'(get, _Params) ->
-    serve_html("builder.html").
-
-'/agent/apple-box/img/:file'(get, #{bindings := #{file := File}}) ->
-    PrivDir = code:priv_dir(emqx_agent),
-    ImgFile = filename:join([PrivDir, "img", File]),
-    case file:read_file(ImgFile) of
-        {ok, Data} ->
-            CT =
-                case filename:extension(File) of
-                    <<".png">> -> <<"image/png">>;
-                    <<".jpg">> -> <<"image/jpeg">>;
-                    <<".jpeg">> -> <<"image/jpeg">>;
-                    _ -> <<"application/octet-stream">>
-                end,
-            {200, no_cache_headers(CT), Data};
-        {error, _} ->
-            {404, #{}, <<"not found">>}
-    end.
 
 serve_html(Filename) ->
     PrivDir = code:priv_dir(emqx_agent),

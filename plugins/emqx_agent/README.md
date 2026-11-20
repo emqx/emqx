@@ -28,6 +28,49 @@ This makes EMQX a place where connected-device events can directly trigger safe 
 
 MQTT Agent uses MQTT topics to provide features. Agent topics use `$` prefixes so they are MQTT system topics and are not matched by ordinary `#` subscriptions.
 
+### MQTT Access Control (ACL)
+
+Before enabling MQTT Agent, configure MQTT authentication and authorization for `$cap/#`, `$sess/#`, and `$pipe/#`.
+Deny publish and subscribe access to these topics unless a client needs an explicit grant.
+The `$` prefix does not restrict access.
+
+Use authenticated usernames in the examples below. Do not give these clients superuser access.
+Place the rules before broader rules in `acl.conf`. If you use multiple authorization sources, make sure no earlier source grants broader access to these topics.
+
+#### Basic usage
+
+To trigger pipelines without monitoring Agent activity, allow each authenticated publisher to publish only to the event topics it needs.
+Deny all other publish and subscribe access to `$evt/#`, `$cap/#`, `$sess/#`, and `$pipe/#`.
+
+Suppose the `temperature-check` pipeline triggers on `$evt/factory/line-1/temperature`.
+Allow `temperature-sensor` to publish to that exact topic.
+
+```erlang
+{allow, {username, "temperature-sensor"}, publish, ["$evt/factory/line-1/temperature"]}.
+{deny, all, all, ["$evt/#", "$cap/#", "$sess/#", "$pipe/#"]}.
+```
+
+If other authenticated clients publish events, add a separate publish rule for each client and its required topics before the deny rule. Do not grant publish access to all of `$evt/#`.
+
+#### Monitor interactions or call tools
+
+- Give monitoring clients subscribe access only to the interactions they need to watch. Agent messages can contain application data.
+- Give tool callers publish access only to the request topics for the tool instances they need. Give them subscribe access to the corresponding response topics.
+- Keep session topics read-only for monitoring clients. If a client needs to send session frames directly, grant publish access only to the required session input topics.
+- Keep tool responses, session output, and pipeline events read-only for MQTT clients. If you use `message__request`, grant trusted MQTT responders publish access to the reply topics they need.
+
+To add monitoring or tool calls to the policy above, insert these rules before its deny rule. They let `agent-monitor` watch the `alerts` tool and the `temperature-check` pipeline. They let `alerts-caller` invoke only the `alerts` tool and subscribe to its replies.
+
+```erlang
+{allow, {username, "agent-monitor"}, subscribe, [
+    "$cap/message__publish/alerts/request/+",
+    "$cap/message__publish/alerts/response/+",
+    "$pipe/temperature-check/inst/+/events"
+]}.
+{allow, {username, "alerts-caller"}, publish, ["$cap/message__publish/alerts/request/+"]}.
+{allow, {username, "alerts-caller"}, subscribe, ["$cap/message__publish/alerts/response/+"]}.
+```
+
 ## Tools
 
 Tools are restricted actions that may be used directly by a pipeline step or provided to an LLM step of a pipeline.
@@ -340,13 +383,6 @@ The main admin UI is served through the plugin API gateway:
 /api/v5/plugin_api/emqx_agent/ui
 ```
 
-Additional pages:
-
-```text
-/api/v5/plugin_api/emqx_agent/builder/ui
-/api/v5/plugin_api/emqx_agent/apple-box/ui
-```
-
 The same management surface is available through plugin API paths under `/api/v5/plugin_api/emqx_agent`:
 
 | Path | Purpose |
@@ -365,12 +401,19 @@ The same management surface is available through plugin API paths under `/api/v5
 
 ## Demo Pages
 
-The plugin includes two browser demos:
+The source tree includes two standalone browser demos. The plugin bundle does not include them.
 
-- **Pipeline Builder** at `/builder/ui`: a chat-style interface for building event-driven AI workflows.
-- **Apple Box Conveyor** at `/apple-box/ui`: an MQTT/AI workflow demo that simulates inspecting apple boxes.
+- **Pipeline Builder**: a chat-style interface for building event-driven AI workflows.
+- **Apple Box Conveyor**: an MQTT/AI workflow demo that simulates inspecting apple boxes.
 
-Provision demo resources from the repository root after EMQX is running with the plugin enabled. Both demos require an OpenAI-compatible API key:
+Serve the demo files locally from the repository root:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1 --directory plugins/emqx_agent/examples
+```
+
+Run EMQX with the plugin enabled before provisioning demo resources.
+Both demos require an OpenAI-compatible API key:
 
 ```bash
 export OPENAI_API_KEY='sk-...'
@@ -393,11 +436,9 @@ Provision the Apple Box Conveyor demo:
 python3 plugins/emqx_agent/demo_apple_box_init.py
 ```
 
-The script creates the `apple-inspector` AI provider, a PostgreSQL connection, apple-box tools, a database table, and an active `apple-box-inspection` pipeline. Open the UI at:
-
-```text
-/api/v5/plugin_api/emqx_agent/apple-box/ui
-```
+The script creates the `apple-inspector` AI provider, a PostgreSQL connection, apple-box tools,
+a database table, and an active `apple-box-inspection` pipeline.
+Open the [Apple Box Conveyor page](http://127.0.0.1:8000/apple-box.html).
 
 Provision the Pipeline Builder demo:
 
@@ -405,11 +446,12 @@ Provision the Pipeline Builder demo:
 python3 plugins/emqx_agent/demo_builder_init.py
 ```
 
-The script creates the builder AI provider, a PostgreSQL connection, builder meta-tools, a reply tool, a database table, and an active `pipeline-builder` pipeline. Open the UI at:
+The script creates the builder AI provider, a PostgreSQL connection, builder meta-tools,
+a reply tool, a database table, and an active `pipeline-builder` pipeline.
+Open the [Pipeline Builder page](http://127.0.0.1:8000/builder.html).
 
-```text
-/api/v5/plugin_api/emqx_agent/builder/ui
-```
+In either demo, set **Broker WS** to your EMQX MQTT WebSocket URL and select **Connect**.
+The default URL is `ws://localhost:8083/mqtt`.
 
 The Apple Box initializer recreates its named demo assets. The Pipeline Builder initializer and the teardown script delete all configured Agent pipelines, tools, and connections, including resources unrelated to the demos. To run the teardown script:
 

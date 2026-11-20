@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector).
 
+%% Connector types can be supplied by plugins.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
@@ -88,7 +91,7 @@ do_unload(Namespace, ConnectorsRoot) ->
         fun({Type, NamedConf}) ->
             emqx_utils:pforeach(
                 fun({Name, _Conf}) ->
-                    _ = emqx_connector_resource:stop(Namespace, Type, Name)
+                    _ = emqx_connector_resource:remove(Namespace, Type, Name)
                 end,
                 maps:to_list(NamedConf),
                 infinity

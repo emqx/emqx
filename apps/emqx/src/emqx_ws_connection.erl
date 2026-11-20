@@ -175,10 +175,13 @@ call(WsPid, Req, Timeout) when is_pid(WsPid) ->
 %%--------------------------------------------------------------------
 
 init(Req, Opts) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             do_init(Req, Opts);
-        false ->
+        {error, too_many_processes} ->
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => ws}),
+            {ok, cowboy_req:reply(503, Req), #{}};
+        {error, node_not_ready} ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             ?SLOG(info, #{msg => ws_connection_refused_before_boot_complete}),

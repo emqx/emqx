@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_v2).
 
+%% Bridge types can be supplied by plugins.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
@@ -191,6 +194,7 @@ unload_bridges(RootName) ->
     ok.
 
 do_unload_bridges(Namespace, RootName, RootConfig) ->
+    Opts = #{sync => true},
     emqx_utils:pforeach(
         fun
             ({?COMPUTED, _}) ->
@@ -198,7 +202,7 @@ do_unload_bridges(Namespace, RootName, RootConfig) ->
             ({Type, Bridge}) ->
                 emqx_utils:pmap(
                     fun({Name, BridgeConf}) ->
-                        uninstall_bridge_v2(Namespace, RootName, Type, Name, BridgeConf)
+                        uninstall_bridge_v2(Namespace, RootName, Type, Name, BridgeConf, Opts)
                     end,
                     maps:to_list(Bridge),
                     infinity
@@ -539,7 +543,8 @@ uninstall_bridge_v2(
     _ConfRootKey,
     _BridgeType,
     _BridgeName,
-    #{enable := false}
+    #{enable := false},
+    _Opts
 ) ->
     %% Already not installed
     ok;
@@ -548,7 +553,8 @@ uninstall_bridge_v2(
     ConfRootKey,
     BridgeV2Type,
     BridgeName,
-    #{connector := ConnectorName} = Config
+    #{connector := ConnectorName} = Config,
+    Opts
 ) ->
     BridgeV2Id = id_with_root_and_connector_names(
         Namespace, ConfRootKey, BridgeV2Type, BridgeName, ConnectorName
@@ -563,7 +569,12 @@ uninstall_bridge_v2(
             ConnectorId = emqx_connector_resource:resource_id(
                 Namespace, connector_type(BridgeV2Type), ConnectorName
             ),
-            emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id)
+            case Opts of
+                #{sync := true} ->
+                    emqx_resource_manager:remove_channel(ConnectorId, BridgeV2Id);
+                #{} ->
+                    emqx_resource_manager:remove_channel_async(ConnectorId, BridgeV2Id)
+            end
     end.
 
 combine_connector_and_bridge_v2_config(
@@ -1152,14 +1163,15 @@ post_config_update([ConfRootKey], _Req, NewConf0, OldConf0, _AppEnv, ExtraContex
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
+    Opts = #{},
     RemoveFun = fun(Type, Name, Conf) ->
-        uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
+        uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf, Opts)
     end,
     CreateFun = fun(Type, Name, Conf) ->
         install_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
     end,
     UpdateFun = fun(Type, Name, {OldBridgeConf, Conf}) ->
-        _ = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, OldBridgeConf),
+        _ = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, OldBridgeConf, Opts),
         install_bridge_v2(Namespace, ConfRootKey, Type, Name, Conf)
     end,
     Result = perform_bridge_changes([
@@ -1186,7 +1198,8 @@ post_config_update([ConfRootKey, Type, Name], '$remove', _, _OldConf, _AppEnvs, 
         undefined ->
             ok;
         Action ->
-            ok = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Action)
+            Opts = #{},
+            ok = uninstall_bridge_v2(Namespace, ConfRootKey, Type, Name, Action, Opts)
     end,
     ?tp(bridge_post_config_update_done, #{}),
     ok;
@@ -1207,7 +1220,8 @@ post_config_update(
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
     Namespace = emqx_config_handler:get_namespace(ExtraContext),
-    case uninstall_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, OldConf) of
+    Opts = #{},
+    case uninstall_bridge_v2(Namespace, ConfRootKey, BridgeType, BridgeName, OldConf, Opts) of
         ok ->
             ok;
         {error, not_found} ->

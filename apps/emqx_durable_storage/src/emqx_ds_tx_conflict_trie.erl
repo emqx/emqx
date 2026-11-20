@@ -16,6 +16,7 @@
     push_topic/5,
     is_dirty_topic/5,
     rotate/1,
+    get_size/1,
     print/1
 ]).
 
@@ -62,6 +63,10 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+-spec get_size(t()) -> non_neg_integer().
+get_size(#conflict_tree{old_trie = Old, trie = Current}) ->
+    gb_trees:size(Old) + gb_trees:size(Current).
 
 -spec print(t()) -> map().
 print(#conflict_tree{min_serial = Min, max_serial = Max, old_trie = Old, trie = Current}) ->
@@ -443,6 +448,25 @@ is_dirty3_test() ->
     %% Time overlap with D1, but serial is serial is greater:
     ?clean([<<1>>, '#'], 0, 0, 2, Trie),
     ?clean(['#'], 0, 0, 2, Trie).
+
+%% A wildcard push (an explicit dirty mark) must absorb the per-key
+%% entries pushed for the same serial, while retaining their conflict
+%% information. The optimistic transaction manager relies on this when
+%% it pushes the explicit dirty marks after the implicit operations of
+%% the same transaction:
+lock_absorbs_per_key_entries_test() ->
+    T0 = new(0, infinity),
+    T1 = push_topic([<<"d">>, <<"c">>, <<"t">>, <<"k1">>], 0, 0, 1, T0),
+    T2 = push_topic([<<"d">>, <<"c">>, <<"t">>, <<"k2">>], 0, 0, 1, T1),
+    ?assertEqual(2, get_size(T2)),
+    T3 = push_topic([<<"d">>, <<"c">>, <<"t">>, '#'], 0, infinity, 1, T2),
+    ?assertEqual(1, get_size(T3)),
+    %% The absorbed entries still conflict with the readers:
+    ?dirty([<<"d">>, <<"c">>, <<"t">>, <<"k1">>], 0, T3),
+    ?dirty([<<"d">>, <<"c">>, <<"t">>, <<"k2">>], 0, T3),
+    %% But not with the transactions that started after the commit:
+    ?clean([<<"d">>, <<"c">>, <<"t">>, <<"k1">>], 1, T3),
+    ?clean([<<"d">>, <<"c">>, <<"t">>, <<"k2">>], 1, T3).
 
 wc_prefixes_test() ->
     ?assertEqual(
