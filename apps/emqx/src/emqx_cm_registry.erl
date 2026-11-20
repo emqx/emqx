@@ -17,7 +17,8 @@
     register_channel/1,
     register_channel2/1,
     unregister_channel/1,
-    unregister_channel2/1
+    unregister_channel2/1,
+    unregister_channels/1
 ]).
 
 -export([lookup_channels/1, lookup_all_channels/1]).
@@ -102,6 +103,9 @@ register_channel2(#channel{chid = ClientId} = Record) ->
     mria:dirty_write(?CHAN_REG_TAB, Record).
 
 %% @doc Unregister a global channel.
+%% NOTE: A replicant of this or a later release calls this function by name on a
+%% core node, see `unregister_channels/1`. The BPAPI checks do not cover this call.
+%% Keep the function exported, and keep the `{ClientId, ChanPid}` argument.
 -spec unregister_channel(
     emqx_types:clientid()
     | {emqx_types:clientid(), pid()}
@@ -117,6 +121,32 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
             ]);
         true ->
             mria:dirty_delete_object(?CHAN_REG_TAB, record(ClientId, ChanPid));
+        false ->
+            ok
+    end.
+
+-doc """
+Unregister global channels. On a replicant, this is one call to a core node.
+The core node calls `unregister_channel/1` for each channel, because a core node
+that runs an older release exports that function too.
+""".
+-spec unregister_channels([{emqx_types:clientid(), pid()}]) -> ok | {error, term()}.
+unregister_channels([]) ->
+    ok;
+unregister_channels(Chans) ->
+    case is_enabled() of
+        true ->
+            ?tp(debug, emqx_cm_registry_unregister_channels, #{count => length(Chans)}),
+            try
+                mria:async_dirty(?CM_SHARD, fun lists:foreach/2, [
+                    fun ?MODULE:unregister_channel/1, Chans
+                ])
+            of
+                ok -> ok;
+                Error -> {error, Error}
+            catch
+                Class:Reason -> {error, {Class, Reason}}
+            end;
         false ->
             ok
     end.
@@ -144,7 +174,7 @@ unregister_channel2(#channel{chid = ClientId} = Record) ->
 %% Drop local pids if they are known to be down.
 -spec lookup_channels(emqx_types:clientid()) -> list(pid()).
 lookup_channels(ClientId) ->
-    [ChanPid || ChanPid <- lookup_all_channels(ClientId), is_pid_alive(ChanPid) =/= false].
+    [ChanPid || ChanPid <- lookup_all_channels(ClientId), not is_local_pid_down(ChanPid)].
 
 %% @doc Lookup the global channels.
 -spec lookup_all_channels(emqx_types:clientid()) -> list(pid()).
@@ -152,12 +182,11 @@ lookup_all_channels(ClientId) ->
     Chans = mnesia:dirty_read(?CHAN_REG_TAB, ClientId),
     [ChanPid || #channel{pid = ChanPid} <- Chans, is_pid(ChanPid)].
 
-%% Return 'true' or 'false' if it's a local pid.
-%% Otherwise return 'unknown'.
-is_pid_alive(Pid) when node(Pid) =:= node() ->
-    erlang:is_process_alive(Pid);
-is_pid_alive(_) ->
-    unknown.
+%% Return 'true' only for a local pid that is not alive.
+is_local_pid_down(Pid) when node(Pid) =:= node() ->
+    not erlang:is_process_alive(Pid);
+is_local_pid_down(_) ->
+    false.
 
 record(ClientId, ChanPid) ->
     #channel{chid = ClientId, pid = ChanPid}.

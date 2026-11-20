@@ -7,6 +7,7 @@
 -export([
     parse_spb_topic/1,
     register_aliases/2,
+    scan_aliases/1,
     load_aliases/1,
 
     get_current_alias_mapping/0
@@ -70,19 +71,9 @@ parse_spb_topic(Topic) ->
 
 -spec register_aliases(emqx_types:message(), spb_birth_message()) -> ok.
 register_aliases(#message{payload = Payload}, BirthMsg) ->
-    try emqx_schema_registry_serde:rsf_spb_decode([Payload]) of
-        #{<<"metrics">> := Metrics} ->
-            do_register_aliases(BirthMsg, Metrics);
-        #{metrics := _} = AtomMap ->
-            %% If the sparkplugb schema code was compiled and cached in an older EMQX
-            %% version (< 6.0.0) that happens to use the same OTP version as the current
-            %% node, then it used `gpb` options that output atom-keyed maps.  This is a
-            %% workaround for such cases.
-            #{<<"metrics">> := Metrics} = emqx_utils_maps:binary_key_map(AtomMap),
-            do_register_aliases(BirthMsg, Metrics);
-        _ ->
-            %% No `metrics` field?
-            ok
+    try scan_aliases(Payload) of
+        Mapping ->
+            do_register_aliases(BirthMsg, Mapping)
     catch
         Kind:Error:Stacktrace ->
             ?SLOG(warning, #{
@@ -95,8 +86,27 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
             ok
     end.
 
-do_register_aliases(BirthMsg, Metrics) ->
-    Mapping = gather_aliases(Metrics),
+-doc """
+Return the alias to name mapping of the top-level metrics in an encoded Sparkplug B
+`Payload` message.
+
+A metric goes into the mapping only when it has both a name and an alias. When two
+metrics have the same alias, the later metric wins.
+
+This function reads only the name and the alias of each metric, and skips all other
+fields without decoding them. A birth message can carry many metrics with large
+property sets, and a full decode of such a message can need many times the payload
+size in heap. This function runs in the publisher's channel process, which has a
+maximum heap size.
+
+Raise an error when the payload is not valid protobuf, or when it contains a group
+(wire types 3 and 4). The Sparkplug B schema has no groups.
+""".
+-spec scan_aliases(binary()) -> #{non_neg_integer() => binary()}.
+scan_aliases(Payload) ->
+    emqx_schema_registry_pb_wire:fold(fun scan_payload_field/3, #{}, Payload).
+
+do_register_aliases(BirthMsg, Mapping) ->
     Key = key(BirthMsg),
     case map_size(Mapping) > 0 of
         true ->
@@ -125,17 +135,34 @@ get_current_alias_mapping() ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-gather_aliases(Metrics) ->
-    lists:foldl(
-        fun
-            (#{<<"alias">> := Alias, <<"name">> := Name}, Acc) ->
-                Acc#{Alias => Name};
-            (_, Acc) ->
-                Acc
-        end,
-        #{},
-        Metrics
-    ).
+%% Field numbers in `priv/sparkplug_b.proto'.
+%% `Payload.metrics' (length-delimited).
+-define(FIELD_PAYLOAD_METRICS, 2).
+%% `Payload.Metric.name' (length-delimited).
+-define(FIELD_METRIC_NAME, 1).
+%% `Payload.Metric.alias' (varint).
+-define(FIELD_METRIC_ALIAS, 2).
+
+scan_payload_field(?FIELD_PAYLOAD_METRICS, {len, Metric}, Acc) ->
+    NameAlias = emqx_schema_registry_pb_wire:fold(
+        fun scan_metric_field/3, {undefined, undefined}, Metric
+    ),
+    add_alias(NameAlias, Acc);
+scan_payload_field(_Field, _Value, Acc) ->
+    Acc.
+
+scan_metric_field(?FIELD_METRIC_NAME, {len, Name}, {_, Alias}) ->
+    {Name, Alias};
+scan_metric_field(?FIELD_METRIC_ALIAS, {varint, Alias}, {Name, _}) ->
+    {Name, Alias};
+scan_metric_field(_Field, _Value, Acc) ->
+    Acc.
+
+add_alias({Name, Alias}, Acc) when is_binary(Name), is_integer(Alias) ->
+    %% Copy the name so that the mapping does not keep the whole payload binary alive.
+    Acc#{Alias => binary:copy(Name)};
+add_alias(_, Acc) ->
+    Acc.
 
 %% Only reached from MQTT client channel processes; the hook callback enforces this
 %% (see `emqx_schema_registry_spb_hookcb:is_client_process/0').
