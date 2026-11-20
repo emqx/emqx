@@ -6,6 +6,9 @@
 
 -behaviour(gen_server).
 
+%% A `submit` call returns the caught exception of its task to the caller.
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 -include("logger.hrl").
 -include("types.hrl").
 

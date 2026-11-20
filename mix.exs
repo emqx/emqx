@@ -223,6 +223,9 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-2", override: true}
 
+  # also a dependency of ra, which requires the same version
+  def common_dep(:gen_batch_server), do: {:gen_batch_server, "0.8.9"}
+
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}

@@ -402,7 +402,7 @@ t_open_session_race_condition(_) ->
             end,
             %% sync
             ignored = gen_server:call(?CM, ignore, infinity),
-            ok = emqx_pool:flush_async_tasks(?CM_POOL),
+            ok = emqx_cm_cleaner:sync(),
             ?assertEqual([], emqx_cm:lookup_channels(ClientId))
     end.
 
@@ -525,7 +525,7 @@ test_stepdown_session(Action, Reason) ->
     end,
     % sync
     ignored = gen_server:call(?CM, ignore, infinity),
-    ok = emqx_pool:flush_async_tasks(?CM_POOL),
+    ok = emqx_cm_cleaner:sync(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_discard_session_race(_) ->
