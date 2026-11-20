@@ -46,7 +46,7 @@ user-facing API key configurations.
     clear_cache/0,
     validate_scopes/1,
     filter_valid_scopes/1,
-    is_denied_scope/1
+    is_deny_api_key_scope/1
 ]).
 
 -ifdef(TEST).
@@ -195,13 +195,13 @@ filter_valid_scopes(Scopes) when is_list(Scopes) ->
     ).
 
 %%--------------------------------------------------------------------
-%% Denied scope check
+%% API key deny marker check
 %%--------------------------------------------------------------------
 
--doc "Check if a scope is the denied scope (internal, not user-assignable).".
--spec is_denied_scope(binary()) -> boolean().
-is_denied_scope(?SCOPE_DENIED) -> true;
-is_denied_scope(_) -> false.
+-doc "Check if a scope is the `$deny_api_key` marker (internal, not user-assignable).".
+-spec is_deny_api_key_scope(binary()) -> boolean().
+is_deny_api_key_scope(?SCOPE_DENY_API_KEY) -> true;
+is_deny_api_key_scope(_) -> false.
 
 %%--------------------------------------------------------------------
 %% Cache management

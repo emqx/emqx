@@ -37,7 +37,7 @@ groups() ->
             t_authorize_denied_handler,
             t_validate_scopes,
             t_validate_scopes_bad_input,
-            t_is_denied_scope,
+            t_is_deny_api_key_scope,
             t_all_modules_have_scopes,
             t_all_endpoints_covered_by_scopes,
             t_no_conflicting_declarations,
@@ -131,8 +131,8 @@ t_scope_catalog(_Config) ->
     ?assert(lists:member(?SCOPE_SYSTEM, Names)),
     ?assert(lists:member(?SCOPE_AUDIT, Names)),
     ?assert(lists:member(?SCOPE_LICENSE, Names)),
-    %% $denied must NOT be in the catalog
-    ?assertNot(lists:member(?SCOPE_DENIED, Names)).
+    %% $deny_api_key must NOT be in the catalog
+    ?assertNot(lists:member(?SCOPE_DENY_API_KEY, Names)).
 
 -doc """
 A handler resolves to the scopes its module declares for the path the
@@ -278,10 +278,10 @@ t_validate_scopes(_Config) ->
         {error, <<"Unknown scopes: ", _/binary>>},
         emqx_mgmt_api_key_scopes:validate_scopes([<<"nonexistent_scope_xyz">>])
     ),
-    %% Invalid: $denied is not a valid user scope
+    %% Invalid: $deny_api_key is not a valid user scope
     ?assertMatch(
         {error, <<"Unknown scopes: ", _/binary>>},
-        emqx_mgmt_api_key_scopes:validate_scopes([?SCOPE_DENIED])
+        emqx_mgmt_api_key_scopes:validate_scopes([?SCOPE_DENY_API_KEY])
     ).
 
 t_validate_scopes_bad_input(_Config) ->
@@ -302,11 +302,11 @@ t_validate_scopes_bad_input(_Config) ->
         emqx_mgmt_api_key_scopes:validate_scopes([null])
     ).
 
-t_is_denied_scope(_Config) ->
-    ?assert(emqx_mgmt_api_key_scopes:is_denied_scope(?SCOPE_DENIED)),
-    ?assertNot(emqx_mgmt_api_key_scopes:is_denied_scope(?SCOPE_CONNECTIONS)),
-    ?assertNot(emqx_mgmt_api_key_scopes:is_denied_scope(?SCOPE_PUBLISH)),
-    ?assertNot(emqx_mgmt_api_key_scopes:is_denied_scope(<<"random">>)).
+t_is_deny_api_key_scope(_Config) ->
+    ?assert(emqx_mgmt_api_key_scopes:is_deny_api_key_scope(?SCOPE_DENY_API_KEY)),
+    ?assertNot(emqx_mgmt_api_key_scopes:is_deny_api_key_scope(?SCOPE_CONNECTIONS)),
+    ?assertNot(emqx_mgmt_api_key_scopes:is_deny_api_key_scope(?SCOPE_PUBLISH)),
+    ?assertNot(emqx_mgmt_api_key_scopes:is_deny_api_key_scope(<<"random">>)).
 
 t_all_modules_have_scopes(_Config) ->
     %% Critical coverage test: every minirest_api module must export scopes/0.
@@ -314,13 +314,13 @@ t_all_modules_have_scopes(_Config) ->
     emqx_mgmt_api_key_scopes:init_cache(),
     HandlerToScopes = emqx_mgmt_api_key_scopes:collect_scopes_from_modules(),
     ?assert(map_size(HandlerToScopes) > 0),
-    %% Every handler should map to a known scope, $denied, $public, or
+    %% Every handler should map to a known scope, $deny_api_key, $public, or
     %% one of the four login-only scopes (user/mfa/sso/api_key_management
     %% — these apply to dashboard login users only and are not in the
     %% API key scope catalog).
     AllValidScopes =
         [N || #{name := N} <- emqx_scope_catalog:scope_catalog()] ++
-            [?SCOPE_DENIED] ++
+            [?SCOPE_DENY_API_KEY] ++
             [?SCOPE_PUBLIC] ++
             ?LOGIN_ONLY_SCOPES,
     maps:foreach(
@@ -591,7 +591,7 @@ t_authorize_empty_scopes(_Config) ->
     delete_app(Name).
 
 -doc """
-A handler that maps to `?SCOPE_DENIED' is rejected for every API key,
+A handler that maps to `?SCOPE_DENY_API_KEY' is rejected for every API key,
 with or without an explicit scope list. The sentinel is declared by
 the SSO public-flow modules (OIDC callback, SAML ACS, SSO MFA setup),
 which are not in this test app's dependency graph, so a synthetic
@@ -601,7 +601,7 @@ duration of the case, so the case must not run in a parallel group.
 t_authorize_denied_handler(_Config) ->
     DeniedHandler = #{method => get, module => test_denied_module, function => test_denied},
     with_scope_cache(
-        #{{test_denied_module, test_denied} => [?SCOPE_DENIED]},
+        #{{test_denied_module, test_denied} => [?SCOPE_DENY_API_KEY]},
         fun() ->
             Extra = #{role => ?ROLE_API_SUPERUSER},
             ?assertMatch(

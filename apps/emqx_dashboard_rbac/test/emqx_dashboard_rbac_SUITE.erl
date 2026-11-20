@@ -658,6 +658,43 @@ t_check_login_user_scopes_undefined_allows_generic_paths(_) ->
         login_scope_check(Username, alarms)
     ).
 
+%% `$deny_api_key' keeps API keys out. It is not a scope that a login user can
+%% hold, so a handler declared only `$deny_api_key' follows the unmapped rule:
+%% a user without an explicit scope list is allowed, and a user with one
+%% is denied. Before, every login user was denied, so a `$deny_api_key' endpoint
+%% that needs a login answered 403 even to administrators.
+t_check_login_user_scopes_denied_is_api_key_only(_) ->
+    %% No production handler needs a login and declares only `$deny_api_key'
+    %% (those that declare it also skip authorization with `security => []'),
+    %% and such declarations change between releases. So the test makes the
+    %% `/alarms' handler declare only `$deny_api_key'.
+    {AlarmsHandler, _} = dispatch(endpoint_path(alarms)),
+    ok = meck:new(emqx_mgmt_api_key_scopes, [passthrough, no_link]),
+    try
+        ok = meck:expect(
+            emqx_mgmt_api_key_scopes,
+            classify_handler,
+            fun
+                (H) when H =:= AlarmsHandler -> {scopes, [?SCOPE_DENY_API_KEY]};
+                (H) -> meck:passthrough([H])
+            end
+        ),
+        Admin = <<"login_user_scopes_denied_admin">>,
+        {ok, _} = emqx_dashboard_admin:add_user(Admin, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>),
+        ?assertEqual(true, login_scope_check(Admin, alarms)),
+        Viewer = <<"login_user_scopes_denied_viewer">>,
+        {ok, _} = emqx_dashboard_admin:add_user(Viewer, <<"P@ssw0rd">>, ?ROLE_VIEWER, <<>>),
+        ?assertEqual(true, login_scope_check(Viewer, alarms)),
+        Restricted = <<"login_user_scopes_denied_restricted">>,
+        {ok, _} = emqx_dashboard_admin:add_user(
+            Restricted, <<"P@ssw0rd">>, ?ROLE_SUPERUSER, <<>>
+        ),
+        {ok, ok} = emqx_dashboard_admin:set_user_scopes(Restricted, [?SCOPE_CONNECTIONS]),
+        ?assertEqual(false, login_scope_check(Restricted, alarms))
+    after
+        meck:unload(emqx_mgmt_api_key_scopes)
+    end.
+
 %%--------------------------------------------------------------------
 %% SSO users: explicit scopes are consulted via the reconstructed
 %% ?SSO_USERNAME(Backend, Name) admin record key.
