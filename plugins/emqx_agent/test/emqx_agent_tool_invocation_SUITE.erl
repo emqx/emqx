@@ -28,7 +28,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_plugin_config_fixture:setup(#{<<"enable_builder_tools">> => true}),
     ok = emqx_agent_config:create_tool(#{
         <<"type">> => ?TOOL_TYPE,
         <<"id">> => ?TOOL_ID,
@@ -39,7 +39,6 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(_TestCase, _Config) ->
     _ = emqx_agent_config:delete_tool(?MOCK_TOOL_TYPE, ?MOCK_TOOL_ID),
-    ok = emqx_agent_tool_query_tools:init(),
     ok = emqx_agent_plugin_config_fixture:teardown().
 
 %% A basic invoke replies with status=ok and echoes the args.

@@ -96,7 +96,7 @@ do_update(#{<<"type">> := Type, <<"id">> := Id, <<"definition">> := Def}) when
         {ok, Existing} ->
             Merged = maps:merge(Existing, maps:without([<<"type">>, <<"id">>], Def)),
             case emqx_agent_service:tool_update(Type, Id, Merged) of
-                {ok, Tool} -> {ok, #{<<"item">> => Tool}};
+                {ok, Tool} -> {ok, #{<<"item">> => emqx_agent_config_secrets:redact(Tool)}};
                 {error, Reason} -> {error, emqx_agent_tool_helpers:format_error(Reason)}
             end;
         {error, not_found} ->

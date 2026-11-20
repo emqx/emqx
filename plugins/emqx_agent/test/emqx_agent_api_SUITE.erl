@@ -208,6 +208,40 @@ t_tool_http_crud(Config) ->
     ?assertMatch({ok, 204}, api_delete([agent, tools, <<"http">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, tools, <<"http">>, Id])).
 
+-doc "Mask sensitive request headers and preserve the stored values on update.".
+t_http_tool_header_roundtrip(Config) ->
+    Id = ?config(tc_id, Config),
+    Mask = <<"******">>,
+    header_roundtrip(Id, [
+        {<<"Authorization">>, <<"first">>, Mask},
+        {<<"X-Label">>, <<"keep visible">>, <<"keep visible">>},
+        {<<"authorization">>, <<"second">>, Mask},
+        {<<"X-Api-Key">>, <<"test-key">>, Mask}
+    ]).
+
+header_roundtrip(Id, Headers) ->
+    Stored = [#{<<"name">> => Name, <<"value">> => Value} || {Name, Value, _} <- Headers],
+    Redacted = [#{<<"name">> => Name, <<"value">> => Value} || {Name, _, Value} <- Headers],
+    Type = <<"http">>,
+    Path = [agent, tools, Type, Id],
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, tools], #{
+            <<"type">> => Type,
+            <<"id">> => Id,
+            <<"desc">> => <<"test HTTP tool">>,
+            <<"method">> => <<"get">>,
+            <<"url">> => <<"http://stub/api">>,
+            <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+            <<"headers">> => Stored
+        })
+    ),
+    ?assertMatch({ok, 200, [#{<<"headers">> := Redacted}]}, api_get([agent, tools])),
+    {ok, 200, Tool} = api_get(Path),
+    ?assertMatch(#{<<"headers">> := Redacted}, Tool),
+    ?assertMatch({ok, 200, #{<<"headers">> := Redacted}}, api_put(Path, Tool)),
+    ?assertMatch({ok, #{<<"headers">> := Stored}}, emqx_agent_service:tool_get(Type, Id)).
+
 t_tool_postgresql_crud(Config) ->
     Id = ?config(tc_id, Config),
     ConnId = <<Id/binary, "-conn">>,
@@ -258,14 +292,35 @@ t_connections_crud(Config) ->
     ?assertEqual(<<"mqtt2">>, maps:get(<<"database">>, maps:get(<<"config">>, Conn2))),
 
     ?assertMatch(
-        {ok, 200, #{<<"enable">> := true}}, api_post([agent, connections, Id, start], #{})
+        {ok, 200, #{<<"enable">> := true, <<"config">> := #{<<"password">> := <<"******">>}}},
+        api_post([agent, connections, Id, start], #{})
     ),
     ?assertMatch(
-        {ok, 200, #{<<"enable">> := false}}, api_post([agent, connections, Id, stop], #{})
+        {ok, 200, #{<<"enable">> := false, <<"config">> := #{<<"password">> := <<"******">>}}},
+        api_post([agent, connections, Id, stop], #{})
     ),
 
     ?assertMatch({ok, 204}, api_delete([agent, connections, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, connections, Id])).
+
+-doc "Mask connection passwords on reads and writes without replacing the stored password.".
+t_connection_password_roundtrip(Config) ->
+    Id = ?config(tc_id, Config),
+    Path = [agent, connections, Id],
+    ?assertMatch({ok, 201, _}, api_post([agent, connections], pg_conn_body(Id))),
+    ?assertMatch(
+        {ok, 200, [#{<<"config">> := #{<<"password">> := <<"******">>}}]},
+        api_get([agent, connections])
+    ),
+    {ok, 200, Conn} = api_get(Path),
+    ?assertMatch(#{<<"config">> := #{<<"password">> := <<"******">>}}, Conn),
+    ?assertMatch(
+        {ok, 200, #{<<"config">> := #{<<"password">> := <<"******">>}}}, api_put(Path, Conn)
+    ),
+    ?assertMatch(
+        {ok, #{<<"config">> := #{<<"password">> := <<"public">>}}},
+        emqx_agent_service:connection_get(Id)
+    ).
 
 t_connection_statuses(Config) ->
     Id = ?config(tc_id, Config),

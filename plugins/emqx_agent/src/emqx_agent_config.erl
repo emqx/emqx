@@ -173,17 +173,10 @@ lookup_tool(Type, ToolId) ->
 -spec update_tool(tool_type(), tool_id(), raw_tool()) ->
     {ok, raw_tool()} | {error, term()}.
 update_tool(Type, ToolId, Body) when is_map(Body) ->
-    case wrap_tool(put_entry_fields(Body, [{?TOOL_TYPE, Type}, {?TOOL_ID, ToolId}])) of
+    Entry = put_entry_fields(Body, [{?TOOL_TYPE, Type}, {?TOOL_ID, ToolId}]),
+    case wrap_tool(Entry) of
         {ok, Tool} ->
-            case
-                update_raw_config(fun(Config0) ->
-                    Tools0 = entries(Config0, ?TOOLS),
-                    case replace_entry(tool_pred(Type, ToolId), Tool, Tools0) of
-                        {ok, Tools} -> {ok, Config0#{?TOOLS => Tools}};
-                        {error, _} = Error -> Error
-                    end
-                end)
-            of
+            case update_config_entry(?TOOLS, tool_pred(Type, ToolId), Tool) of
                 ok -> lookup_tool(Type, ToolId);
                 {error, _} = Error -> Error
             end;
@@ -239,15 +232,7 @@ lookup_connection(ConnectionId) ->
     {ok, raw_connection()} | {error, term()}.
 update_connection(ConnectionId, Body) when is_map(Body) ->
     Conn = wrap_connection(put_entry_fields(Body, [{?CONNECTION_ID, ConnectionId}])),
-    case
-        update_raw_config(fun(Config0) ->
-            Connections0 = entries(Config0, ?CONNECTIONS),
-            case replace_entry(id_pred(ConnectionId), Conn, Connections0) of
-                {ok, Connections} -> {ok, Config0#{?CONNECTIONS => Connections}};
-                {error, _} = Error -> Error
-            end
-        end)
-    of
+    case update_config_entry(?CONNECTIONS, id_pred(ConnectionId), Conn) of
         ok -> lookup_connection(ConnectionId);
         {error, _} = Error -> Error
     end;
@@ -362,6 +347,28 @@ update_raw_config(Fun) ->
             end;
         {error, _} = Error ->
             Error
+    end.
+
+update_config_entry(Section, Pred, Entry) ->
+    update_raw_config(fun(Config) ->
+        Entries = entries(Config, Section),
+        case find_entry(Pred, Entries) of
+            {ok, OldEntry} ->
+                Restored = restore_config_entry(Entry, unwrap_union(OldEntry)),
+                {ok, Updated} = replace_entry(Pred, Restored, Entries),
+                {ok, Config#{Section => Updated}};
+            {error, _} = Error ->
+                Error
+        end
+    end).
+
+restore_config_entry(Entry, OldEntry) ->
+    case unwrap_union(Entry) of
+        Entry ->
+            emqx_agent_config_secrets:deobfuscate(Entry, OldEntry);
+        Body ->
+            [Record] = maps:keys(Entry),
+            #{Record => emqx_agent_config_secrets:deobfuscate(Body, OldEntry)}
     end.
 
 normalize_config_for_storage(Config) ->
@@ -691,15 +698,17 @@ pipeline_pred(PipelineId) ->
     end.
 
 normalize_config(Config) ->
-    Config1 = maybe_put(#{}, ?TOOLS, normalize_entries(maps:get(?TOOLS, Config, []))),
+    Root = maps:with([<<"enable_builder_tools">>], Config),
+    Config1 = maybe_put(Root, ?TOOLS, normalize_entries(maps:get(?TOOLS, Config, []))),
     Config2 = maybe_put(
         Config1, ?CONNECTIONS, normalize_entries(maps:get(?CONNECTIONS, Config, []))
     ),
     maybe_put(Config2, ?PIPELINES, normalize_pipelines(maps:get(?PIPELINES, Config, []))).
 
 prepare_config_for_storage(Config) when is_map(Config) ->
+    Root = maps:with([<<"enable_builder_tools">>], Config),
     Config1 = maybe_put(
-        #{}, ?TOOLS, [wrap_tool_for_storage(Entry) || Entry <- maps:get(?TOOLS, Config, [])]
+        Root, ?TOOLS, [wrap_tool_for_storage(Entry) || Entry <- maps:get(?TOOLS, Config, [])]
     ),
     Config2 = maybe_put(
         Config1,
