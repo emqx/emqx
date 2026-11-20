@@ -60,6 +60,7 @@ groups() ->
             t_dollar_topics,
             t_sub_non_utf8_topic,
             t_connect_zero_remaining_len_non_minimal,
+            t_disconnect_five_byte_remaining_len,
             t_hot_patch_connect_user_property_limit_config,
             t_connect_user_property_limit,
             t_large_connect_with_few_user_properties
@@ -423,6 +424,36 @@ do_test_connect_multiple_variable_byte_integer_representations(ParseUnit) ->
         ]
     ),
     ok.
+
+%% A DISCONNECT with a zero Remaining Length in five bytes is a frame error,
+%% not a normal DISCONNECT, so the broker publishes the Will Message.
+t_disconnect_five_byte_remaining_len(_) ->
+    WillTopic = <<"will/five_byte_remaining_len">>,
+    {ok, Sub} = emqtt:start_link([{clientid, <<"five_byte_len_sub">>}]),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, [0]} = emqtt:subscribe(Sub, WillTopic, qos0),
+    Connect = ?CONNECT_PACKET(#mqtt_packet_connect{
+        clientid = <<"five_byte_len_pub">>,
+        will_flag = true,
+        will_topic = WillTopic,
+        will_payload = <<"gone">>
+    }),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    ok = gen_tcp:send(Socket, emqx_frame:serialize(Connect)),
+    receive
+        {tcp, Socket, <<16#20, 2, 0, 0>>} -> ok
+    after 3000 -> ct:fail({no_connack, process_info(self(), messages)})
+    end,
+    ok = gen_tcp:send(Socket, <<16#E0, 16#80, 16#80, 16#80, 16#80, 16#00>>),
+    receive
+        {tcp_closed, Socket} -> ok
+    after 3000 -> ct:fail({should_get_disconnected, process_info(self(), messages)})
+    end,
+    receive
+        {publish, #{topic := WillTopic, payload := <<"gone">>}} -> ok
+    after 3000 -> ct:fail({no_will_message, process_info(self(), messages)})
+    end,
+    ok = emqtt:disconnect(Sub).
 
 is_connection_crashed(Report) when is_list(Report) ->
     proplists:get_value(errorContext, Report) =:= connection_crashed;

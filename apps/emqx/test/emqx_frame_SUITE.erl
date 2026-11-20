@@ -45,6 +45,10 @@ groups() ->
             t_parse_truncated_variable_byte_integer,
             t_parse_variable_byte_integer_too_long,
             t_parse_variable_byte_integer_valid,
+            t_parse_remaining_len_five_bytes_pingreq,
+            t_parse_remaining_len_five_bytes_disconnect,
+            t_parse_remaining_len_five_bytes_publish,
+            t_parse_remaining_len_four_bytes_max,
             t_parse_user_property_missing_value,
             t_parse_malformed_utf8_string,
             t_parse_non_connect_before_connect,
@@ -326,6 +330,34 @@ t_parse_variable_byte_integer_too_long(_) ->
     %% Subscription Identifier property of PUBLISH, in five bytes.
     Bin = <<16#30, 10, 0, 1, $t, 6, 16#0B, 16#FF, 16#FF, 16#FF, 16#FF, 16#07>>,
     ?ASSERT_FRAME_THROW(malformed_variable_byte_integer, emqx_frame:parse(Bin, ParseState)).
+
+%% A Remaining Length is at most four bytes long. A five-byte zero Remaining
+%% Length on PINGREQ is rejected, whole and in chunks.
+t_parse_remaining_len_five_bytes_pingreq(_) ->
+    assert_remaining_len_too_long(<<16#C0, 16#80, 16#80, 16#80, 16#80, 0>>).
+
+%% A five-byte zero Remaining Length on DISCONNECT is rejected, whole and in
+%% chunks.
+t_parse_remaining_len_five_bytes_disconnect(_) ->
+    assert_remaining_len_too_long(<<16#E0, 16#80, 16#80, 16#80, 16#80, 0>>).
+
+%% A five-byte non-zero Remaining Length on PUBLISH is rejected, whole and in
+%% chunks. The body that follows is a valid MQTT 5 PUBLISH of 5 bytes.
+t_parse_remaining_len_five_bytes_publish(_) ->
+    assert_remaining_len_too_long(
+        <<16#30, 16#85, 16#80, 16#80, 16#80, 0, 0, 1, $t, 0, $x>>
+    ).
+
+%% The largest four-byte Remaining Length is accepted. The parser waits for
+%% the body, whole and in chunks.
+t_parse_remaining_len_four_bytes_max(_) ->
+    Bin = <<16#30, 16#FF, 16#FF, 16#FF, 16#7F>>,
+    lists:foreach(
+        fun(Chunks) ->
+            ?assertMatch({more, _}, parse_chunks_until_done(Chunks))
+        end,
+        remaining_len_chunks(Bin)
+    ).
 
 %% Valid variable byte integers of one to four bytes still parse.
 t_parse_variable_byte_integer_valid(_) ->
@@ -1336,6 +1368,37 @@ zero_remaining_len_chunks(FirstByte) ->
         [<<FirstByte, 16#80, 16#80, 0>>],
         [<<FirstByte>>, <<16#80>>, <<16#80>>, <<0>>]
     ].
+
+%% Bin delivered whole, one byte at a time, and split after the third byte of
+%% the Remaining Length.
+remaining_len_chunks(Bin) ->
+    <<Head:4/binary, Tail/binary>> = Bin,
+    [
+        [Bin],
+        [<<B>> || <<B>> <= Bin],
+        [Head, Tail]
+    ].
+
+assert_remaining_len_too_long(Bin) ->
+    lists:foreach(
+        fun(Chunks) ->
+            ?ASSERT_FRAME_THROW(malformed_variable_byte_integer, parse_chunks_until_done(Chunks))
+        end,
+        remaining_len_chunks(Bin)
+    ).
+
+%% Feed Chunks to a fresh parser. Return the first result that is not
+%% 'more', or the last result.
+parse_chunks_until_done(Chunks) ->
+    parse_chunks_until_done(Chunks, emqx_frame:initial_parse_state()).
+
+parse_chunks_until_done([Chunk | Chunks], ParseState) ->
+    case emqx_frame:parse(Chunk, ParseState) of
+        {more, NParseState} when Chunks =/= [] ->
+            parse_chunks_until_done(Chunks, NParseState);
+        Result ->
+            Result
+    end.
 
 %% Feed Chunks to a fresh parser and return the result of the last one.
 parse_chunks(Chunks) ->
