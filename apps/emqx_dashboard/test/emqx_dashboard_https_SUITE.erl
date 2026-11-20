@@ -311,6 +311,93 @@ t_bad_certfile(_Config) ->
         application:ensure_all_started(emqx_dashboard)
     ).
 
+%% HTTP/2 rejects a response with an uppercase header name, so a client
+%% sees a stream error instead of the reply.
+t_h2_missing_auth_header(init, Config) ->
+    h2_init(?FUNCTION_NAME, #{}, Config);
+t_h2_missing_auth_header('end', Config) ->
+    h2_end(Config).
+t_h2_missing_auth_header(_Config) ->
+    {Status, Headers} = h2_get(https_path(["clients"]), []),
+    ?assertEqual(401, Status),
+    ?assertMatch({_, <<"Basic", _/binary>>}, lists:keyfind(<<"www-authenticate">>, 1, Headers)).
+
+t_h2_empty_bearer_token(init, Config) ->
+    h2_init(?FUNCTION_NAME, #{}, Config);
+t_h2_empty_bearer_token('end', Config) ->
+    h2_end(Config).
+t_h2_empty_bearer_token(_Config) ->
+    {Status, Headers} = h2_get(https_path(["clients"]), [{<<"authorization">>, <<"Bearer">>}]),
+    ?assertEqual(401, Status),
+    ?assertMatch({_, <<"Basic", _/binary>>}, lists:keyfind(<<"www-authenticate">>, 1, Headers)).
+
+t_h2_bad_api_key(init, Config) ->
+    h2_init(?FUNCTION_NAME, #{}, Config);
+t_h2_bad_api_key('end', Config) ->
+    h2_end(Config).
+t_h2_bad_api_key(_Config) ->
+    Basic = <<"Basic ", (base64:encode(<<"no-such-key:no-such-secret">>))/binary>>,
+    {Status, Headers} = h2_get(https_path(["clients"]), [{<<"authorization">>, Basic}]),
+    ?assertEqual(401, Status),
+    ?assertMatch({_, <<"Basic", _/binary>>}, lists:keyfind(<<"www-authenticate">>, 1, Headers)).
+
+t_h2_cors(init, Config) ->
+    h2_init(?FUNCTION_NAME, #{<<"cors">> => true}, Config);
+t_h2_cors('end', Config) ->
+    h2_end(Config).
+t_h2_cors(_Config) ->
+    {AuthName, AuthValue} = emqx_dashboard_SUITE:auth_header_(),
+    ReqHeaders = [
+        {string:lowercase(list_to_binary(AuthName)), list_to_binary(AuthValue)},
+        {<<"origin">>, <<"https://example.com">>}
+    ],
+    {Status, Headers} = h2_get(https_path(["clients"]), ReqHeaders),
+    ?assertEqual(200, Status),
+    ?assertEqual(
+        {<<"access-control-allow-origin">>, <<"*">>},
+        lists:keyfind(<<"access-control-allow-origin">>, 1, Headers)
+    ).
+
+h2_init(Case, ExtraConf, Config) ->
+    DashboardConf = #{
+        <<"dashboard">> => ExtraConf#{
+            <<"listeners">> => #{<<"https">> => #{<<"bind">> => 18084}}
+        }
+    },
+    Apps = emqx_cth_suite_start(Case, DashboardConf, Config),
+    {ok, _} = application:ensure_all_started(gun),
+    [{apps, Apps} | Config].
+
+h2_end(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
+
+%% GET over HTTP/2 with TLS; returns the status and the response headers.
+h2_get(Path, Headers) ->
+    {ok, Conn} = gun:open("127.0.0.1", 18084, #{
+        transport => tls,
+        protocols => [http2],
+        tls_opts => [{verify, verify_none}],
+        retry => 0
+    }),
+    try
+        ?assertEqual({ok, http2}, gun:await_up(Conn, 5000)),
+        StreamRef = gun:get(Conn, Path, Headers),
+        case gun:await(Conn, StreamRef, 5000) of
+            {response, fin, Status, RespHeaders} ->
+                {Status, RespHeaders};
+            {response, nofin, Status, RespHeaders} ->
+                {ok, _Body} = gun:await_body(Conn, StreamRef, 5000),
+                {Status, RespHeaders};
+            Other ->
+                error({h2_request_failed, Other})
+        end
+    after
+        gun:close(Conn)
+    end.
+
+https_path(Parts) ->
+    filename:join([?BASE_PATH | Parts]).
+
 validate_https(MaxConnection, SSLCert, Verify) ->
     assert_ranch_options(MaxConnection, SSLCert, Verify),
     assert_https_request().
