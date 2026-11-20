@@ -1,4 +1,4 @@
-# emqx_rule_udf (draft)
+# emqx_rule_udf (beta)
 
 `emqx_rule_udf` (user-defined functions for rules) is an EMQX plugin. It stores
 user programs in EMQX and runs them on an external function server. Rule SQL
