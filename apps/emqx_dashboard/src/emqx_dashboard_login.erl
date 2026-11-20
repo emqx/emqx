@@ -142,6 +142,24 @@ verify_challenge(
     ClientProof,
     MfaToken
 ) ->
+    %% Check the login lock first, in the same order as the password login.
+    %% A request that the lock rejects does not count as a failed attempt.
+    maybe
+        ok ?= emqx_dashboard_login_lock:verify(Username),
+        verify_combined_nonce(
+            Username,
+            Fingerprint,
+            ClientNonce,
+            ServerNonce,
+            CombinedNonce,
+            ClientProof,
+            MfaToken
+        )
+    end.
+
+verify_combined_nonce(
+    Username, Fingerprint, ClientNonce, ServerNonce, CombinedNonce, ClientProof, MfaToken
+) ->
     case CombinedNonce =:= <<ClientNonce/binary, ServerNonce/binary>> of
         false ->
             register_password_failure(Username),

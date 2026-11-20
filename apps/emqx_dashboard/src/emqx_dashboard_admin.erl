@@ -1297,9 +1297,9 @@ sign_token(Username, Password, MfaToken) ->
 -spec complete_scram_login(#?ADMIN{}, term()) ->
     {ok, map()} | {error, term()}.
 complete_scram_login(#?ADMIN{username = Username, pwdhash = PwdHash} = User, MfaToken) ->
+    %% The caller checks the login lock before it verifies the client proof.
     ExpiredTime = emqx:get_config([dashboard, password_expired_time], 0),
     maybe
-        ok ?= emqx_dashboard_login_lock:verify(Username),
         MfaVerifyResult = verify_mfa_token(Username, MfaToken, true),
         ok ?= check_mfa_pwd(MfaVerifyResult, true),
         ok ?= check_unchanged_default_credentials_hash(PwdHash),
