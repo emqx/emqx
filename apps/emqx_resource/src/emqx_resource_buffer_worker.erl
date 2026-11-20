@@ -60,6 +60,8 @@
 -export([clear_disk_queue_dir/2]).
 
 -elvis([{elvis_style, dont_repeat_yourself, disable}]).
+%% Resource callbacks are dispatched through the connector module.
+-elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
 -define(COLLECT_REQ_LIMIT, 1000).
 -define(SEND_REQ(FROM, REQUEST), {'$send_req', FROM, REQUEST}).
@@ -375,8 +377,8 @@ init({Id, Index, Opts}) ->
     ?tp(buffer_worker_init, #{id => Id, index => Index, queue_opts => QueueOpts}),
     {ok, running, Data}.
 
-running(enter, _, #{tref := _Tref} = Data) ->
-    ?tp(buffer_worker_enter_running, #{id => maps:get(id, Data), tref => _Tref}),
+running(enter, _, #{tref := _TRef} = Data) ->
+    ?tp(buffer_worker_enter_running, #{id => maps:get(id, Data), tref => _TRef}),
     %% According to `gen_statem' laws, we mustn't call `maybe_flush'
     %% directly because it may decide to return `{next_state, blocked, _}',
     %% and that's an invalid response for a state enter call.
@@ -796,7 +798,7 @@ do_flush(
         inflight_tid := InflightTID
     } = Data0,
     %% unwrap when not batching (i.e., batch size == 1)
-    [?QUERY(ReplyTo, _, HasBeenSent, _ExpireAt, RequestContext, TraceCtx) = Request] = Batch,
+    [?QUERY(ReplyTo, _, HasBeenSent, _, RequestContext, TraceCtx) = Request] = Batch,
     QueryOpts = #{inflight_tid => InflightTID, simple_query => false},
     Result = call_query(async_if_possible, Id, ChanKey, Index, Ref, Request, QueryOpts),
     Reply = ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx),
@@ -1430,7 +1432,10 @@ set_rule_id_trace_meta_data(Requests) when is_list(Requests) ->
         TraceMetadata0,
         stop_action_after_render,
         StopAfterRender,
-        StopAfterRender == true
+        case StopAfterRender of
+            true -> true;
+            _ -> false
+        end
     ),
     logger:update_process_metadata(TraceMetadata),
     ok;
@@ -1940,7 +1945,7 @@ handle_async_batch_reply2([], _, _, _) ->
     %% this usually should never happen unless the async callback is being evaluated concurrently
     ok;
 handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
-    ?INFLIGHT_ITEM(_, RealBatch, _IsRetriable, _AsyncWorkerMRef) = Inflight,
+    ?INFLIGHT_ITEM(_, RealBatch, _, _) = Inflight,
     #{
         resource_id := Id,
         buffer_worker := BufferWorkerPid,
@@ -1952,7 +1957,7 @@ handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
     %% So we just take the original flag from the ReplyContext batch
     %% and put it back to the batch found in inflight table
     %% which must have already been set to `false`
-    [?QUERY(_ReplyTo, _, HasBeenSent, _ExpireAt, _RequestContext, _TraceCtx) | _] = Batch,
+    [?QUERY(_, _, HasBeenSent, _, _, _) | _] = Batch,
     {RealNotExpired0, RealExpired, Results} =
         sieve_expired_requests_with_results(RealBatch, Now, Results0),
     RealNotExpired =
@@ -2168,7 +2173,7 @@ inflight_get_first_retriable(InflightTID, Now) ->
     MatchSpec =
         ets:fun2ms(
             fun(?INFLIGHT_ITEM(Ref, BatchOrQuery, IsRetriable, _AsyncWorkerMRef)) when
-                IsRetriable =:= true
+                IsRetriable
             ->
                 {Ref, BatchOrQuery}
             end
