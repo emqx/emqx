@@ -249,6 +249,41 @@ t_reload_etc_emqx_conf_not_persistent(Config) ->
     ok.
 
 -doc """
+`conf reload` merges `flapping_detect` from etc/emqx.conf in the deprecated
+flat layout over the stored config, which holds `by_clientid`. The fields
+from etc/emqx.conf take effect.
+""".
+t_reload_legacy_flapping_detect(Config) ->
+    Original = emqx_conf:get_raw([flapping_detect]),
+    ?assertMatch(#{<<"by_clientid">> := _}, Original),
+    Reload = fun(Flapping) ->
+        Conf = (base_conf())#{<<"flapping_detect">> => Flapping},
+        ConfFile = prepare_conf_file(?FUNCTION_NAME, hocon_pp:do(Conf, #{}), Config),
+        application:set_env(emqx, config_files, [ConfFile]),
+        ok = emqx_conf_cli:conf(["reload"]),
+        emqx:get_config([flapping_detect, by_clientid])
+    end,
+    try
+        ?assertEqual(
+            #{max_count => 99, window_time => 99 * 60_000, ban_time => 99 * 60_000},
+            Reload(#{
+                <<"enable">> => true,
+                <<"max_count">> => 99,
+                <<"window_time">> => <<"99m">>,
+                <<"ban_time">> => <<"99m">>
+            })
+        ),
+        ?assertEqual(
+            #{max_count => 98, window_time => 99 * 60_000, ban_time => 99 * 60_000},
+            Reload(#{<<"max_count">> => 98})
+        ),
+        ?assertEqual(none, Reload(#{<<"enable">> => false}))
+    after
+        {ok, _} = emqx:update_config([flapping_detect], Original)
+    end,
+    ok.
+
+-doc """
 `conf reload` that fails to update a root on the local node prints the
 effective config, the attempted config and the reason, and returns an error.
 """.

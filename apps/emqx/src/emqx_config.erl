@@ -542,8 +542,12 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
             false ->
                 overlay_v1(SchemaMod, RawConf1)
         end,
-    RawConf3 = upgrade_raw_conf(SchemaMod, RawConf2),
-    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf3),
+    RawConf3 = emqx_schema:resolve_flapping_detect_sources(
+        RawConf2,
+        fun() -> {ok, [RawConf1 | overlay_sources(SchemaMod, HasDeprecatedFile)]} end
+    ),
+    RawConf4 = upgrade_raw_conf(SchemaMod, RawConf3),
+    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf4),
     %% check configs against the schema
     {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     save_to_app_env(AppEnvs),
@@ -570,6 +574,17 @@ overlay_v0(SchemaMod, RawConf) when is_map(RawConf) ->
 %% Merge environment variable overrides on top.
 overlay_v1(SchemaMod, RawConf) when is_map(RawConf) ->
     merge_envs(SchemaMod, RawConf).
+
+%% The sources that `overlay_v0/2' and `overlay_v1/2' merge on top of the
+%% config files, lowest priority first.
+overlay_sources(SchemaMod, true) ->
+    [
+        merge_envs(SchemaMod, #{}),
+        read_override_conf(#{override_to => cluster}),
+        read_override_conf(#{override_to => local})
+    ];
+overlay_sources(SchemaMod, false) ->
+    [merge_envs(SchemaMod, #{})].
 
 %% @doc Read merged cluster + local overrides.
 read_override_confs() ->
@@ -760,7 +775,10 @@ load_config_files(HasDeprecatedFile, Conf) ->
     IncDirs = include_dirs(),
     case do_parse_hocon(HasDeprecatedFile, Conf, IncDirs) of
         {ok, HoconMap} ->
-            HoconMap;
+            emqx_schema:resolve_flapping_detect_sources(
+                HoconMap,
+                fun() -> parse_each_source(HasDeprecatedFile, Conf, IncDirs) end
+            );
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_load_config_file",
@@ -772,23 +790,42 @@ load_config_files(HasDeprecatedFile, Conf) ->
             error(failed_to_load_config_file)
     end.
 
-do_parse_hocon(true, Conf, IncDirs) ->
-    Opts = #{format => map, include_dirs => IncDirs},
-    case is_binary(Conf) of
-        true -> hocon:binary(Conf, Opts);
-        false -> hocon:files(Conf, Opts)
+do_parse_hocon(_HasDeprecatedFile, Conf, IncDirs) when is_binary(Conf) ->
+    %% only used in test
+    hocon:binary(Conf, parse_opts(IncDirs));
+do_parse_hocon(HasDeprecatedFile, Conf, IncDirs) ->
+    hocon:files(source_files(HasDeprecatedFile, Conf), parse_opts(IncDirs)).
+
+%% Parse each source that `do_parse_hocon/3` merges into one config.
+%% Return the parsed sources, lowest priority first.
+parse_each_source(_HasDeprecatedFile, Conf, IncDirs) when is_binary(Conf) ->
+    maybe
+        {ok, HoconMap} ?= hocon:binary(Conf, parse_opts(IncDirs)),
+        {ok, [HoconMap]}
     end;
-do_parse_hocon(false, Conf, IncDirs) ->
-    Opts = #{format => map, include_dirs => IncDirs},
-    case is_binary(Conf) of
-        true ->
-            %% only used in test
-            hocon:binary(Conf, Opts);
-        false ->
-            BaseHocon = base_hocon_file(),
-            ClusterFile = cluster_hocon_file(),
-            hocon:files([BaseHocon, ClusterFile | Conf], Opts)
-    end.
+parse_each_source(HasDeprecatedFile, Conf, IncDirs) ->
+    Opts = parse_opts(IncDirs),
+    lists:foldr(
+        fun
+            (File, {ok, Acc}) ->
+                maybe
+                    {ok, HoconMap} ?= hocon:files([File], Opts),
+                    {ok, [HoconMap | Acc]}
+                end;
+            (_File, Error) ->
+                Error
+        end,
+        {ok, []},
+        source_files(HasDeprecatedFile, Conf)
+    ).
+
+source_files(true, Files) ->
+    Files;
+source_files(false, Files) ->
+    [base_hocon_file(), cluster_hocon_file() | Files].
+
+parse_opts(IncDirs) ->
+    #{format => map, include_dirs => IncDirs}.
 
 include_dirs() ->
     [filename:join(emqx:data_dir(), "configs")].

@@ -931,7 +931,15 @@ split_high_priority_conf([Key | Keys], Conf0, Acc) ->
 
 merge_conf(Namespace, Key, NewConf) ->
     OldConf = get_raw_config(Namespace, [Key], #{}),
-    do_merge_conf(OldConf, NewConf).
+    Merged = do_merge_conf(OldConf, NewConf),
+    %% The stored config holds `flapping_detect.by_clientid`, and the new
+    %% config can hold the deprecated flat fields. The new config has the
+    %% higher priority.
+    #{Key := Resolved} = emqx_schema:resolve_flapping_detect_sources(
+        #{Key => Merged},
+        fun() -> {ok, [#{Key => OldConf}, #{Key => NewConf}]} end
+    ),
+    Resolved.
 
 do_merge_conf(OldConf = #{}, NewConf = #{}) ->
     emqx_utils_maps:deep_merge(OldConf, NewConf);
