@@ -10,7 +10,7 @@
     brutal_shutdown/0,
     is_ready/0,
 
-    register_system_hooks/0,
+    start_sys_apps/1,
     register_business_hooks/0,
     on_run_level/2,
     maybe_migrate_cluster/0,
@@ -45,16 +45,8 @@ start() ->
     emqx_mgmt_cli:load(),
     setup_vm(),
     ok = configure_otel_deps(),
-    %% Hand over control to classy:
-    ClassyDir = filename:join(emqx:data_dir(), "classy"),
-    application:set_env(classy, table_dir, ClassyDir),
-    ok = filelib:ensure_path(ClassyDir),
-    %% Start classy app in dormant mode, which enables registration of hooks:
-    {ok, _} = application:ensure_all_started(classy),
-    %% Start mria in dormant mode:
-    {ok, _} = application:ensure_all_started(mria),
     %% Setup EMQX hooks:
-    register_system_hooks(),
+    start_sys_apps(emqx:data_dir()),
     register_business_hooks(),
     %% Launch:
     ok = classy:start_system().
@@ -89,20 +81,30 @@ setup_vm() ->
     os:set_signal(sigterm, handle),
     ok = set_backtrace_depth().
 
-register_system_hooks() ->
-    %% Classy:
+%% Set up classy and mria. Returns app closure (for testing)
+-spec start_sys_apps(file:filename()) -> [atom()].
+start_sys_apps(DataDir) ->
+    ClassyDir = filename:join(DataDir, "classy"),
+    application:set_env(classy, table_dir, ClassyDir),
+    ok = filelib:ensure_path(ClassyDir),
+    %% Start classy app in dormant mode, which enables registration of hooks:
+    {ok, Started1} = application:ensure_all_started(classy),
+    %% Start mria in dormant mode:
+    {ok, Started2} = application:ensure_all_started(mria),
+    %% Register classy hooks:
+    %%   Cluster ID / site ID migration:
     _ = classy:on_node_init(fun ?MODULE:maybe_migrate_cluster/0, 100),
-    %% Cluster:
+    %%   Cluster:
     _ = classy:pre_join(fun emqx_cluster:pre_join/4, 50),
     _ = classy:pre_kick(fun emqx_mgmt_api_ds:pre_kick/3, 50),
     _ = classy:on_node_classify(fun ?MODULE:on_node_classify/1, 50),
     _ = classy:on_kick_decided(fun emqx_cluster_rpc:on_kick_decided/3, 100),
-    %% Common actions
+    %%   Common actions
     _ = classy:on_run_level(
         fun ?MODULE:on_run_level/2,
         #{prio => 0, timeout => infinity}
     ),
-    %% Fallback, allows to connect to legacy nodes:
+    %%   Fallback, allows to connect to legacy nodes:
     _ = classy:fallback_get_cluster(fun mria_classy_migration:fallback_get_cluster/1),
     _ = classy:fallback_get_meta(fun mria_classy_migration:fallback_get_meta/2, 0),
     _ = classy:fallback_get_peer_nodes(fun mria_classy_migration:fallback_get_peer_nodes/1),
@@ -118,7 +120,7 @@ register_system_hooks() ->
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
     mria_config:register_callback(heal_partition, fun emqx_broker_heal:on_autoheal/1),
-    ok.
+    Started1 ++ Started2.
 
 %% These hooks are registered separately to avoid starting unnecessary
 %% applications in test:
