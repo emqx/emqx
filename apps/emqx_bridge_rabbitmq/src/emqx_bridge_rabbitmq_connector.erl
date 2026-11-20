@@ -770,9 +770,7 @@ try_unsubscribe(ChannelId, Channels) ->
 
 close_channels(Pids) ->
     try
-        emqx_utils:pforeach(
-            fun(Pid) -> amqp_channel:close(Pid) end, Pids, ?CHANNEL_CLOSE_TIMEOUT
-        )
+        emqx_utils:pforeach(fun amqp_channel:close/1, Pids, ?CHANNEL_CLOSE_TIMEOUT)
     catch
         _:_ ->
             ok

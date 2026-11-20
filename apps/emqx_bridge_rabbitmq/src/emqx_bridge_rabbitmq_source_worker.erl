@@ -94,8 +94,10 @@ handle_info(
         no_ack := NoAck
     } = SubParams,
     lists:foreach(fun(Hook) -> emqx_hooks:run(Hook, [Message, Namespace]) end, Hooks),
-    (NoAck =:= false) andalso
-        amqp_channel:cast(Chan, #'basic.ack'{delivery_tag = Tag}),
+    case NoAck of
+        false -> amqp_channel:cast(Chan, #'basic.ack'{delivery_tag = Tag});
+        _ -> ok
+    end,
     emqx_resource_metrics:received_inc(SourceResId),
     {noreply, State};
 handle_info(#'basic.cancel_ok'{}, State) ->

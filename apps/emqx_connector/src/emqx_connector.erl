@@ -3,6 +3,9 @@
 %%--------------------------------------------------------------------
 -module(emqx_connector).
 
+%% Connector types can be supplied by plugins.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
