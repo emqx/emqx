@@ -6,6 +6,9 @@
 
 -behaviour(gen_server).
 
+%% A `submit` call returns the caught exception of its task to the caller.
+-elvis([{elvis_style, no_catch_expressions, disable}]).
+
 -include("logger.hrl").
 -include("types.hrl").
 
@@ -20,7 +23,8 @@
     submit_to_pool/2,
     submit_to_pool/3,
     async_submit_to_pool/2,
-    async_submit_to_pool/3
+    async_submit_to_pool/3,
+    take_async_tasks/2
 ]).
 
 -ifdef(TEST).
@@ -100,6 +104,29 @@ cast(Pool, Msg) ->
 %% @private
 worker(Pool) ->
     gproc_pool:pick_worker(Pool).
+
+-doc """
+Remove the queued tasks `async_submit_to_pool(Pool, Fun, [List])` from the mailbox
+of the calling pool worker, until their lists hold at least `Limit` elements in
+total. Return the elements in the order in which the tasks were queued.
+
+Call this function only from a task that runs in a pool worker. The receive skips
+the messages that do not match, so use it only in a pool whose workers get few
+other messages.
+""".
+-spec take_async_tasks(fun((list()) -> any()), integer()) -> list().
+take_async_tasks(Fun, Limit) ->
+    take_async_tasks(Fun, Limit, []).
+
+take_async_tasks(_Fun, Limit, Acc) when Limit =< 0 ->
+    lists:reverse(Acc);
+take_async_tasks(Fun, Limit, Acc) ->
+    receive
+        {'$gen_cast', {async_submit, {Fun, [List]}}} when is_list(List) ->
+            take_async_tasks(Fun, Limit - length(List), lists:reverse(List, Acc))
+    after 0 ->
+        lists:reverse(Acc)
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
