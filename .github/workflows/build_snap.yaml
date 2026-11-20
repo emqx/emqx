@@ -40,7 +40,8 @@ jobs:
   verify-release-tag:
     if: >-
       github.event_name != 'release' ||
-      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.'))
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.') &&
+       !contains(github.event.release.tag_name, '-preview.'))
     uses: ./.github/workflows/verify_release_tag.yaml
     with:
       ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
@@ -50,7 +51,8 @@ jobs:
     needs: verify-release-tag
     if: >-
       github.event_name != 'release' ||
-      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.'))
+      (!github.event.release.prerelease && !contains(github.event.release.tag_name, '-cloud.') &&
+       !contains(github.event.release.tag_name, '-preview.'))
     runs-on: ubuntu-latest
     outputs:
       ref: ${{ needs.verify-release-tag.outputs.ref }}

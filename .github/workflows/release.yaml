@@ -21,7 +21,11 @@ jobs:
     uses: ./.github/workflows/verify_release_tag.yaml
     with:
       ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
-      require_ga: ${{ !contains(github.event.release.tag_name || inputs.tag, '-cloud.') && ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts) }}
+      require_ga: >-
+        ${{ inputs.publish_release_artifacts ||
+            (github.event_name == 'release' && !github.event.release.prerelease &&
+             !contains(github.event.release.tag_name, '-cloud.') &&
+             !contains(github.event.release.tag_name, '-preview.')) }}
 
   upload:
     needs: verify-release-tag
@@ -75,6 +79,7 @@ jobs:
         id: gate
         if: >-
           !contains(github.event.release.tag_name || inputs.tag, '-cloud.') &&
+          !contains(github.event.release.tag_name || inputs.tag, '-preview.') &&
           ((github.event_name == 'release' && !github.event.release.prerelease) || inputs.publish_release_artifacts)
         run: echo "publish=true" >> "$GITHUB_OUTPUT"
       # The manifest tool runs from the workflow's own commit. For a release event

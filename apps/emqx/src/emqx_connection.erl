@@ -323,10 +323,17 @@ stop(Pid) ->
 %%--------------------------------------------------------------------
 
 init(Parent, Transport, RawSocket, Options) ->
-    case emqx_node_readiness:is_ready() of
-        true ->
+    case emqx_node_readiness:check_new_connection() of
+        ok ->
             do_init(Parent, Transport, RawSocket, Options);
-        false ->
+        {error, too_many_processes} ->
+            %% Checked before wait/1, so that a refused TLS connection
+            %% does not start the TLS processes.
+            %% The exit reason feeds the listener's shutdown counter.
+            ok = emqx_node_readiness:log_process_limit_refusal(#{transport => Transport}),
+            ok = Transport:fast_close(RawSocket),
+            erlang:exit({shutdown, too_many_processes});
+        {error, node_not_ready} ->
             %% Refuse to serve before node boot completes: authn/authz
             %% hooks (e.g. from plugins) may not be installed yet.
             %% The exit reason feeds the listener's shutdown counter.
@@ -1393,7 +1400,7 @@ handle_info(activate_socket, State) ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    case connect_too_large_error(Reason, State) of
+    case transport_too_large_error(Reason, State) of
         {true, FrameError} ->
             %% The transport has already closed the socket with the error:
             %% gen_tcp closes the port after `tcp_error', ssl stops the
@@ -1492,35 +1499,48 @@ active_n(#state{conf = #conf{active_n = ActiveN}}) ->
     ActiveN.
 
 -doc """
-Recognise a first frame the transport refused for being over `packet_size'.
+Recognise a frame the transport refused for being over `packet_size'.
 
-Before CONNECT, the whole-frame transports are set up with `packet_size' equal
-to `max_connect_packet_size', so they reject an oversized CONNECT before the
-parser sees a byte of it. `gen_tcp' reports `emsgsize'; `ssl' reports
-`{invalid_packet, Data}', carrying the client's bytes. Report both the way the
-stream parser reports the same packet, so the shutdown counter does not depend
-on the transport, and the client's bytes stay out of the exit reason.
+The whole-frame transports reject an oversized packet before the parser sees a
+byte of it. `gen_tcp' reports `emsgsize'; `ssl' reports `{invalid_packet,
+Data}', carrying the client's bytes. Report both the way the stream parser
+reports the same packet, so the shutdown counter and the reply to the client do
+not depend on the transport, and the client's bytes stay out of the log and the
+exit reason.
 
-Only the error tag is kept: whether the refused frame really was a CONNECT is
-not knowable here, and neither is it in the stream parser's case.
+Before CONNECT, `packet_size' is `max_connect_packet_size', and the error is
+`connect_packet_too_large'. Only the error tag is kept: whether the refused
+frame really was a CONNECT is not knowable here, and neither is it in the
+stream parser's case. After CONNECT, `packet_size' is `max_packet_size', and
+the error is `frame_too_large'.
+
+After DISCONNECT the error is left to the socket error path, which closes the
+connection.
 """.
-connect_too_large_error(Reason, #state{
+transport_too_large_error(Reason, #state{
     parser = {frame, _}, channel = Channel, conf = #conf{zone = Zone}
 }) ->
     case transport_frame_too_large(Reason) andalso emqx_channel:info(conn_state, Channel) of
+        false ->
+            false;
+        disconnected ->
+            false;
         idle ->
             Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size]),
-            {true,
-                {frame_error, #{
-                    cause => connect_packet_too_large,
-                    limit => Limit,
-                    transport_error => transport_error_tag(Reason)
-                }}};
-        _ ->
-            false
+            {true, transport_frame_error(connect_packet_too_large, Limit, Reason)};
+        _Connected ->
+            Limit = emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
+            {true, transport_frame_error(frame_too_large, Limit, Reason)}
     end;
-connect_too_large_error(_Reason, _State) ->
+transport_too_large_error(_Reason, _State) ->
     false.
+
+transport_frame_error(Cause, Limit, Reason) ->
+    {frame_error, #{
+        cause => Cause,
+        limit => Limit,
+        transport_error => transport_error_tag(Reason)
+    }}.
 
 transport_frame_too_large(emsgsize) -> true;
 transport_frame_too_large({invalid_packet, _Data}) -> true;

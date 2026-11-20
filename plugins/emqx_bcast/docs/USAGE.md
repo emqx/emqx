@@ -164,6 +164,12 @@ durable commit point, `ttl_expired`/`canceled` close the ledger):
 | `max_pending_deliveries_per_device` | `100` | Per-device cap on pending QoS=1 deliveries (clamped 10-200); a request targeting a device over the cap is rejected with 429 QuotaExceeded and the over-limit device list. The cap is **best-effort**: check and reservation are atomic on an active shard, but while a shard is unavailable (startup/takeover) the request is accepted without per-device accounting |
 | `delivery_pool_size` | `0` | Worker count for each delivery pool (the per-node claim pool and the core-side server pool). 0 means one worker per scheduler. Changing it restarts the pools |
 
+Configuration updates through the plugin config API reject negative values for
+the schema-bounded limits above and reject a per-device cap outside `10..200`;
+the previous configuration remains active. On plugin startup, legacy stored
+values are still accepted and normalized with the documented fallback/clamp so
+an upgrade does not fail because of an old configuration.
+
 `msg_ttl` and `cleanup_interval` take the duration forms the rest of EMQX
 accepts — `15d`, `60s`, `1h30m`, `500ms`, `0.5s` — and a bare number means
 seconds. Both are stored as whole seconds, so a value under a second rounds up
@@ -206,23 +212,16 @@ pipeline (pull pools, index owner) is not draining - check node health
 rather than `msg_ttl`.
 
 
-## Rolling upgrade and joining nodes
+## Cluster-wide upgrades and operations
 
-A client's pending deliveries are held with the **node the client is connected
-to** (its pull state), so a node that is not running the plugin yet cannot
-deliver to the clients attached to it: those clients stay silent until the
-plugin is ready there.
+Different versions of the `emqx_bcast` plugin must never run in one cluster.
 
-- Probe a node's readiness before sending it traffic: the plugin API answers
-  only while the plugin runs, for example
-  `GET /api/v5/plugin_api/emqx_bcast/metrics` -> `200` when ready, `404`
-  before that. Do not add the node to the load balancer, and do not send
-  BatchPub API traffic to it, until that probe passes.
-- The rest of the cluster is protected while a node is not ready: a core
-  without the plugin is not used as an index-shard owner and is never chosen
-  as a claim target, so the partitions it would have owned are served by the
-  cores that are ready (watch `bcast_cores_without_plugin`; the error log
-  `bcast_core_without_plugin` names such cores).
-- After the plugin becomes ready on that node, the deferred/queued work drains
-  by itself (deferred batches are retried with a backoff; unclaimed index
-  entries are claimed again).
+- To upgrade the plugin, stop and uninstall the old version on every node,
+  then install the new version on every node.
+- For an EMQX rolling upgrade, a recommended procedure is to stop the plugin on
+  every node before the upgrade and enable it again after every node has been
+  upgraded. This is operational guidance, not a plugin compatibility
+  requirement.
+
+If the plugin is stopped, the plugin API is unavailable. Persisted delivery, ACK
+and message rows are recovered when the plugin starts again.
