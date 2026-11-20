@@ -1245,7 +1245,10 @@ do_verify_mfa_token(Username, MfaToken, IsPwdOk) ->
                     {ok, ok} = set_mfa_state(Username, NewState),
                     ok;
                 {error, Reason} ->
-                    %% Token is not OK
+                    %% Token is not OK. Count it as an unsuccessful login
+                    %% attempt, whatever the password check returned.
+                    %% The caller does not count an MFA error again.
+                    ok = emqx_dashboard_login_lock:register_unsuccessful_login(Username),
                     {error, Reason}
             end;
         _ ->
