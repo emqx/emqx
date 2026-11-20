@@ -34,23 +34,22 @@ The instances behind a load balancer need no shared storage. The plugin needs
 server 0.2.0 or later.
 It keeps no state that EMQX needs (see "Programs" below).
 
-## Build and install
+## Configure
 
-```
-make plugin-emqx_rule_udf                              # _build/plugins/emqx_rule_udf-0.1.0.tar.gz
-cp _build/plugins/emqx_rule_udf-0.1.0.tar.gz <emqx>/plugins/
-emqx ctl plugins allow emqx_rule_udf-0.1.0
-emqx ctl plugins install emqx_rule_udf-0.1.0
-emqx ctl plugins start emqx_rule_udf-0.1.0
-```
-
-Then set the function server in the plugin config (Dashboard, or
-`PUT /api/v5/plugins/emqx_rule_udf-0.1.0/config`):
+Set the function server in the plugin config:
 
 ```json
-{"server": {"url": "http://127.0.0.1:8080", "token": "<UDF_TOKEN>", "pool_size": 8,
-            "connect_timeout_ms": 5000, "request_timeout_ms": 2000}}
+{"server": {"url": "http://127.0.0.1:8080", "token": "<UDF_TOKEN>", "cacertfile": "",
+            "pool_size": 8, "connect_timeout_ms": 5000, "request_timeout_ms": 2000}}
 ```
+
+- For an `https://` URL, the plugin verifies the server certificate and the host
+  name. `cacertfile` is the path to a PEM file with the CA certificates to
+  trust. The file must exist on every node. When it is empty, the plugin trusts
+  the CAs in `node.trusted_certs`, or the CAs of the operating system when that
+  is not set.
+- EMQX sends a config change to all running nodes. A node that is down at that
+  time keeps its old config: save the config again after it is back.
 
 ## Programs
 
@@ -60,6 +59,9 @@ Then set the function server in the plugin config (Dashboard, or
   `handle(*args)`.
 - A name has 1 to 64 characters from `A-Z a-z 0-9 . _ -` and must not start with
   `.`. The name is the first argument of `udf(...)`.
+- Programs are global: they do not belong to a namespace. Only the global
+  administrator can create, change, delete or test-run them. Namespaced users
+  can read them, and their rules can call them with `udf(...)`.
 - EMQX stores the programs in a replicated `mria` table, so every node has all of
   them. Each node also writes them as files to
   `<data_dir>/plugins/emqx_rule_udf/programs/<name>`. The files are a copy for
@@ -102,22 +104,3 @@ plugin API under `/api/v5/plugin_api/emqx_rule_udf/`:
   only when the server accepts it. An `INVALID_SOURCE` reply comes back with its
   `problems` list.
 - `PUT`, `DELETE` and `POST` need the global administrator. Viewers can only read.
-
-## Tests
-
-`test/emqx_rule_udf_SUITE.erl` runs against the reference server image. The
-`docker-ct` file makes CI start it as the `rule_udf` service
-(`.ci/docker-compose-file/docker-compose-rule-udf.yaml`). To run the suite
-locally:
-
-```
-./scripts/ct/run.sh --ci --app plugins/emqx_rule_udf
-```
-
-## Modules
-
-- `emqx_rule_udf_app`: plugin callbacks.
-- `emqx_rule_udf`: the rule SQL function `udf`.
-- `emqx_rule_udf_client`: the HTTP client, the hot path and the uploads.
-- `emqx_rule_udf_store`: the program table and the file copies.
-- `emqx_rule_udf_api`: the plugin API.
