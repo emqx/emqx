@@ -1125,7 +1125,7 @@ check(_, undefined, _) ->
 check(Username, Password, MfaToken) ->
     case lookup_user(Username) of
         [#?ADMIN{pwdhash = PwdHash} = User] ->
-            IsPwdOk = (ok =:= verify_hash(Password, PwdHash)),
+            IsPwdOk = (ok =:= check_password(Password, PwdHash)),
             MfaVerifyResult = verify_mfa_token(Username, MfaToken, IsPwdOk),
             maybe
                 ok ?= check_mfa_pwd(MfaVerifyResult, IsPwdOk),
@@ -1135,8 +1135,34 @@ check(Username, Password, MfaToken) ->
                 Error -> Error
             end;
         [] ->
+            ok = emqx_dashboard_check_delay:without_check(),
             {error, <<"username_not_found">>}
     end.
+
+%% Verify a Dashboard user password and add the check delay.
+%% A hash at the default cost is measured for the delay sample.
+%% Any other hash gets the same delay as a check that does not run.
+check_password(Password, PwdHash) ->
+    case is_default_cost_hash(PwdHash) of
+        true ->
+            Result = emqx_dashboard_check_delay:measure(fun() ->
+                verify_hash(Password, PwdHash)
+            end),
+            ok = emqx_dashboard_check_delay:after_check(),
+            Result;
+        false ->
+            Result = verify_hash(Password, PwdHash),
+            ok = emqx_dashboard_check_delay:without_check(),
+            Result
+    end.
+
+is_default_cost_hash(<<"$1$", Rest/binary>>) ->
+    case parse_v1(Rest) of
+        {ok, ?PBKDF2_ITERATIONS, _Salt, _DK} -> true;
+        _ -> false
+    end;
+is_default_cost_hash(_) ->
+    false.
 
 check_mfa_pwd(ok, true) ->
     ok;
