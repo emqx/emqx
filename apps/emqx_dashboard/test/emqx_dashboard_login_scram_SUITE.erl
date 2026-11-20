@@ -464,6 +464,49 @@ t_http_scram_login_mfa(_) ->
         ok = meck:unload(pot)
     end.
 
+t_http_scram_wrong_mfa_code_counts_as_unsuccessful_login(_) ->
+    ok = setup_scram_mfa(),
+    try
+        MaxAttempts = emqx_config:get([dashboard, unsuccessful_login_max_attempts]),
+        lists:foreach(
+            fun(_) ->
+                ?assertMatch(
+                    {ok, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+                    http_scram_login(#{mfa_token => <<"654321">>})
+                )
+            end,
+            lists:seq(1, MaxAttempts)
+        ),
+        ?assertMatch(
+            {ok, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+            http_scram_login(#{mfa_token => ?GOOD_TOTP})
+        )
+    after
+        teardown_scram_mfa()
+    end.
+
+t_http_scram_missing_mfa_code_not_counted(_) ->
+    ok = setup_scram_mfa(),
+    try
+        MaxAttempts = emqx_config:get([dashboard, unsuccessful_login_max_attempts]),
+        lists:foreach(
+            fun(_) ->
+                ?assertMatch(
+                    {ok, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+                    http_scram_login(#{})
+                )
+            end,
+            lists:seq(1, MaxAttempts + 1)
+        ),
+        ?assertEqual([], user_attempts(?USERNAME)),
+        ?assertMatch(
+            {ok, 200, #{<<"token">> := _}},
+            http_scram_login(#{mfa_token => ?GOOD_TOTP})
+        )
+    after
+        teardown_scram_mfa()
+    end.
+
 t_scram_only_hides_legacy_password_migration(_) ->
     ok = emqx_config:put([dashboard, password_login], scram_only),
     {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
@@ -636,6 +679,35 @@ scram_verify(ClientNonce, Challenge, Password) ->
         <<ClientNonce/binary, ServerNonce/binary>>,
         client_proof(ClientNonce, Challenge, Password),
         ?NO_MFA_TOKEN
+    ).
+
+setup_scram_mfa() ->
+    ok = meck:new(pot, [passthrough, no_history]),
+    ok = meck:expect(pot, valid_totp, fun(Token, _) -> Token =:= ?GOOD_TOTP end),
+    {ok, ok} = emqx_dashboard_admin:set_mfa_state(?USERNAME, #{
+        mechanism => totp,
+        secret => <<"JBSWY3DPEHPK3PXP">>,
+        first_verify_ts => erlang:system_time(second)
+    }),
+    ok.
+
+teardown_scram_mfa() ->
+    _ = emqx_dashboard_admin:clear_mfa_state(?USERNAME),
+    ok = meck:unload(pot).
+
+http_scram_login(Extra) ->
+    ClientNonce = <<"clientNonce1234567890">>,
+    {ok, 200, Challenge} = request_api(
+        post,
+        api_path(["login", "challenge"]),
+        no_auth_header,
+        #{username => ?USERNAME, client_nonce => ClientNonce}
+    ),
+    request_api(
+        post,
+        api_path(["login", "verify"]),
+        no_auth_header,
+        http_verify_body(ClientNonce, Challenge, http_proof(ClientNonce, Challenge), Extra)
     ).
 
 user_attempts(Username) ->
