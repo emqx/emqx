@@ -75,7 +75,7 @@ key(Lang, Namespace, Id, Tag) ->
     >>.
 
 %% The desc files are of names like:
-%%   desc.en.hocon or desc.zh.hocon
+%%   desc.en.hocon or desc.zh-TW.hocon
 %% And with content like:
 %%   namespace.id.desc = "description"
 %%   namespace.id.label = "label"
