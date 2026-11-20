@@ -10,6 +10,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-define(FLAPPING_CONF_FILE, "./test_flapping_emqx.conf").
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -118,6 +120,199 @@ t_init_load_with_base_hocon(C) when is_list(C) ->
     ok = file:delete(BaseHocon),
     ok = file:delete(ClusterHocon),
     ok.
+
+-doc """
+Each configuration source sets `flapping_detect` in the deprecated flat
+layout or with `by_clientid`. The source with the higher priority decides
+each field, whichever layout the two sources use. Inside one source,
+`by_clientid` prevails over the flat fields.
+""".
+t_flapping_detect_source_priority({init, C}) ->
+    C;
+t_flapping_detect_source_priority({'end', _C}) ->
+    cleanup_flapping_sources();
+t_flapping_detect_source_priority(C) when is_list(C) ->
+    New120 = "flapping_detect.by_clientid {max_count = 120, window_time = 1m, ban_time = 60m}\n",
+    Legacy99 =
+        "flapping_detect {enable = true, max_count = 99, window_time = 99m, ban_time = 99m}\n",
+    P99 = #{max_count => 99, window_time => 99 * 60_000, ban_time => 99 * 60_000},
+    P120 = #{max_count => 120, window_time => 60_000, ban_time => 60 * 60_000},
+    Cases = [
+        %% {Name, base.hocon, cluster.hocon, emqx.conf, expected by_clientid}
+        {higher_legacy_params, "", New120, Legacy99, P99},
+        {higher_legacy_enable_false, "", New120, "flapping_detect.enable = false\n", none},
+        {higher_legacy_window_disable, "", New120, "flapping_detect.window_time = disable\n", none},
+        {partial_legacy_inherits, "", New120, "flapping_detect.max_count = 99\n", P120#{
+            max_count => 99
+        }},
+        {higher_new_params, "", Legacy99, New120, P120},
+        {higher_new_none, "", Legacy99, "flapping_detect.by_clientid = none\n", none},
+        {partial_new_inherits, Legacy99, "", "flapping_detect.by_clientid.max_count = 120\n", P99#{
+            max_count => 120
+        }},
+        {same_source_mixed, "", "", Legacy99 ++ "flapping_detect.by_clientid.max_count = 7\n", #{
+            max_count => 7, window_time => 60_000, ban_time => 300_000
+        }}
+    ],
+    lists:foreach(
+        fun({Name, Base, Cluster, EmqxConf, Expected}) ->
+            load_flapping_sources(Base, Cluster, EmqxConf),
+            ?assertEqual({Name, Expected}, {Name, effective_by_clientid(default)}),
+            assert_flapping_raw_conf(Name, Expected)
+        end,
+        Cases
+    ).
+
+-doc """
+Zone overrides of `flapping_detect` resolve the configuration source
+priority in the same way as the global config. A partial zone policy still
+inherits the unset fields from the global policy.
+""".
+t_flapping_detect_zone_source_priority({init, C}) ->
+    C;
+t_flapping_detect_zone_source_priority({'end', _C}) ->
+    cleanup_flapping_sources();
+t_flapping_detect_zone_source_priority(C) when is_list(C) ->
+    Cluster =
+        "flapping_detect.by_clientid {max_count = 120, window_time = 1m, ban_time = 60m}\n"
+        "zones.z1.flapping_detect.by_clientid {max_count = 120}\n"
+        "zones.z2.flapping_detect.by_clientid {max_count = 120}\n",
+    EmqxConf =
+        "zones.z1.flapping_detect.enable = false\n"
+        "zones.z2.flapping_detect.max_count = 99\n",
+    load_flapping_sources("", Cluster, EmqxConf),
+    P120 = #{max_count => 120, window_time => 60_000, ban_time => 60 * 60_000},
+    ?assertEqual(P120, effective_by_clientid(default)),
+    ?assertEqual(none, effective_by_clientid(z1)),
+    ?assertEqual(P120#{max_count => 99}, effective_by_clientid(z2)),
+    ?assertEqual(
+        #{<<"by_clientid">> => #{<<"max_count">> => 99}},
+        emqx:get_raw_config([zones, z2, flapping_detect])
+    ).
+
+-doc """
+Environment variable overrides have the highest priority for
+`flapping_detect` fields, in the flat layout and with `by_clientid`.
+""".
+t_flapping_detect_env_source_priority({init, C}) ->
+    C;
+t_flapping_detect_env_source_priority({'end', _C}) ->
+    cleanup_flapping_sources();
+t_flapping_detect_env_source_priority(C) when is_list(C) ->
+    New120 = "flapping_detect.by_clientid {max_count = 120, window_time = 1m, ban_time = 60m}\n",
+    Legacy99 =
+        "flapping_detect {enable = true, max_count = 99, window_time = 99m, ban_time = 99m}\n",
+    P99 = #{max_count => 99, window_time => 99 * 60_000, ban_time => 99 * 60_000},
+    P120 = #{max_count => 120, window_time => 60_000, ban_time => 60 * 60_000},
+    Cases = [
+        %% {Name, cluster.hocon, emqx.conf, env, expected by_clientid}
+        {env_legacy_param, New120, "", [{"EMQX_FLAPPING_DETECT__MAX_COUNT", "99"}], P120#{
+            max_count => 99
+        }},
+        {env_legacy_disable, "", New120, [{"EMQX_FLAPPING_DETECT__ENABLE", "false"}], none},
+        {env_new_param, "", Legacy99, [{"EMQX_FLAPPING_DETECT__BY_CLIENTID__MAX_COUNT", "5"}], P99#{
+                max_count => 5
+            }},
+        {env_zone_legacy_disable, "", "zones.z1.flapping_detect.by_clientid.max_count = 5\n",
+            [{"EMQX_ZONES__Z1__FLAPPING_DETECT__ENABLE", "false"}], {z1, none}}
+    ],
+    lists:foreach(
+        fun({Name, Cluster, EmqxConf, Envs, Expected0}) ->
+            {Zone, Expected} =
+                case Expected0 of
+                    {Z, E} -> {Z, E};
+                    E -> {default, E}
+                end,
+            with_envs(
+                [{"HOCON_ENV_OVERRIDE_PREFIX", "EMQX_"} | Envs],
+                fun() -> load_flapping_sources("", Cluster, EmqxConf) end
+            ),
+            ?assertEqual({Name, Expected}, {Name, effective_by_clientid(Zone)})
+        end,
+        Cases
+    ).
+
+-doc """
+After a mixed-layout config is loaded and the resolved policy is saved to
+`cluster.hocon`, a restart with the same `emqx.conf` keeps the policy.
+""".
+t_flapping_detect_source_priority_restart({init, C}) ->
+    C;
+t_flapping_detect_source_priority_restart({'end', _C}) ->
+    cleanup_flapping_sources();
+t_flapping_detect_source_priority_restart(C) when is_list(C) ->
+    New120 = "flapping_detect.by_clientid {max_count = 120, window_time = 1m, ban_time = 60m}\n",
+    Legacy99 =
+        "flapping_detect {enable = true, max_count = 99, window_time = 99m, ban_time = 99m}\n",
+    P99 = #{max_count => 99, window_time => 99 * 60_000, ban_time => 99 * 60_000},
+    load_flapping_sources("", New120, Legacy99),
+    ?assertEqual(P99, effective_by_clientid(default)),
+    %% A cluster config update saves the stored raw config of the root
+    %% to cluster.hocon. Write the same content.
+    Raw = emqx:get_raw_config([flapping_detect]),
+    ?assertMatch(#{<<"by_clientid">> := #{<<"max_count">> := 99}}, Raw),
+    ok = file:write_file(
+        emqx_config:cluster_hocon_file(), hocon_pp:do(#{<<"flapping_detect">> => Raw}, #{})
+    ),
+    emqx_config:erase_all(),
+    ok = emqx_config:init_load(emqx_schema, [?FLAPPING_CONF_FILE]),
+    ?assertEqual(P99, effective_by_clientid(default)).
+
+load_flapping_sources(Base, Cluster, EmqxConf) ->
+    BaseHocon = emqx_config:base_hocon_file(),
+    ClusterHocon = emqx_config:cluster_hocon_file(),
+    ok = filelib:ensure_dir(BaseHocon),
+    ok = filelib:ensure_dir(ClusterHocon),
+    ok = file:write_file(BaseHocon, Base),
+    ok = file:write_file(ClusterHocon, Cluster),
+    ok = file:write_file(?FLAPPING_CONF_FILE, EmqxConf),
+    emqx_config:erase_all(),
+    ok = emqx_config:init_load(emqx_schema, [?FLAPPING_CONF_FILE]).
+
+cleanup_flapping_sources() ->
+    emqx_config:erase_all(),
+    _ = file:delete(emqx_config:base_hocon_file()),
+    _ = file:delete(emqx_config:cluster_hocon_file()),
+    _ = file:delete(?FLAPPING_CONF_FILE),
+    ok.
+
+%% The policy that `emqx_flapping' applies to a client in `Zone'.
+effective_by_clientid(Zone) ->
+    case maps:get(by_clientid, emqx_flapping:get_policy(Zone)) of
+        none -> none;
+        Dimension -> maps:merge(emqx_flapping:dimension_defaults(), Dimension)
+    end.
+
+%% The stored raw config, which the config API returns, carries only the
+%% `by_clientid` layout and checks to the same policy.
+assert_flapping_raw_conf(Name, Expected) ->
+    Raw = emqx:get_raw_config([flapping_detect]),
+    ?assertEqual(
+        {Name, #{}},
+        {Name, maps:with([<<"enable">>, <<"window_time">>, <<"max_count">>, <<"ban_time">>], Raw)}
+    ),
+    #{flapping_detect := #{by_clientid := Checked}} = hocon_tconf:check_plain(
+        emqx_schema,
+        #{<<"flapping_detect">> => Raw},
+        #{atom_key => true},
+        ["flapping_detect"]
+    ),
+    ?assertEqual({Name, Expected}, {Name, Checked}).
+
+with_envs(Envs, Fun) ->
+    Saved = [{Name, os:getenv(Name)} || {Name, _} <- Envs],
+    try
+        lists:foreach(fun({Name, Value}) -> os:putenv(Name, Value) end, Envs),
+        Fun()
+    after
+        lists:foreach(
+            fun
+                ({Name, false}) -> os:unsetenv(Name);
+                ({Name, Value}) -> os:putenv(Name, Value)
+            end,
+            Saved
+        )
+    end.
 
 t_unknown_root_keys(C) when is_list(C) ->
     ?check_trace(

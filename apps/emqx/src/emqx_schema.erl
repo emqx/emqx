@@ -190,6 +190,7 @@
     tags_schema/0
 ]).
 -export([password_converter/2, bin_str_converter/2, flapping_detect_converter/2]).
+-export([resolve_flapping_detect_sources/2]).
 -export([authz_fields/0]).
 -export([sc/2, map/2]).
 
@@ -4201,6 +4202,10 @@ mqtt_converter(#{<<"keepalive_backoff">> := Backoff} = Mqtt, _Opts) ->
 mqtt_converter(Mqtt, _Opts) ->
     Mqtt.
 
+-define(FLAPPING_DETECT_LEGACY_FIELDS, [
+    <<"enable">>, <<"window_time">>, <<"max_count">>, <<"ban_time">>
+]).
+
 %% For backward compatibility:
 %% - `window_time = disable` used to mean detection disabled;
 %% - the deprecated flat fields (enable, window_time, max_count, ban_time)
@@ -4220,9 +4225,7 @@ convert_legacy_flapping_detect(Conf0) ->
     HasLegacy = (Enable =/= undefined) orelse (maps:size(LegacyParams) > 0),
     %% The output never carries the deprecated fields, so the stored raw
     %% config converges to the new shape.
-    Conf = maps:without(
-        [<<"enable">>, <<"window_time">>, <<"max_count">>, <<"ban_time">>], Conf0
-    ),
+    Conf = maps:without(?FLAPPING_DETECT_LEGACY_FIELDS, Conf0),
     case {is_map_key(<<"by_clientid">>, Conf0), HasLegacy} of
         {true, _} ->
             %% `by_clientid` prevails over the deprecated fields.
@@ -4243,6 +4246,93 @@ converted_by_clientid(_NotTrue, _LegacyParams) ->
     %% Explicitly disabled, or deprecated params without an explicit
     %% enable = true: the dimension is off.
     none.
+
+-doc """
+Resolve each `flapping_detect` value of `MergedRaw` that holds both the
+deprecated flat fields and `by_clientid`. Such a value is a merge of
+several configuration sources, and `flapping_detect_converter/2` cannot
+tell which source set which layout.
+
+`GetSources` returns the same sources as separate raw configs, lowest
+priority first. It is called only when a mixed value exists. In each
+source, the value is rewritten to the flat fields, where `by_clientid`
+sets `enable` and its params. The flat values of all sources are then
+merged field by field and converted. A field that a source does not set
+keeps the value from a lower-priority source.
+
+When `GetSources` returns an error, `MergedRaw` is returned unchanged.
+""".
+-spec resolve_flapping_detect_sources(
+    map(), fun(() -> {ok, [map()]} | {error, term()})
+) -> map().
+resolve_flapping_detect_sources(MergedRaw, GetSources) ->
+    case [P || P <- flapping_detect_paths(MergedRaw), is_mixed_flapping_detect(MergedRaw, P)] of
+        [] ->
+            MergedRaw;
+        Paths ->
+            case GetSources() of
+                {ok, Sources} ->
+                    lists:foldl(
+                        fun(Path, Acc) ->
+                            Resolved = merge_flapping_detect_sources(Path, Sources),
+                            emqx_utils_maps:deep_put(Path, Acc, Resolved)
+                        end,
+                        MergedRaw,
+                        Paths
+                    );
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_resolve_flapping_detect_sources",
+                        reason => Reason
+                    }),
+                    MergedRaw
+            end
+    end.
+
+flapping_detect_paths(Raw) ->
+    Zones =
+        case Raw of
+            #{<<"zones">> := ZonesConf} when is_map(ZonesConf) -> maps:keys(ZonesConf);
+            _ -> []
+        end,
+    [[<<"flapping_detect">>] | [[<<"zones">>, Z, <<"flapping_detect">>] || Z <- Zones]].
+
+is_mixed_flapping_detect(Raw, Path) ->
+    case emqx_utils_maps:deep_get(Path, Raw, undefined) of
+        #{<<"by_clientid">> := _} = Conf ->
+            maps:size(maps:with(?FLAPPING_DETECT_LEGACY_FIELDS, Conf)) > 0;
+        _ ->
+            false
+    end.
+
+merge_flapping_detect_sources(Path, Sources) ->
+    Flat = lists:foldl(
+        fun(Source, Acc) ->
+            case emqx_utils_maps:deep_get(Path, Source, undefined) of
+                Conf when is_map(Conf) ->
+                    hocon:deep_merge(Acc, flat_flapping_detect(Conf));
+                _ ->
+                    Acc
+            end
+        end,
+        #{},
+        Sources
+    ),
+    convert_legacy_flapping_detect(Flat).
+
+%% Rewrite the value of one source to the deprecated flat fields.
+%% Inside one source, `by_clientid` prevails over the flat fields.
+%% Defaults are not filled: a field the source does not set stays unset.
+flat_flapping_detect(#{<<"by_clientid">> := ByClientId} = Conf0) ->
+    Conf = maps:without([<<"by_clientid">> | ?FLAPPING_DETECT_LEGACY_FIELDS], Conf0),
+    case is_map(ByClientId) of
+        true -> maps:merge(Conf#{<<"enable">> => true}, ByClientId);
+        false -> Conf#{<<"enable">> => false}
+    end;
+flat_flapping_detect(#{<<"window_time">> := <<"disable">>} = Conf) ->
+    (maps:remove(<<"window_time">>, Conf))#{<<"enable">> => false};
+flat_flapping_detect(Conf) ->
+    Conf.
 
 mqtt_general() ->
     [
