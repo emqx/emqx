@@ -214,7 +214,7 @@ create_tables() ->
                 {attributes, record_info(fields, ?CONFIG_TAB)}
             ]),
         Tables = [?CONFIG_TAB],
-        ok = mria:wait_for_tables(Tables),
+        ok ?= mria:wait_for_tables(Tables),
         Tables
     else
         {error, stopping} -> []

@@ -29,7 +29,7 @@
 start(_StartType, _StartArgs) ->
     maybe
         {ok, Tables} ?= emqx_cluster_rpc:create_tables(),
-        ok = mria:wait_for_tables(Tables),
+        ok ?= mria:wait_for_tables(Tables),
         _ = emqx_config:create_tables(),
         ensure_allowed_namespaced_root_keys(),
         try
