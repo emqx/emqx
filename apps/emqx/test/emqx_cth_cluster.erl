@@ -65,9 +65,9 @@
     %    clustering applications.
     apps => [emqx_cth_suite:appspec()],
 
-    base_port => inet:port_Node(),
+    base_port => inet:port_number(),
 
-    % number to join to in clustering phase
+    % Node to join to in clustering phase
     % If set to `undefined` this node won't try to join the cluster
     % Default: no (first core node is used to join to by default)
     join_to => node() | undefined,
@@ -112,7 +112,7 @@ start(NodeSpecs) ->
 
 -doc """
 Periodically run each function from the second argument on the set of nodes
-until all functions retun ok or until timeout.
+until all functions return ok or until timeout.
 
 On success, this function returns an empty list,
 or list of errors otherwise.

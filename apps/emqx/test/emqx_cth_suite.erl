@@ -183,7 +183,6 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
      || App <- [gen_rpc, classy, mria]
     ],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
-    ?tp(warning, grpc_conf, #{c => application:get_all_env(gen_rpc)}),
     % 6. Pre-boot. Start system apps:
     SysApps = emqx_machine:start_sys_apps(WorkDir),
     classy:on_run_level(
@@ -282,14 +281,14 @@ start_app(App, StartOpts, SuiteOpts) ->
 unsafe_start_appspecs(AppSpecs) ->
     lists:flatmap(
         fun({App, Spec}) ->
-                case maybe_start(App, Spec) of
-                    {ok, Started} ->
-                        ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
-                        _ = maybe_after_start(App, Spec),
-                        Started;
-                    {error, Reason} ->
-                        error({failed_to_start_app, App, Reason})
-                end
+            case maybe_start(App, Spec) of
+                {ok, Started} ->
+                    ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
+                    _ = maybe_after_start(App, Spec),
+                    Started;
+                {error, Reason} ->
+                    error({failed_to_start_app, App, Reason})
+            end
         end,
         AppSpecs
     ).
