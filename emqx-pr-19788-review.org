@@ -44,7 +44,7 @@ tag) and mria 1.1.3 =rebar.config= (which pins classy 0.1.16).  Local
 test-run here; all conclusions are from reading the sources.
 
 Later the same day, one-liner fixes for the open mechanical findings
-were prepared as commits =529c0d7f1c=..=50ade92dfe= on top of the
+were prepared as commits =529c0d7f1c=..=e0922c2121= on top of the
 branch (erlfmt and apps-version checks pass; not compiled or
 test-run).  Windows is not and will never be a supported platform, so
 the =os:set_signal= finding is closed as WONTFIX.
@@ -182,12 +182,12 @@ leaves draft.
 - FIXED by rebase: =env.sh= / =deploy/docker/Dockerfile= now carry
   OTP =28.5.0.7-9= / builder =6.3-5=, identical to the current =dev-70=
   tip; the toolchain downgrade is gone.
-- FIXED (commit =f85932535c=): the three =emqx_cth_cluster= moduledoc
+- FIXED (commit =2107bb1b3c=): the three =emqx_cth_cluster= moduledoc
   typos are gone (=inet:port_number()=, "Node to join to", "return").
 - =ekka_proto_v1:introduced_in() -> "1.0.0"= — file moved to
   =apps/emqx/src/bhvrs/ekka_proto_v1.erl= (line 16-17); question stands:
   every other bpapi module uses an EMQX release version string.
-- FIXED (commit =ccc2f75199=): =emqx_dsch_migrate= moduledoc now says
+- FIXED (commit =ec3d621891=): =emqx_dsch_migrate= moduledoc now says
   the module is kept only for the upgrade path, and the "accoring"
   comment typo is fixed.  The ={unknown_comand, _}= atom is deliberately
   left alone: the live =emqx_dsch= on dev-70 has the same atom, and
@@ -218,10 +218,10 @@ guarantee).
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_cth_cluster.erl
 :LINES: 195-196, 686, 701
-:COMMITS: 61652a803c (fix prepared Nov 21)
+:COMMITS: c2c7321d3d (fix prepared Nov 21)
 :CUSTOM_ID: dead-timeout-opt
 :END:
-Fixed by prepared commit =61652a803c=: =do_perform/3= now uses
+Fixed by prepared commit =c2c7321d3d=: =do_perform/3= now uses
 =maps:get(start_apps_timeout, Opts, ?TIMEOUT_NODE_START_MS)= as the
 readiness-wait budget, so the suites passing
 =start_apps_timeout => 60_000=
@@ -307,10 +307,10 @@ at lines 262-267) is still fragile; note when it can be removed.
 :PROPERTIES:
 :FILE:  apps/emqx_management/test/emqx_mgmt_api_topics_SUITE.erl
 :LINES: 16-24
-:COMMITS: 50ade92dfe (fix prepared Nov 21)
+:COMMITS: ea85b1d13e (fix prepared Nov 21)
 :CUSTOM_ID: topics-suite
 :END:
-Fixed by prepared commit =50ade92dfe=: =init_per_suite= now assigns the
+Fixed by prepared commit =ea85b1d13e=: =init_per_suite= now assigns the
 result of =start_apps_ds/3= and conses the peer onto the augmented
 config, so =end_per_suite= runs the cleanups (app stop + work-dir
 cleanup) against the callbacks the helper installed.
@@ -334,10 +334,10 @@ the groups need to start from a classy-era release.
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_shared_sub_SUITE.erl
 :LINES: ~743
-:COMMITS: 38309f8fb8 (fix prepared Nov 21)
+:COMMITS: aa38a78c4c (fix prepared Nov 21)
 :CUSTOM_ID: shared-sub-t-remote
 :END:
-Fixed by prepared commit =38309f8fb8=: Message3 is published via
+Fixed by prepared commit =aa38a78c4c=: Message3 is published via
 =?ON(N1, ...)= again, matching the testcase docstring ("a publisher
 connects to the local node and sends three messages") and restoring
 QoS 2 backplane coverage.  (=emqx:publish2/1= still exists and is
@@ -367,11 +367,11 @@ still no principled harness-level readiness budget for the suites.
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_cth_suite.erl
 :LINES: 175, 186
-:COMMITS: f85932535c (trace removed; fix prepared Nov 21)
+:COMMITS: 2107bb1b3c (trace removed; fix prepared Nov 21)
 :CUSTOM_ID: harness-leftovers
 :END:
 The =?tp(warning, grpc_conf, ...)= debug trace is removed by prepared
-commit =f85932535c=.  The author's own =%% FIXME: why is it here?= on
+commit =2107bb1b3c=.  The author's own =%% FIXME: why is it here?= on
 the =emqx_durable_storage= =db_data_dir= env (line 175) is left for the
 author to resolve.
 
@@ -403,7 +403,7 @@ author to resolve.
 :PROPERTIES:
 :FILE:  apps/emqx_durable_storage/src/emqx_ds_leaderboard.erl
 :LINES: 218-233
-:COMMITS: 256c56c4d1 (Nov 18), 10bc8c16e9 (residual nits, Nov 21)
+:COMMITS: 256c56c4d1 (Nov 18), e2409a1cda (residual nits, Nov 21)
 :CUSTOM_ID: leaderboard-monitor-bug
 :END:
 Fixed: =handle_unreg= now does =maps:remove(MRef, Monitors0)= (the map is
@@ -417,7 +417,7 @@ longer at risk.  The same commit also fixed, in the same module:
   (=clear_table/0= folds with a node guard) instead of wiping remote
   registrations via =mria:clear_table=.
 
-Residual nits — fixed by prepared commit =10bc8c16e9=:
+Residual nits — fixed by prepared commit =e2409a1cda=:
 =demonitor(MRef)= now uses =[flush]=, and the dead
 =terminate(_Reason, undefined)= clause is removed (verified on a live
 gen_server: =terminate/2= is not called when =init= returns
@@ -431,14 +431,22 @@ gen_server: =terminate/2= is not called when =init= returns
 :PROPERTIES:
 :FILE:  apps/emqx_conf/src/emqx_conf_app.erl
 :LINES: 29-49
-:COMMITS: 711be28d16 (fix prepared Nov 21)
+:COMMITS: e0922c2121 (fix prepared Nov 21)
 :CUSTOM_ID: conf-app-maybe
 :END:
-Fixed by prepared commit =711be28d16=: =mria:wait_for_tables/1= now
-uses =?== (it also returns ={error, _}= per mria 1.1.3 sources) and the
-=maybe= has an =else= that returns the error, so ={error, stopping}=
-during shutdown fails the application callback cleanly instead of
-crashing it with a badmatch.
+Correction + fix.  The original finding overstated the problem: a
+bare =maybe= **already returns the term that failed a =?== match** (no
+exception), so ={ok, Tables} ?= emqx_cluster_rpc:create_tables()=
+returning ={error, stopping}= never crashed the callback — verified
+empirically on OTP and cross-checked against
+=emqx_cluster:can_i_join/1=, which relies on this behavior.  The real
+defect was the **plain** =ok = mria:wait_for_tables(Tables)=: plain
+matches inside =maybe= still raise =badmatch=.  Prepared commit
+=e0922c2121= changes it to =ok ?== in both =emqx_conf_app= and
+=emqx_config= (=emqx_config= had the same plain match in front of its
+={error, stopping} -> []= =else=, which could never catch it).  No
+=else= branch is needed; an identity =else= that just returns the
+unmatched term is redundant.
 
 ** TODO [#A] Node can report ready after a failed business-app startup
 :PROPERTIES:
@@ -498,10 +506,10 @@ those belongs in a separate change against the earliest affected
 :PROPERTIES:
 :FILE:  apps/emqx_machine/src/emqx_machine.erl
 :LINES: 162-174
-:COMMITS: 1dccf7fbe6 (fix prepared Nov 21)
+:COMMITS: 4ea560e375 (fix prepared Nov 21)
 :CUSTOM_ID: migrate-site-id
 :END:
-Fixed by prepared commit =1dccf7fbe6=: ={error, Reason}= now logs
+Fixed by prepared commit =4ea560e375=: ={error, Reason}= now logs
 critical and raises ={failed_to_read_old_ds_schema, Reason}= instead of
 minting a fresh site ID.  ={ok, _}= without an old site still mints one,
 preserving first-boot behavior.  Note the raise happens inside a classy
@@ -598,14 +606,15 @@ harness defects are fixed.  What follows is the current state.
 - Section [[#review-file-committed]] — *new*: the review notes file is
   committed to the branch at the repo root; must be removed.
 
-*One-liner fixes prepared Nov 21* (commits =529c0d7f1c=..=50ade92dfe=,
+*One-liner fixes prepared Nov 21* (commits =529c0d7f1c=..=e0922c2121=,
 local, not pushed): default cluster name (=529c0d7f1c=),
-=emqx_conf_app= error propagation (=711be28d16=), site-migration read
-failure (=1dccf7fbe6=), leaderboard monitor flush + dead clause
-(=10bc8c16e9=), =dsch_migrate= upgrade-only note (=ccc2f75199=),
-=start_apps_timeout= honored (=61652a803c=), harness typos + debug
-trace (=f85932535c=), shared-sub QoS 2 backplane (=38309f8fb8=),
-topics-suite config threading (=50ade92dfe=).  erlfmt and
+=wait_for_tables= =?== inside =maybe= blocks in =emqx_conf_app= and
+=emqx_config= (=e0922c2121=), site-migration read
+failure (=4ea560e375=), leaderboard monitor flush + dead clause
+(=e2409a1cda=), =dsch_migrate= upgrade-only note (=ec3d621891=),
+=start_apps_timeout= honored (=c2c7321d3d=), harness typos + debug
+trace (=2107bb1b3c=), shared-sub QoS 2 backplane (=aa38a78c4c=),
+topics-suite config threading (=ea85b1d13e=).  erlfmt and
 apps-version checks pass on each commit; the branch was not compiled
 or test-run on this checkout (stale =deps/=), so CI must confirm.
 Windows is not a supported platform; the =os:set_signal= finding is
