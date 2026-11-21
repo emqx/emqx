@@ -192,7 +192,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     ),
     % 5. Boot:
     ok = classy:start_system(),
-    _ = wait_business_apps(WaitStarted),
+    wait_business_apps(WaitStarted),
     SysApps.
 
 on_run_level(RestSpecs) ->
@@ -225,19 +225,27 @@ on_run_level(RestSpecs) ->
                         stop_apps(Started)
                     )
                 end,
+                %% Wake the testcase process waiting for apps:
+                optvar:set(?rest_started, {error, stopping}),
                 optvar:unset(?rest_started);
             _ ->
                 ok
         end
     end.
 
--spec wait_business_apps(timeout()) -> [appname()].
+-spec wait_business_apps(timeout()) -> ok.
 wait_business_apps(Timeout) ->
     case optvar:read(?rest_started, Timeout) of
-        {ok, Apps} ->
-            Apps;
+        {ok, Apps} when is_list(Apps) ->
+            ok;
+        {ok, {error, stopping}} ->
+            exit(cth_suite_boot_aborted);
+        timeout when Timeout =:= 0 ->
+            %% Handle cases when apps are started async-ly, e.g. in
+            %% cluster suites:
+            ok;
         timeout ->
-            []
+            exit(cth_suite_boot_timeout)
     end.
 
 load_apps(Apps) ->
