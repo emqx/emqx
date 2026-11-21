@@ -40,7 +40,7 @@ Not to be confused with the cluster ID which is set automatically by classy.
 """.
 -spec name() -> atom().
 name() ->
-    application:get_env(emqx, emqx_cluster_name, undefined).
+    application:get_env(emqx, emqx_cluster_name, emqxcl).
 
 -spec join(node(), join) -> ok | ignore | {error, _}.
 join(Node, _) when Node =:= node() ->
