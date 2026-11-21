@@ -698,7 +698,8 @@ do_perform(Act, NodeSpecs, Opts) ->
             restart ->
                 CommonChecks
         end,
-    wait_for_conditions(Nodes, Checks, ?TIMEOUT_NODE_START_MS).
+    Timeout = maps:get(start_apps_timeout, Opts, ?TIMEOUT_NODE_START_MS),
+    wait_for_conditions(Nodes, Checks, Timeout).
 
 %%
 
