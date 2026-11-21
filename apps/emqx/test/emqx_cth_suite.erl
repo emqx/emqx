@@ -172,7 +172,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     ok = verify_clean_suite_state(SuiteOpts),
     %% FIXME: why is it here?
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
-    % 5. Separate applications into "system" and "managed" groups.
+    % 4. Separate applications into "system" and "managed" groups.
     % "Managed" applications are not started immediately, but instead
     % passed to classy hook that manages them depending on the run
     % level:
@@ -180,8 +180,8 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
         {App, proplists:get_value(App, AppSpecs, #{})}
      || App <- [gen_rpc, classy, mria]
     ],
-    % 4. Configure system app. NOTE: we cannot configure all apps
-    % here, as some pre-config hooks rely on mria
+    % 5. Configure system apps. NOTE: we cannot configure all apps
+    % here, as some pre-config hooks rely on mria.
     [configure_app(App, AppSpec) || {App, AppSpec} <- SystemSpecs],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
     % 6. Pre-boot. Start system apps:
@@ -190,7 +190,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
         on_run_level(ManagedSpecs),
         #{prio => 0, timeout => infinity}
     ),
-    % 5. Boot:
+    % 7. Boot business apps:
     ok = classy:start_system(),
     wait_business_apps(WaitStarted),
     SysApps.
