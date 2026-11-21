@@ -170,8 +170,6 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 3. Verify that we're running with a clean state.
     ok = filelib:ensure_path(WorkDir),
     ok = verify_clean_suite_state(SuiteOpts),
-    % 4. Configure all apps:
-    [configure_app(App, AppSpec) || {App, AppSpec} <- AppSpecs],
     %% FIXME: why is it here?
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
     % 5. Separate applications into "system" and "managed" groups.
@@ -182,6 +180,9 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
         {App, proplists:get_value(App, AppSpecs, #{})}
      || App <- [gen_rpc, classy, mria]
     ],
+    % 4. Configure system app. NOTE: we cannot configure all apps
+    % here, as some pre-config hooks rely on mria
+    [configure_app(App, AppSpec) || {App, AppSpec} <- SystemSpecs],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
     % 6. Pre-boot. Start system apps:
     SysApps = emqx_machine:start_sys_apps(WorkDir),
@@ -189,7 +190,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
         on_run_level(ManagedSpecs),
         #{prio => 0, timeout => infinity}
     ),
-    % 7. Boot:
+    % 5. Boot:
     ok = classy:start_system(),
     _ = wait_business_apps(WaitStarted),
     SysApps.
@@ -281,6 +282,7 @@ start_app(App, StartOpts, SuiteOpts) ->
 unsafe_start_appspecs(AppSpecs) ->
     lists:flatmap(
         fun({App, Spec}) ->
+            configure_app(App, Spec),
             case maybe_start(App, Spec) of
                 {ok, Started} ->
                     ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
