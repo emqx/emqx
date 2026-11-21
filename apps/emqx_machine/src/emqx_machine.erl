@@ -94,6 +94,7 @@ start_sys_apps(DataDir) ->
     {ok, Started1} = application:ensure_all_started(classy),
     %% Start mria in dormant mode:
     {ok, Started2} = application:ensure_all_started(mria),
+    emqx_dist_tls_check:maybe_warn_dist_tls_verify(),
     %% Register classy hooks:
     %%   Cluster ID / site ID migration:
     _ = classy:on_node_init(fun ?MODULE:maybe_migrate_cluster/0, 100),

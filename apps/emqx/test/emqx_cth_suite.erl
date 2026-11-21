@@ -170,8 +170,9 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     % 3. Verify that we're running with a clean state.
     ok = filelib:ensure_path(WorkDir),
     ok = verify_clean_suite_state(SuiteOpts),
-    % 4. Setup directories for persistent data:
-    ok = emqx_common_test_helpers:load(mnesia),
+    % 4. Configure all apps:
+    [configure_app(App, AppSpec) || {App, AppSpec} <- AppSpecs],
+    %% FIXME: why is it here?
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
     % 5. Separate applications into "system" and "managed" groups.
     % "Managed" applications are not started immediately, but instead
@@ -182,6 +183,7 @@ start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
      || App <- [gen_rpc, classy, mria]
     ],
     ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
+    ?tp(warning, grpc_conf, #{c => application:get_all_env(gen_rpc)}),
     % 6. Pre-boot. Start system apps:
     SysApps = emqx_machine:start_sys_apps(WorkDir),
     classy:on_run_level(
@@ -279,7 +281,16 @@ start_app(App, StartOpts, SuiteOpts) ->
 
 unsafe_start_appspecs(AppSpecs) ->
     lists:flatmap(
-        fun({App, Spec}) -> maybe_start_appspec(App, Spec) end,
+        fun({App, Spec}) ->
+                case maybe_start(App, Spec) of
+                    {ok, Started} ->
+                        ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
+                        _ = maybe_after_start(App, Spec),
+                        Started;
+                    {error, Reason} ->
+                        error({failed_to_start_app, App, Reason})
+                end
+        end,
         AppSpecs
     ).
 
@@ -296,23 +307,16 @@ init_spec(Config) when is_list(Config); is_binary(Config) ->
     #{config => [Config, "\n"]}.
 
 -doc """
-Prepare the application to start (configure and run pre-hooks),
-then, depending on application type and spec flags,
-decide whether to start the application.
+Prepare the application to start (configure and run pre-hooks).
+Load the application and set its environment.
 """.
-maybe_start_appspec(App, StartOpts) ->
+configure_app(App, StartOpts) ->
     _ = log_appspec(App, StartOpts),
+    _ = emqx_common_test_helpers:load(App),
     _ = maybe_before_start(App, StartOpts),
     _ = maybe_configure_app(App, StartOpts),
     _ = maybe_override_env(App, StartOpts),
-    case maybe_start(App, StartOpts) of
-        {ok, Started} ->
-            ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
-            _ = maybe_after_start(App, StartOpts),
-            Started;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
+    ok.
 
 log_appspec(App, StartOpts) when map_size(StartOpts) > 0 ->
     Fmt = lists:flatmap(
@@ -341,14 +345,14 @@ maybe_configure_app(_App, AppConfig = #{schema_mod := SchemaModule}) when is_ato
 maybe_configure_app(App, #{config := Config}) ->
     case app_schema(App) of
         {ok, SchemaModule} ->
-            configure_app(SchemaModule, Config);
+            do_configure_app(SchemaModule, Config);
         {error, Reason} ->
             error({failed_to_configure_app, App, Reason})
     end;
 maybe_configure_app(_App, #{}) ->
     ok.
 
-configure_app(SchemaModule, Config) ->
+do_configure_app(SchemaModule, Config) ->
     _ = emqx_config:create_tables(),
     Rendered = render_config(Config),
     ok = emqx_config:init_load(SchemaModule, Rendered),
