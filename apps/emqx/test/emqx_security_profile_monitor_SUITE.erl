@@ -185,7 +185,7 @@ t_leave_clears(Config) ->
     Specs = node_specs(?FUNCTION_NAME, Config, [{core, hardened}, {core, legacy}]),
     [N1, N2] = start_cluster(Specs),
     _ = wait_alarm(N1),
-    ok = ?ON(N2, ekka:leave()),
+    ok = ?ON(N2, emqx_cluster:leave(leave)),
     wait_no_alarm(N1),
     ?assertMatch([_], deactivated_alarms(N1)).
 

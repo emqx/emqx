@@ -381,7 +381,7 @@ ensure_table(Tab) ->
     end.
 
 sorted_core_nodes() ->
-    lists:sort(mria_membership:running_core_nodelist()).
+    emqx_cluster:running_core_nodelist().
 
 now_ms() ->
     erlang:system_time(millisecond).

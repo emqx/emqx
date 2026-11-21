@@ -1,0 +1,538 @@
+#+TITLE: Code Review: emqx/emqx#19788 — Integrate with classy. Attempt 2
+#+SUBTITLE: Replacement of ekka by classy as EMQX cluster manager
+#+AUTHOR: GLM-5.3 (OpenCode agent)
+#+DATE: <2026-11-18 Wed>
+#+FILETAGS: :emqx:code-review:cluster:classy:
+#+STARTUP: overview align
+#+TODO: TODO(t) VERIFY(v) QUESTION(q) | FIXED(f) WONTFIX(w)
+#+OPTIONS: toc:3 num:nil ^:nil
+
+* Context
+:PROPERTIES:
+:PR:       [[https://github.com/emqx/emqx/pull/19788][emqx/emqx#19788 "Integrate with classy. Attempt 2"]]
+:HEAD:     =c82dad3dd35f301cbdf9eabc6c68064c9a0a13f2= (ieQu1:dev/classy-3)
+:BASE:     =28069ba03469c2e18f85d082534a7bb019ba31ca= (emqx:dev-70)
+:MERGEBASE: =7c36d098d359a7045f59e005f001d1c442605e46=
+:DIFF:     91 files, +3217 / -1105, 77 commits
+:DEPS:     mria 1.1.3 -> classy 0.1.16
+:END:
+
+Replaces =ekka= with =classy= as the cluster manager:
+- ekka modules vendored in-tree (~ekka_locker~, ~ekka_ring~, ~ekka_guid~,
+  ~ekka_node~, ~ekka_dist~, ~ekka_epmd~, new bpapi =ekka_proto_v1=).
+- Boot / cluster membership driven by classy *run levels*
+  (=classy_rl.hrl=: stopped 0, single 10, cluster 100, quorum 200, ready 300;
+  EMQX levels from generated =emqx_machine_rl.hrl=: =emqx_rl_boot= 20,
+  =emqx_rl_ready= 300).
+- CT harness (~emqx_cth_cluster~, ~emqx_cth_suite~) rewritten around
+  =classy:start_system/stop_system=.
+- DS: new =emqx_ds_leaderboard= (leader discovery) and =emqx_dsch_migrate=
+  (pre-6.3.0 schema upgrade path).
+
+Verification method: three-dot diff against the merge base; every claim below
+was checked against the checked-out PR head and against the actual
+classy 0.1.16 / mria 1.1.3 sources (hook semantics, run-level values,
+=emqx_utils_maps:find_key/2=, CT ~tc_status~ behavior in common_test 1.31).
+
+------------------------------------------------------------------------
+
+* TODO 1. Trivial issues (renamed API functions)
+:PROPERTIES:
+:CUSTOM_ID: sec-trivial
+:END:
+
+** Renamed / removed APIs
+:PROPERTIES:
+:CUSTOM_ID: renames
+:END:
+
+All renames are applied consistently in non-test code.
+
+| Old                                                                      | New                                                                             |
+|--------------------------------------------------------------------------+---------------------------------------------------------------------------------|
+| =emqx_cluster:join/1= / =leave/0= / =force_leave/1=                      | =join/2= / =leave/1= / =force_leave/2= (+ intent atom)                          |
+| =emqx_cluster:set_booting/1=, =is_boot_complete/0=                       | removed (superseded by run levels)                                              |
+| =mria_config:whoami/0=                                                   | =mria_cluster:role/0=                                                           |
+| =mria_membership:running_core_nodelist/0=                                | =emqx_cluster:running_core_nodelist/0=                                          |
+| =ekka:monitor/unmonitor(membership)=                                     | =mria_membership:monitor(membership, self(), true/false)=                       |
+| =ekka:cluster_name/0=                                                    | =emqx_cluster:name/0= (mapping =ekka.cluster_name= -> =emqx.emqx_cluster_name=) |
+| =emqx_cluster_rpc:wait_for_cluster_rpc/0=                                | =wait_for_cluster_rpc_tables/0=                                                 |
+| =emqx_machine:{check_dist_tls_verify,merge_dist_tls_opts,dist_tls_opts}= | moved to new module =emqx_dist_tls_check=                                       |
+| =emqx_machine_boot:start_autocluster/0=                                  | removed (run-level hooks)                                                       |
+| =emqx:publish2/1= (tests)                                                | =emqx:publish/1=                                                                |
+| =emqx_cluster_rpc:on_mria_stop/1=                                        | =on_kick_decided/3= (classy hook)                                               |
+
+Membership event shape verified compatible: consumers already match
+={membership, {node, up|down|leaving, Node}}= and =mria_membership:notify=
+delivers exactly that.
+
+** TODO [#B] Leftover call sites of removed APIs (broken at runtime)
+:PROPERTIES:
+:CUSTOM_ID: leftover-call-sites
+:END:
+Each of these fails with =undef= / badarith of arity when the test runs.
+
+*** FIXED [#B] dist-tls eunit suite not migrated to the new module
+:PROPERTIES:
+:FILE:  apps/emqx_machine/test/emqx_machine_dist_tls_tests.erl
+:LINES: 31, 37, 74, 94, 103, 128
+:END:
+Still calls =emqx_machine:check_dist_tls_verify/2= and
+=emqx_machine:merge_dist_tls_opts/2=, which moved to =emqx_dist_tls_check=.
+Every eunit case in the module breaks.
+*Fix:* retarget the module at =emqx_dist_tls_check=.
+
+*** TODO [#B] mgmt CLI suite calls removed =set_booting/1=
+:PROPERTIES:
+:FILE:  apps/emqx_management/test/emqx_mgmt_cli_SUITE.erl
+:LINES: 181-213
+:END:
+Two boot-guard tests call =emqx_cluster:set_booting/1= (removed).  The tests
+also assert semantics (local boot guard on the *joining* node) that no longer
+exists in this form — the guard now lives on the peer side
+(=pre_join= -> =can_i_join=).
+*Fix:* rewrite the tests around the new pre-join flow.
+
+*** TODO [#B] node readiness suite calls removed =join/1=
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_node_readiness_SUITE.erl
+:LINES: 147
+:END:
+=t_gate_cluster_join= calls =emqx_cluster:join('nosuchnode@127.0.0.1')=
+(arity 1 removed).  Premise of the test (join refused locally while not
+ready) moved to the peer node.
+*Fix:* rewrite, not just an arity fix.
+
+*** FIXED [#B] security profile suite calls =ekka:leave/0=
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_security_profile_monitor_SUITE.erl
+:LINES: 188
+:END:
+=t_leave_clears= does =?ON(N2, ekka:leave())=; the =ekka= application no
+longer exists.
+*Fix:* =emqx_cluster:leave(leave)=.
+
+*** TODO [#B] plugins suite: =ekka:env=, =ekka:callback=, removed =join/1=
+:PROPERTIES:
+:FILE:  apps/emqx_plugins/test/emqx_plugins_SUITE.erl
+:LINES: 2532-2547
+:END:
+=t_start_node_with_plugin_enabled= still calls =ekka:env/1=,
+=ekka:callback/2=, and removed =emqx_cluster:join/1=.  The author marked the
+setup line with =FIXME: how to replace it?=, but as committed the testcase is
+red.
+*Fix:* migrate to classy run-level hook registration or drop the manual
+callback wiring.
+
+*** FIXED [#C] emqx_bcast left on the deprecated API
+:PROPERTIES:
+:FILE:  plugins/emqx_bcast/src/emqx_bcast.erl
+:LINES: 238
+:END:
+Still calls =mria_membership:running_core_nodelist()= while everything else
+migrated to =emqx_cluster:running_core_nodelist()=.  Compiles (function
+still exists in mria 1.1.3) but is an inconsistent leftover.
+*Fix:* migrate for consistency.
+
+** Nits
+:PROPERTIES:
+:CUSTOM_ID: trivial-nits
+:END:
+
+- =emqx_cluster:name/0= returns =undefined= when the env is unset (bare test
+  setups without =emqx_conf=); =emqx_sys:cluster_name/0= then renders
+  ="undefined"=.  Old default was =emqxcl=.  Consider
+  =application:get_env(emqx, emqx_cluster_name, emqxcl)=.
+- =emqx_cth_cluster= moduledoc typos: =inet:port_Node()= is not a type
+  (should be =port_number()=); "number to join to" should be "Node";
+  "retun" in =wait_for_conditions= doc.
+- =env.sh= / =deploy/docker/Dockerfile= bump to OTP =28.5.0.7-8= / builder
+  =6.3-4=, but =dev-70= tip has already moved past the merge base to
+  =28.5.0.7-9= / =6.3-5= (commit =24efac3c4=).  As-is this *downgrades* the
+  toolchain on merge.  Needs a rebase.
+- =ekka_proto_v1:introduced_in() -> "1.0.0"= — every other bpapi module uses
+  an EMQX release version string; confirm the convention is intentional for
+  the vendored =ekka= app (=bpapi.apps= / =bpapi.versions= entries are
+  otherwise consistent).
+- =emqx_dsch_migrate.erl= duplicates the old WAL-replay logic from
+  =emqx_dsch= (typos "accoring" / "unknown_comand" carried over).  Fine as a
+  frozen compat shim; add a =kept-only-for-upgrade= note.
+
+------------------------------------------------------------------------
+
+* TODO 2. Test harness problems
+:PROPERTIES:
+:CUSTOM_ID: sec-harness
+:END:
+
+** FIXED [#A] =emqx_cth_cluster:perform/3= lost its crash-safety net
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_cth_cluster.erl
+:LINES: 662-680
+:CUSTOM_ID: perform-no-catch
+:END:
+Cleanup (=catch stop(Nodes)=) now runs only when =do_perform= *returns* an
+error list.  If =do_perform= raises — =start_nodes_init= exit,
+=error({failed_to_join_cluster, ...})= from =join_cluster/2=, erpc
+exceptions from =run_node_phase_cluster= — partially started peers are
+leaked, resurrecting exactly the =badarg= -on-flaky-retry problem the old
+=try/catch= comment warned about.
+
+*Fix:*
+#+BEGIN_SRC erlang
+perform(Act, NodeSpecs, Opts) ->
+    ct:pal("~ping nodes: ~p", [Act, NodeSpecs]),
+    Nodes = [Node || #{name := Node} <- NodeSpecs],
+    try
+        case do_perform(Act, NodeSpecs, Opts) of
+            [] -> Nodes;
+            Errors = [_ | _] ->
+                ct:pal("cleaning up partially started nodes after ~p", [Errors]),
+                catch stop(Nodes),
+                error({Act, Errors})
+        end
+    catch
+        K:R:S ->
+            catch stop(Nodes),
+            erlang:raise(K, R, S)
+    end.
+#+END_SRC
+
+** TODO [#A] =start_apps_timeout= cluster option is dead
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_cth_cluster.erl
+:LINES: 196
+:CUSTOM_ID: dead-timeout-opt
+:END:
+=get_start_opts/1= still extracts =start_apps_timeout= but nothing consumes
+it — readiness polling always uses the bare-node
+=?TIMEOUT_NODE_START_MS= (15 s).  Affected suites passing
+=start_apps_timeout => 60_000=:
+- =emqx_conf_cluster_sync_import_SUITE.erl:41=
+- =emqx_mgmt_data_backup_SUITE.erl:1893=
+- =emqx_mgmt_api_data_backup_test_helpers.erl:336=
+- =emqx_backup_sync_SUITE.erl:1851,1873=
+
+They silently lose their longer budget and can become flaky.
+*Fix:* honor the option in =wait_for_conditions= budgeting or remove it.
+
+** TODO [#A] =wait_business_apps/1= swallows timeouts; =start/2= can hang forever
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_cth_suite.erl
+:CUSTOM_ID: wait-business-apps
+:END:
+- On timeout it returns =[]= — callers get an empty app list and fail later
+  with unrelated errors.
+- =start/2= defaults to =infinity=.  If a managed app *crashes* during
+  start, classy's hook runner (=classy_hook:safe_apply= -> =foreach=) logs
+  =?classy_hook_failure= and *continues*; =?rest_started= is never set and
+  the suite hangs until the timetrap with no root cause in the failure.
+
+*Fix:* also wait on classy's =?classy_hook_failure= event, or make hook
+failure propagate to the caller.
+
+** TODO [#A] =stop/1= unsets =?rest_started= before =classy:stop_system()=
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_cth_suite.erl
+:LINES: 564
+:CUSTOM_ID: stop-order
+:END:
+The leave-cluster hook reads that optvar to stop managed apps, so it now
+always skips; the outer =stop_apps(Apps)= compensates — but only for what
+=start= returned.  Combined with the previous item: if =wait_business_apps=
+timed out and returned =[]=, started business apps are never
+stopped/unloaded and leak into the next testrun.
+
+*Fix:* reverse the order — =classy:stop_system()= first (hook-driven stop),
+then =optvar:unset=, then stop leftovers — and fail loudly on timeout.
+
+** TODO [#C] Harness boot staging diverges from production
+:CUSTOM_ID: staging-divergence
+:END:
+Harness starts business apps on ={enter, ?classy_rl_cluster}= (100)
+(=emqx_cth_suite:on_run_level/1=) but production =emqx_machine= starts them
+at =?emqx_rl_boot= (20) (=emqx_machine.erl:147-153=).  Tests do not exercise
+the production join/leave restart sequencing that the =?emqx_rl_boot= level
+implements.  At minimum document; ideally share the callback.
+
+** TODO [#C] =default_appspec= returns the whole node-spec map as appspec
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_cth_cluster.erl
+:LINES: 259-272
+:END:
+=default_appspec(classy, ...)= / =default_appspec(mria, ...)= return the
+entire nodespec map with =before_start= / =start= merged in — works only
+because extra appspec keys are ignored.  The classy =before_start= hack
+setting =mria node_role= (marked =TODO: hack=) is fragile; note when it can
+be removed.
+
+** TODO [#B] topics suite discards augmented config from =start_apps_ds=
+:PROPERTIES:
+:FILE:  apps/emqx_management/test/emqx_mgmt_api_topics_SUITE.erl
+:LINES: 19-23
+:END:
+Result of =start_apps_ds/3= is discarded (variable also renamed to =Config=,
+hiding it).  =end_per_suite= then calls =run_cleanups(Config)= on the
+*original* config with no app list / cleanup callbacks -> apps never stopped
+through the harness.
+*Fix:* =Config = start_apps_ds(Config0, ...)= and thread it through.
+
+** TODO [#B] bwc upgrade suite joins old-release peers via classy
+:PROPERTIES:
+:FILE:  apps/emqx_ds_builtin_raft/test/emqx_ds_raft_upgrade_suite.erl
+:LINES: 274-279
+:END:
+Peers run EMQX 6.0.0 / 6.1.0 (groups =r6_0_0= / =r6_1_0=, still in =all/0=)
+which have ekka, not classy; =classy:join_node/2= is =undef= there.  Initial
+cluster formation needs to stay on the old API, or the group needs to start
+from a classy-era release.
+
+** TODO [#B] shared-sub =t_remote= lost QoS 2 backplane coverage
+:PROPERTIES:
+:FILE:  apps/emqx/test/emqx_shared_sub_SUITE.erl
+:LINES: ~743
+:END:
+Subscriber is =ConnPid2= on N2; Message3 is now published via
+=?ON(N2, ...)= — local delivery only — while the doc comment still says the
+publisher on N1 sends all three messages.  QoS 0/1 still exercise the
+backplane; QoS 2 no longer does.  Probably should remain
+=?ON(N1, emqx:publish(Message3))=.
+
+** TODO [#C] Coverage removed, not migrated
+:END:
+- =emqx_machine_replicant_health_probe=: 9-case eunit table deleted, not
+  replaced; new =valid_upstream_cores/0= (3-way ordset intersection) is
+  untested.
+- Removed =start_autocluster= logic and the old =on_mria_stop= path in
+  =emqx_cluster_rpc= have no replacement coverage.
+
+** TODO [#C] Symptomatic timetrap bumps
+:END:
+Scattered =suite() -> [{timetrap, ...}]= increases (300 s in
+=emqx_ds_shared_sub_SUITE=, =emqx_persistent_messages_SUITE=,
+=emqx_a2a_registry_SUITE=, =emqx_extsub_SUITE=, ...) plus
+=ct:sleep(1000)= in =emqx_ds_builtin_raft_metrics_SUITE= patch the slower
+classy-based boot per-suite.  Prefer one principled harness-level readiness
+budget.
+
+** Good additions worth keeping                            :positive:
+:PROPERTIES:
+:CUSTOM_ID: harness-good
+:END:
+- =wait_for_conditions= / =verify_peers= / =verify_run_level= /
+  =verify_business_apps= — clean, reusable readiness predicates.
+- Per-node =erlang.log= capture via =do_setup_logging= + the corresponding
+  allowance in =verify_clean_suite_state= (verified consistent).
+- Join retry on ={error, retry_later}= and "not fully booted" messages.
+- =maybe_clean_work_dir= clean-on-pass / keep-on-fail logic verified correct
+  against common_test 1.31 (=tc_status = ok= is set on success).
+
+------------------------------------------------------------------------
+
+* 3. Logical issues
+:PROPERTIES:
+:CUSTOM_ID: sec-logic
+:END:
+
+** TODO [#A] =emqx_ds_leaderboard= removes monitor entry with the wrong key
+:PROPERTIES:
+:FILE:  apps/emqx_durable_storage/src/emqx_ds_leaderboard.erl
+:LINES: 225
+:CUSTOM_ID: leaderboard-monitor-bug
+:END:
+#+BEGIN_SRC erlang
+  M =
+      case emqx_utils_maps:find_key(TableKey, M0) of
+          {ok, MRef} ->
+              demonitor(MRef),
+              maps:remove(TableKey, M0);   %% BUG
+          undefined ->
+              M0
+      end,
+#+END_SRC
+Facts:
+- =monitors= is =#{reference() => table_key()}=.
+- =emqx_utils_maps:find_key/2= returns the *key* (=MRef=), so
+  =maps:remove(TableKey, M0)= is a no-op (tuple vs reference key).
+
+Consequences:
+1. Monitors map leaks one entry per graceful unregister — unbounded growth
+   over shard/leader churn.
+2. =demonitor/1= (no flush) can leave a stale ='DOWN'= already in the
+   mailbox; because the =MRef= entry is never removed, that stale ='DOWN'=
+   matches, and =mria:dirty_delete(?tab, TableKey)= deletes a *freshly
+   re-registered* row (same =TableKey=) — silently dropping a live
+   leader/replica from =whereis_leader/2=, which now feeds
+   =emqx_ds_builtin_raft:leader_node/2=.
+
+*Fix:*
+#+BEGIN_SRC erlang
+  {ok, MRef} ->
+      demonitor(MRef, [flush]),
+      maps:remove(MRef, M0);
+#+END_SRC
+Also: the =terminate(_Reason, undefined)= clause is dead code (state is
+never =undefined= in this module).
+
+** TODO [#A] =emqx_conf_app:start/2= defeats the ={error, stopping}= tolerance
+:PROPERTIES:
+:FILE:  apps/emqx_conf/src/emqx_conf_app.erl
+:LINES: 28-48
+:CUSTOM_ID: conf-app-maybe
+:END:
+#+BEGIN_SRC erlang
+  start(_StartType, _StartArgs) ->
+      maybe
+          {ok, Tables} ?= emqx_cluster_rpc:create_tables(),
+          ok = mria:wait_for_tables(Tables),
+          ...
+#+END_SRC
+=emqx_cluster_rpc:create_tables/0= was specifically changed (commit =546ab25=)
+to return ={error, stopping}= during shutdown, and =emqx_config:create_tables/0=
+handles that case with an =else= — but this =maybe= has **no =else=**, so
+={error, stopping}= becomes a =badmatch= crash of the app callback instead
+of a graceful stop.
+*Fix:* add =else {error, stopping} -> {error, stopping}= (returning whatever
+the application controller expects).
+
+** TODO [#A] Node can report ready after a failed business-app startup
+:PROPERTIES:
+:FILE:  apps/emqx_machine/src/emqx_machine.erl
+:CUSTOM_ID: ready-after-failure
+:END:
+Chain of facts:
+1. classy's hook runner swallows exceptions: =classy_hook:safe_apply= logs
+   =?classy_hook_failure= (critical) and returns =error=;
+   =classy_boot= uses =foreach= and *continues* the run-level climb.
+2. If =manage_business_apps(enter, ?emqx_rl_boot)= -> =post_boot()= ->
+   =ensure_apps_started()= fails midway, the level still reaches 300.
+3. =on_run_level(enter, ?emqx_rl_ready)= then sets =?cluster_ready=, so
+   =is_cluster_ready/0=, =is_ready/0= (=classy_boot:run_level(ready) >= 300=)
+   and =can_i_join= all answer "ready" with business apps half-started.
+
+The old boot path failed loudly, and =is_ready= was tied to
+=emqx_machine_terminator=.  (=register_business_hooks= already uses
+=timeout => infinity=, so the 30 s-interruption variant is handled — the
+*exception* variant is not.)
+
+*Fix:* on ={enter, ?emqx_rl_boot}= failure, either block the run level or
+take the node down; do not let =?cluster_ready= be set afterwards.
+
+** TODO [#B] Distribution-TLS startup warning silently dropped
+:PROPERTIES:
+:FILE:  apps/emqx_machine/src/emqx_dist_tls_check.erl
+:LINES: 50
+:CUSTOM_ID: orphaned-tls-warning
+:END:
+=maybe_warn_dist_tls_verify/0= was moved to =emqx_dist_tls_check= but
+nothing calls it anymore (verified: only its own export list references
+it).  The peer-verification diagnostic for =inet_tls= distribution
+disappeared from startup.
+*Fix:* call it from =register_system_hooks/0= or equivalent.
+
+** TODO [#B] =setup_vm/0= lost the Windows guard for =os:set_signal=
+:PROPERTIES:
+:FILE:  apps/emqx_machine/src/emqx_machine.erl
+:LINES: 81-85
+:CUSTOM_ID: windows-regression
+:END:
+Old code skipped signal setup for ={win32, nt}=; the new version calls
+=os:set_signal(sighup, ignore)= and =os:set_signal(sigterm, handle)=
+unconditionally.  On Windows these raise =badarg= and would crash boot of
+Windows builds.
+
+** TODO [#B] =maybe_migrate_cluster= conflates "no old schema" with read failure
+:PROPERTIES:
+:FILE:  apps/emqx_machine/src/emqx_machine.erl
+:LINES: 161-171
+:CUSTOM_ID: migrate-site-id
+:END:
+#+BEGIN_SRC erlang
+  case emqx_dsch_migrate:read_old() of
+      {ok, #{schema := #{site := Site}}} -> Site;
+      _ -> undefined                       %% also matches {error, _}
+  end,
+#+END_SRC
+A transient or corrupt schema read (={error, _}=) falls into =undefined=, so
+=classy_node:maybe_init_the_site/2= mints a *brand-new* site ID — silently
+resetting the node's durable-storage identity on upgrade (shard ownership,
+site metadata).
+*Fix:* distinguish ={ok, ?empty_schema}= from ={error, _}=; on the latter,
+fail (or halt migration) rather than re-identify.
+
+** TODO [#B] =emqx_cluster_rpc= shutdown / restart details
+:PROPERTIES:
+:FILE:  apps/emqx_conf/src/emqx_cluster_rpc.erl
+:CUSTOM_ID: cluster-rpc-restart
+:END:
+- =handle_continue= returns ={stop, normal, undefined}=:
+  + The =undefined= "state" is a hack =terminate/2= must tolerate.
+  + As a =permanent= child of =emqx_conf_sup=, a =normal= stop just gets
+    restarted: if the cluster is never ready you get a quiet ~10 s-interval
+    restart loop (=wait_cluster_ready(10_000)=) instead of a visible
+    failure.  Consider ={stop, {shutdown, Reason}}= + transient child, or an
+    explicit crash.
+- =on_kick_decided/3=:
+  + ={error, _} -> ok= silently skips commit-record cleanup when the site
+    cannot be resolved.
+  + The remote branch runs =force_leave_clean/1= from *every* node
+    concurrently (previously it ran once, from the operator's node);
+    idempotent, but worth a comment.
+  + Leave-cleanup is now wired *only* to classy kicks — a plain mria-level
+    leave no longer cleans commit records.
+
+** WONTFIX [#C] New hard runtime coupling: =emqx_dsch= requires classy for site ID
+:PROPERTIES:
+:FILE:  apps/emqx_durable_storage/src/emqx_dsch.erl
+:CUSTOM_ID: dsch-classy-coupling
+:END:
+=this_site/0= and =ensure_site_schema/1= now do ={ok, Site} = classy:the_site()=.
+If DS is used before classy initialized its site (or in any non-classy
+context), this is an opaque badmatch deep in DS; previously the site was
+self-generated.  If the invariant "classy always present" is accepted, add a
+guard/diagnostic; otherwise keep a local fallback.
+
+Invariant "classy always present" holds.
+
+** QUESTION Schema / config semantics needing author confirmation
+:PROPERTIES:
+:CUSTOM_ID: schema-questions
+:END:
+- =cluster.autoclean= remapped from =mria.cluster_autoclean= to
+  =classy.max_site_downtime= (now accepts =infinity=): same 24 h default but
+  different semantics; no =changes/ee= entry exists yet (PR checklist
+  unchecked).
+- Hidden =cluster.quorum= default **1** — with classy, quorum 1 disables
+  quorum safety on every cluster by default.  Dev/CI-only knob, or does it
+  ship in default configs?
+- =on_node_classify= compares versions with string =<= />=: ="5.10.0" <
+  "5.9.0"= lexicographically.  Currently only =emqx_same_vsn= is consumed
+  (=valid_upstream_cores=), so harmless — pin or fix before anything uses
+  =emqx_next_vsn= / =emqx_prev_vsn= (currently unused).
+
+------------------------------------------------------------------------
+
+* Summary / verdict
+:PROPERTIES:
+:CUSTOM_ID: summary
+:END:
+
+- Architectural direction is sound: run-level-driven staged boot, vendored
+  locker, leaderboard for leader discovery; the harness rewrite improves
+  observability.
+- *Merge blockers*
+  + Section [[#leaderboard-monitor-bug]] — monitor-map corruption and the
+    stale ='DOWN'= race in =emqx_ds_leaderboard= (sharpest production bug).
+  + Section [[#conf-app-maybe]] — badmatch on ={error, stopping}= in
+    =emqx_conf_app:start/2=.
+  + Section [[#ready-after-failure]] — readiness reported after failed
+    business-app startup.
+  + Sections [[#perform-no-catch]]-[[#stop-order]] — harness crash-safety,
+    dead =start_apps_timeout=, silent =wait_business_apps= timeout, =stop/1=
+    ordering.
+  + Leftover removed-API callers (Section [[#leftover-call-sites]]) keep at
+    least five suites red.
+  + Sections [[#windows-regression]] and [[#migrate-site-id]] — Windows
+    =os:set_signal= regression and silent site-ID reset on migration.
+- Also echo the author's own =FIXME=s (plugins suite, mria role hack) as
+  merge blockers for this branch even in draft form.

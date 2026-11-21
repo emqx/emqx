@@ -52,6 +52,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 
+%% Creates a false positive where length is actually needed.
+-elvis([{elvis_style, prefer_robot_butt, disable}]).
+
 %% Mnesia bootstrap
 -export([create_tables/0]).
 
@@ -241,7 +244,7 @@ init([]) ->
         {read_concurrency, true}
     ]),
     %% Monitor nodes lifecycle events.
-    ok = ekka:monitor(membership),
+    ok = mria_membership:monitor(membership, self(), true),
     TRef = schedule_task(reconcile, ?RECONCILE_TURBULENCE_DELAY),
     State = #{
         last_membership => emqx_maybe:define(cores(), []),
@@ -279,7 +282,7 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    ekka:unmonitor(membership).
+    mria_membership:monitor(membership, self(), false).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
@@ -557,7 +560,7 @@ choose_timeout(Baseline) ->
 
 -spec am_core() -> boolean().
 am_core() ->
-    mria_config:whoami() =/= replicant.
+    mria_cluster:role() =/= replicant.
 
 -spec cores() -> [node()] | undefined.
 cores() ->

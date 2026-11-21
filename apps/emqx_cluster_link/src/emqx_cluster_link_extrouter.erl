@@ -239,7 +239,7 @@ actor_apply_operation(
 ) ->
     ActorID = ?ACTOR_ID(Cluster, Actor),
     Entry = emqx_topic_index:make_key(TopicFilter, ?ROUTE_ID(Cluster, ID)),
-    case mria_config:whoami() of
+    case mria_cluster:role() of
         Role when Role /= replicant ->
             apply_actor_operation(ActorID, Incarnation, Entry, OpName, Lane);
         replicant ->

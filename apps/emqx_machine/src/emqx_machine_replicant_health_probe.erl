@@ -45,14 +45,9 @@ start_link() ->
 %%------------------------------------------------------------------------------
 
 init(_Opts) ->
-    case mria_rlog:role() of
-        core ->
-            ignore;
-        replicant ->
-            State = #{},
-            _ = start_core_node_count_timeout(?INITIAL_COUNT_CORE_INTERVAL),
-            {ok, State}
-    end.
+    State = #{},
+    _ = start_core_node_count_timeout(?INITIAL_COUNT_CORE_INTERVAL),
+    {ok, State}.
 
 handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
@@ -71,14 +66,9 @@ handle_info(_Info, State) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-%% Counts how many known core nodes are running under the same version as the current
-%% node.  If none, prints a warning hinting the user how to proceed with rolling upgrade.
 handle_check_core_node_count() ->
-    CoreInfos = get_core_custom_infos(),
-    case do_check_core_node_count(CoreInfos) of
-        ok ->
-            ok;
-        {error, #{known_cores := KnownCores}} ->
+    case valid_upstream_cores() of
+        [] ->
             Hint = iolist_to_binary([
                 <<"There are no core EMQX nodes running the same version as this node.">>,
                 <<" If you are performing a rolling upgrade, please keep different core node">>,
@@ -87,52 +77,15 @@ handle_check_core_node_count() ->
             ?SLOG(warning, #{
                 msg => "no_available_core_node_at_same_version",
                 hint => Hint,
-                known_cores => KnownCores
+                known_cores => classy:nodes(core)
             }),
+            ok;
+        [_ | _] ->
+            %% Note: there's no need to explicitly check if the local
+            %% node is a replicant. On cores `node()' always appears
+            %% in the list.
             ok
     end.
-
-do_check_core_node_count(CoreInfos) ->
-    CoresAtSameVersion =
-        lists:filtermap(
-            fun({N, MaybeInfo}) ->
-                maybe
-                    {ok, OtherVsn} ?= MaybeInfo,
-                    true ?= emqx_machine:mria_lb_custom_info_check(OtherVsn),
-                    {true, N}
-                else
-                    _ -> false
-                end
-            end,
-            CoreInfos
-        ),
-    case CoresAtSameVersion of
-        [_ | _] ->
-            ok;
-        [] ->
-            CoreInfos1 =
-                lists:foldl(
-                    fun({N, MaybeInfo}, Acc) ->
-                        case MaybeInfo of
-                            {ok, Vsn} ->
-                                Acc#{N => #{version => Vsn}};
-                            Error ->
-                                Acc#{N => #{probe_failure => Error}}
-                        end
-                    end,
-                    #{},
-                    CoreInfos
-                ),
-            {error, #{known_cores => CoreInfos1}}
-    end.
-
-get_core_custom_infos() ->
-    Timeout = 15_000,
-    KnownCores = mria_rlog:core_nodes(),
-    lists:zip(
-        KnownCores,
-        erpc:multicall(KnownCores, emqx_machine, mria_lb_custom_info, [], Timeout)
-    ).
 
 start_core_node_count_timeout() ->
     start_core_node_count_timeout(?COUNT_CORE_INTERVAL).
@@ -141,60 +94,17 @@ start_core_node_count_timeout(Timeout) ->
     _ = erlang:send_after(Timeout, self(), #check_core_node_count{}),
     ok.
 
+%% Return the list of nodes that are 1. core 2. connected 3. run the
+%% same EMQX version
+valid_upstream_cores() ->
+    ordsets:intersection(
+        [
+            classy:nodes(emqx_same_vsn),
+            classy:nodes(core),
+            classy:nodes(connected)
+        ]
+    ).
+
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-check_core_node_count_test_() ->
-    _ = application:load(emqx),
-    CurrentVsn = emqx_machine:mria_lb_custom_info(),
-    %% assert
-    true = is_list(CurrentVsn),
-    [
-        {"no known cores",
-            ?_assertEqual({error, #{known_cores => #{}}}, do_check_core_node_count([]))},
-        {"1 core at same version",
-            ?_assertEqual(ok, do_check_core_node_count([{c1, {ok, CurrentVsn}}]))},
-        {"1 core at same version, another at different version (1)",
-            ?_assertEqual(
-                ok,
-                do_check_core_node_count([{c1, {ok, CurrentVsn}}, {c2, {ok, "other version"}}])
-            )},
-        {"1 core at same version, another at different version (2)",
-            ?_assertEqual(
-                ok,
-                do_check_core_node_count([{c2, {ok, "other version"}}, {c1, {ok, CurrentVsn}}])
-            )},
-        {"only cores at different versions (1)",
-            ?_assertEqual(
-                {error, #{known_cores => #{c1 => #{version => "v1"}}}},
-                do_check_core_node_count([{c1, {ok, "v1"}}])
-            )},
-        {"only cores at different versions (2)",
-            ?_assertEqual(
-                {error, #{known_cores => #{c1 => #{version => "v1"}, c2 => #{version => "v2"}}}},
-                do_check_core_node_count([{c2, {ok, "v2"}}, {c1, {ok, "v1"}}])
-            )},
-        {"undefined vsn",
-            ?_assertEqual(
-                {error, #{known_cores => #{c1 => #{version => undefined}}}},
-                do_check_core_node_count([{c1, {ok, undefined}}])
-            )},
-        {"erpc error (1)",
-            ?_assertEqual(
-                {error, #{known_cores => #{c1 => #{probe_failure => {error, {erpc, timeout}}}}}},
-                do_check_core_node_count([{c1, {error, {erpc, timeout}}}])
-            )},
-        {"erpc error (2)",
-            ?_assertMatch(
-                {error, #{
-                    known_cores := #{c1 := #{probe_failure := {error, {exception, undef, _}}}}
-                }},
-                do_check_core_node_count([
-                    {c1, {error, {exception, undef, [{emqx_machine, mria_lb_custom_info, []}]}}}
-                ])
-            )}
-    ].
--endif.

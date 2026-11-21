@@ -14,6 +14,9 @@
 -include_lib("emqx/include/asserts.hrl").
 -include("../src/emqx_ds_shared_sub/emqx_ds_shared_sub_format.hrl").
 
+suite() ->
+    [{timetrap, {seconds, 300}}].
+
 all() ->
     [
         {group, declare_explicit},
