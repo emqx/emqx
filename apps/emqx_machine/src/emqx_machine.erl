@@ -49,7 +49,9 @@ start() ->
     _ = start_sys_apps(emqx:data_dir()),
     register_business_hooks(),
     %% Launch:
-    ok = classy:start_system().
+    ok = classy:start_system(),
+    _ = wait_cluster_ready(infinity),
+    ok.
 
 -doc """
 Return true if the machine has ran all necessary for the cluster run level.
