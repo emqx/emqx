@@ -568,7 +568,10 @@ do_join_cluster(Node, JoinTo, Retries) ->
             ok;
         ignore ->
             ok;
-        {error, retry_later} when Retries > 0 ->
+        {error, Recoverable} when
+            Recoverable =:= retry_later orelse Recoverable =:= node_is_joining_other,
+            Retries > 0
+        ->
             timer:sleep(100),
             do_join_cluster(Node, JoinTo, Retries - 1);
         {error, "Node " ++ _} when Retries > 0 ->
