@@ -197,8 +197,6 @@ handle_info({'DOWN', MRef, _, _, _}, S = #s{monitors = M0}) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, undefined) ->
-    ok;
 terminate(_Reason, #s{}) ->
     _ = clear_table(),
     ok.
@@ -224,7 +222,7 @@ handle_unreg(
     Monitors =
         case emqx_utils_maps:find_key(TableKey, Monitors0) of
             {ok, MRef} ->
-                demonitor(MRef),
+                demonitor(MRef, [flush]),
                 maps:remove(MRef, Monitors0);
             undefined ->
                 Monitors0
