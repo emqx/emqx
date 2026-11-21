@@ -46,7 +46,7 @@ start() ->
     setup_vm(),
     ok = configure_otel_deps(),
     %% Setup EMQX hooks:
-    start_sys_apps(emqx:data_dir()),
+    _ = start_sys_apps(emqx:data_dir()),
     register_business_hooks(),
     %% Launch:
     ok = classy:start_system().
