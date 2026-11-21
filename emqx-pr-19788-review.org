@@ -43,6 +43,12 @@ tag) and mria 1.1.3 =rebar.config= (which pins classy 0.1.16).  Local
 =deps/= was not rebuilt on this checkout, so nothing was compiled or
 test-run here; all conclusions are from reading the sources.
 
+Later the same day, one-liner fixes for the open mechanical findings
+were prepared as commits =529c0d7f1c=..=50ade92dfe= on top of the
+branch (erlfmt and apps-version checks pass; not compiled or
+test-run).  Windows is not and will never be a supported platform, so
+the =os:set_signal= finding is closed as WONTFIX.
+
 ------------------------------------------------------------------------
 
 * TODO 1. Trivial issues (renamed API functions)
@@ -170,23 +176,22 @@ leaves draft.
 :PROPERTIES:
 :CUSTOM_ID: trivial-nits
 :END:
-- =emqx_cluster:name/0= still returns =undefined= when the env is unset
-  (emqx_cluster.erl:41-43); =emqx_sys:cluster_name/0= then renders
-  ="undefined"=.  The new schema now maps =emqx.emqx_cluster_name= with
-  default =emqxcl=, which covers configured nodes; bare test setups
-  without =emqx_conf= still get =undefined=.  Consider
-  =application:get_env(emqx, emqx_cluster_name, emqxcl)=.
+- FIXED (commit =529c0d7f1c=): =emqx_cluster:name/0= now falls back to
+  =emqxcl= instead of =undefined=, restoring the ekka-era default; bare
+  test setups no longer render ="undefined"=.
 - FIXED by rebase: =env.sh= / =deploy/docker/Dockerfile= now carry
   OTP =28.5.0.7-9= / builder =6.3-5=, identical to the current =dev-70=
   tip; the toolchain downgrade is gone.
-- =emqx_cth_cluster= moduledoc typos unchanged: =inet:port_Node()=
-  (line 68), "number to join to" (line 70), "retun" (line 115).
+- FIXED (commit =f85932535c=): the three =emqx_cth_cluster= moduledoc
+  typos are gone (=inet:port_number()=, "Node to join to", "return").
 - =ekka_proto_v1:introduced_in() -> "1.0.0"= — file moved to
   =apps/emqx/src/bhvrs/ekka_proto_v1.erl= (line 16-17); question stands:
   every other bpapi module uses an EMQX release version string.
-- =emqx_dsch_migrate.erl= still duplicates the old WAL-replay logic
-  (typos "accoring" / "unknown_comand" carried over, lines 179/249) and
-  still has no =kept-only-for-upgrade= note.
+- FIXED (commit =ccc2f75199=): =emqx_dsch_migrate= moduledoc now says
+  the module is kept only for the upgrade path, and the "accoring"
+  comment typo is fixed.  The ={unknown_comand, _}= atom is deliberately
+  left alone: the live =emqx_dsch= on dev-70 has the same atom, and
+  changing only the frozen copy would diverge the two.
 
 ------------------------------------------------------------------------
 
@@ -209,22 +214,21 @@ explains the flaky-retry =register/2= =badarg= motivation.  Verified in
 the current tree (slightly different shape than the suggested fix, same
 guarantee).
 
-** TODO [#A] =start_apps_timeout= cluster option is dead
+** FIXED [#A] =start_apps_timeout= cluster option is dead
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_cth_cluster.erl
 :LINES: 195-196, 686, 701
+:COMMITS: 61652a803c (fix prepared Nov 21)
 :CUSTOM_ID: dead-timeout-opt
 :END:
-Unchanged.  =get_start_opts/1= still extracts =start_apps_timeout= but
-nothing consumes it: =start_nodes_init/3= and =wait_for_conditions/3=
-both use the bare =?TIMEOUT_NODE_START_MS= (15 s, line 45); the =Opts=
-map is only read for =env_vars=.  Suites still passing
-=start_apps_timeout => 60_000= (verified):
-- =emqx_conf_cluster_sync_import_SUITE.erl:41=
-- =emqx_mgmt_data_backup_SUITE.erl:1893=
-- =emqx_mgmt_api_data_backup_test_helpers.erl:336=
-They silently lose their longer budget and can become flaky.
-*Fix:* honor the option in =wait_for_conditions= budgeting or remove it.
+Fixed by prepared commit =61652a803c=: =do_perform/3= now uses
+=maps:get(start_apps_timeout, Opts, ?TIMEOUT_NODE_START_MS)= as the
+readiness-wait budget, so the suites passing
+=start_apps_timeout => 60_000=
+(=emqx_conf_cluster_sync_import_SUITE=, =emqx_mgmt_data_backup_SUITE=,
+=emqx_mgmt_api_data_backup_test_helpers=) get their longer budget back.
+Note the =restart= path still passes an empty opts map and keeps the
+15 s default; none of the affected suites use =restart=.
 
 ** TODO [#A] =wait_business_apps/1= still swallows failures; =start/2= can hang forever
 :PROPERTIES:
@@ -299,16 +303,17 @@ merged in — works only because extra appspec keys are ignored.  The
 classy =before_start= hack setting =mria node_role= (marked =TODO: hack=
 at lines 262-267) is still fragile; note when it can be removed.
 
-** TODO [#B] topics suite discards augmented config from =start_apps_ds=
+** FIXED [#B] topics suite discards augmented config from =start_apps_ds=
 :PROPERTIES:
 :FILE:  apps/emqx_management/test/emqx_mgmt_api_topics_SUITE.erl
 :LINES: 16-24
+:COMMITS: 50ade92dfe (fix prepared Nov 21)
 :CUSTOM_ID: topics-suite
 :END:
-Unchanged.  =init_per_suite= still calls =emqx_common_test_helpers:start_apps_ds/3=
-without assigning the result, so =end_per_suite= runs on the original
-config with no app list / cleanup callbacks.
-*Fix:* =Config = start_apps_ds(Config0, ...)= and thread it through.
+Fixed by prepared commit =50ade92dfe=: =init_per_suite= now assigns the
+result of =start_apps_ds/3= and conses the peer onto the augmented
+config, so =end_per_suite= runs the cleanups (app stop + work-dir
+cleanup) against the callbacks the helper installed.
 
 ** TODO [#B] bwc upgrade suite joins old-release peers via classy
 :PROPERTIES:
@@ -325,18 +330,18 @@ which is =undef= there.  The =force_leave/1= compatibility wrapper
 join path.  Initial cluster formation needs to stay on the old API, or
 the groups need to start from a classy-era release.
 
-** TODO [#B] shared-sub =t_remote= lost QoS 2 backplane coverage
+** FIXED [#B] shared-sub =t_remote= lost QoS 2 backplane coverage
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_shared_sub_SUITE.erl
 :LINES: ~743
+:COMMITS: 38309f8fb8 (fix prepared Nov 21)
 :CUSTOM_ID: shared-sub-t-remote
 :END:
-Unchanged.  Subscriber is =ConnPid2= on N2; Message3 is still published
-via =?ON(N2, ...)= — local delivery only — while the test's premise is
-the publisher on N1.  QoS 0/1 still exercise the backplane; QoS 2 no
-longer does.  (Checked =emqx:publish2/1= still exists and is exported, so
-its use at lines 959/1026 is fine.)
-*Fix:* restore =?ON(N1, emqx:publish(Message3))=.
+Fixed by prepared commit =38309f8fb8=: Message3 is published via
+=?ON(N1, ...)= again, matching the testcase docstring ("a publisher
+connects to the local node and sends three messages") and restoring
+QoS 2 backplane coverage.  (=emqx:publish2/1= still exists and is
+exported, so its use at lines 959/1026 was never broken.)
 
 ** TODO [#C] Coverage removed, not migrated
 :END:
@@ -358,18 +363,17 @@ readiness predicates (=verify_run_level=, =verify_business_apps=) and a
 60 s join-retry budget (=do_join_cluster=, 600 x 100 ms), but there is
 still no principled harness-level readiness budget for the suites.
 
-** TODO [#C] Debug leftovers in the refactored harness                       :new:
+** FIXED [#C] Debug leftovers in the refactored harness                       :new:
 :PROPERTIES:
 :FILE:  apps/emqx/test/emqx_cth_suite.erl
 :LINES: 175, 186
+:COMMITS: f85932535c (trace removed; fix prepared Nov 21)
 :CUSTOM_ID: harness-leftovers
 :END:
-- Line 186: =?tp(warning, grpc_conf, #{c => application:get_all_env(gen_rpc)})=
-  — a debug trace at /warning/ level with a cryptic event name, left from
-  debugging the refactor.
-- Line 175: author's own =%% FIXME: why is it here?= on the
-  =emqx_durable_storage= =db_data_dir= env.
-*Fix:* remove the trace, resolve or promote the FIXME.
+The =?tp(warning, grpc_conf, ...)= debug trace is removed by prepared
+commit =f85932535c=.  The author's own =%% FIXME: why is it here?= on
+the =emqx_durable_storage= =db_data_dir= env (line 175) is left for the
+author to resolve.
 
 ** Good additions worth keeping                            :positive:
 :PROPERTIES:
@@ -399,7 +403,7 @@ still no principled harness-level readiness budget for the suites.
 :PROPERTIES:
 :FILE:  apps/emqx_durable_storage/src/emqx_ds_leaderboard.erl
 :LINES: 218-233
-:COMMITS: 256c56c4d1 (Nov 18)
+:COMMITS: 256c56c4d1 (Nov 18), 10bc8c16e9 (residual nits, Nov 21)
 :CUSTOM_ID: leaderboard-monitor-bug
 :END:
 Fixed: =handle_unreg= now does =maps:remove(MRef, Monitors0)= (the map is
@@ -413,30 +417,28 @@ longer at risk.  The same commit also fixed, in the same module:
   (=clear_table/0= folds with a node guard) instead of wiping remote
   registrations via =mria:clear_table=.
 
-Residual nits (not blockers):
-- =demonitor(MRef)= is still called without =[flush]=; now benign because
-  the entry is removed, the stale ='DOWN'= is simply dropped by
-  =handle_info= — adding =[flush]= would still be tidy.
-- =terminate(_Reason, undefined)= (line 200) is still dead code: no code
-  path can produce =undefined= state anymore.
+Residual nits — fixed by prepared commit =10bc8c16e9=:
+=demonitor(MRef)= now uses =[flush]=, and the dead
+=terminate(_Reason, undefined)= clause is removed (verified on a live
+gen_server: =terminate/2= is not called when =init= returns
+={stop, _}=, so no code path could produce =undefined=).
 - Related follow-up commit =b20bd0f= ("Don't omit lost sites when listing
   the sites") changed =emqx_ds_builtin_raft_meta:sites(all)= from
   =classy:sites(all)= to a fold over the node table, keeping lost sites
   visible to management recovery operations.
 
-** TODO [#A] =emqx_conf_app:start/2= defeats the ={error, stopping}= tolerance
+** FIXED [#A] =emqx_conf_app:start/2= defeats the ={error, stopping}= tolerance
 :PROPERTIES:
 :FILE:  apps/emqx_conf/src/emqx_conf_app.erl
 :LINES: 29-49
+:COMMITS: 711be28d16 (fix prepared Nov 21)
 :CUSTOM_ID: conf-app-maybe
 :END:
-Unchanged.  =emqx_cluster_rpc:create_tables/0= (emqx_cluster_rpc.erl:94-114)
-still returns ={ok, _} | {error, _}= per its spec (=ok ?= mria:create_table(...)
-twice), and the =maybe= in =start/2= still has **no =else=**, so
-={error, stopping}= during shutdown becomes a =badmatch= crash of the app
-callback instead of a graceful stop.
-*Fix:* add =else {error, stopping} -> {error, stopping}= (returning
-whatever the application controller expects).
+Fixed by prepared commit =711be28d16=: =mria:wait_for_tables/1= now
+uses =?== (it also returns ={error, _}= per mria 1.1.3 sources) and the
+=maybe= has an =else= that returns the error, so ={error, stopping}=
+during shutdown fails the application callback cleanly instead of
+crashing it with a badmatch.
 
 ** TODO [#A] Node can report ready after a failed business-app startup
 :PROPERTIES:
@@ -477,30 +479,35 @@ Fixed.  =emqx_machine:start_sys_apps/1= now calls
 so the peer-verification diagnostic runs on every startup, in live and
 test paths alike.
 
-** TODO [#B] =setup_vm/0= lost the Windows guard for =os:set_signal=
+** WONTFIX [#B] =setup_vm/0= lost the Windows guard for =os:set_signal=
 :PROPERTIES:
 :FILE:  apps/emqx_machine/src/emqx_machine.erl
 :LINES: 78-82
 :CUSTOM_ID: windows-regression
 :END:
-Unchanged.  =os:set_signal(sighup, ignore)= and
-=os:set_signal(sigterm, handle)= are still called unconditionally; the
-old ={win32, nt}= guard is still gone.  On Windows these raise =badarg=
-and would crash boot of Windows builds.
+Closed as WONTFIX: Windows is not and will never be a supported
+platform, so the unconditional =os:set_signal= calls are intended (the
+PR deliberately dropped the old ={win32, nt}= guard).  For the record,
+pre-existing win32 branches remain in files this PR does not touch
+(=emqx_schema.erl= tcp-keepalive enum, =emqx_telemetry.erl=,
+=emqx_mgmt_sup.erl=, =emqx_conf_schema.erl=, pulsar connector); removing
+those belongs in a separate change against the earliest affected
+=dev-XX= branch, not in this PR.
 
-** TODO [#B] =maybe_migrate_cluster= conflates "no old schema" with read failure
+** FIXED [#B] =maybe_migrate_cluster= conflates "no old schema" with read failure
 :PROPERTIES:
 :FILE:  apps/emqx_machine/src/emqx_machine.erl
 :LINES: 162-174
+:COMMITS: 1dccf7fbe6 (fix prepared Nov 21)
 :CUSTOM_ID: migrate-site-id
 :END:
-Unchanged.  The =case emqx_dsch_migrate:read_old()= still sends
-={error, _}= into the same =undefined= branch as a genuinely empty
-schema, so =classy_node:maybe_init_the_site/2= mints a brand-new site ID
-on a transient or corrupt schema read — silently resetting the node's
-durable-storage identity on upgrade (shard ownership, site metadata).
-*Fix:* distinguish ={ok, ?empty_schema}= from ={error, _}=; on the
-latter, fail (or halt migration) rather than re-identify.
+Fixed by prepared commit =1dccf7fbe6=: ={error, Reason}= now logs
+critical and raises ={failed_to_read_old_ds_schema, Reason}= instead of
+minting a fresh site ID.  ={ok, _}= without an old site still mints one,
+preserving first-boot behavior.  Note the raise happens inside a classy
+=on_node_init= hook, so if classy swallows it the site is simply left
+uninitialized (boot fails later, loudly) — either way the identity is
+not silently reset.
 
 ** TODO [#B] =emqx_cluster_rpc= shutdown / restart details
 :PROPERTIES:
@@ -576,33 +583,45 @@ harness defects are fixed.  What follows is the current state.
 - toolchain downgrade on merge (rebase resolved =env.sh= / Dockerfile).
 
 *Still merge blockers*
-- Section [[#conf-app-maybe]] — badmatch on ={error, stopping}= in
-  =emqx_conf_app:start/2=.
 - Section [[#ready-after-failure]] — readiness still reported after a
   failed business-app startup (exception variant; classy 0.1.16
-  re-verified).
-- Sections [[#dead-timeout-opt]] and [[#wait-business-apps]] — dead
-  =start_apps_timeout=; =wait_business_apps= still swallows hook crashes
-  and can hang a suite with no root cause.
-- Leftover removed-API callers keep at least four suites red:
-  mgmt CLI ([[#leftover-call-sites]]), node readiness (join arity +
-  wrong expected message), plugins suite ([[#leftover-call-sites]]).
-- Sections [[#windows-regression]] and [[#migrate-site-id]] — Windows
-  =os:set_signal= regression and silent site-ID reset on migration.
+  re-verified).  Needs a design decision (barrier or node shutdown).
+- Section [[#wait-business-apps]] — =wait_business_apps= still swallows
+  hook crashes and can hang a suite with no root cause.
+- Leftover removed-API callers keep at least three suites red:
+  mgmt CLI and node readiness ([[#leftover-call-sites]]; the readiness
+  test's premise itself is broken — =mark_not_ready= no longer gates
+  =can_i_join=, which reads the classy run level), plugins suite
+  ([[#leftover-call-sites]]).  All three need rewrites, not one-liners.
 - Section [[#bwc-upgrade]] — bwc upgrade suite still joins ekka-era
   peers via =classy:join_node= (=undef= there).
 - Section [[#review-file-committed]] — *new*: the review notes file is
   committed to the branch at the repo root; must be removed.
 
+*One-liner fixes prepared Nov 21* (commits =529c0d7f1c=..=50ade92dfe=,
+local, not pushed): default cluster name (=529c0d7f1c=),
+=emqx_conf_app= error propagation (=711be28d16=), site-migration read
+failure (=1dccf7fbe6=), leaderboard monitor flush + dead clause
+(=10bc8c16e9=), =dsch_migrate= upgrade-only note (=ccc2f75199=),
+=start_apps_timeout= honored (=61652a803c=), harness typos + debug
+trace (=f85932535c=), shared-sub QoS 2 backplane (=38309f8fb8=),
+topics-suite config threading (=50ade92dfe=).  erlfmt and
+apps-version checks pass on each commit; the branch was not compiled
+or test-run on this checkout (stale =deps/=), so CI must confirm.
+Windows is not a supported platform; the =os:set_signal= finding is
+closed as WONTFIX (Section [[#windows-regression]]).
+
 *Should fix before merge (not blockers)*
 - Section [[#cluster-rpc-restart]] restart-loop shape and silent
   ={error, _}= skips.
-- Sections [[#topics-suite]] (lost augmented config), [[#shared-sub-t-remote]]
-  (lost QoS 2 backplane coverage), coverage gaps, timetrap bumps,
-  harness debug leftovers ([[#harness-leftovers]] in section 2), nits in
-  section 1.
+- Coverage gaps, timetrap bumps (section 2), the =ekka_proto_v1=
+  =introduced_in= convention (section 1 nits).
 - Open schema questions: =autoclean= semantics changelog entry and the
   =cluster.quorum= default (Section [[#schema-questions]]).
+
+The topics-suite config threading, shared-sub QoS 2 coverage, harness
+doc typos and the debug trace were fixed in the prepared one-liner
+commits listed above.
 
 Also still echo the author's own =FIXME=s (plugins suite, mria role hack,
 =emqx_cth_suite:175=) as merge blockers for this branch even in draft
