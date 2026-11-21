@@ -165,8 +165,15 @@ maybe_migrate_cluster() ->
         case emqx_dsch_migrate:read_old() of
             {ok, #{schema := #{site := Site}}} ->
                 Site;
-            _ ->
-                undefined
+            {ok, _} ->
+                %% No old schema or no site in it: mint a fresh site ID
+                undefined;
+            {error, Reason} ->
+                %% Minting a fresh site ID here would silently reset the
+                %% durable-storage identity of the node (shard ownership,
+                %% site metadata), so fail instead:
+                ?SLOG(critical, #{msg => "failed_to_read_old_ds_schema", reason => Reason}),
+                error({failed_to_read_old_ds_schema, Reason})
         end,
     %% Use hash of the mnesia schema cookie as the initial cluster ID:
     MaybeCluster = mria_classy_migration:maybe_cluster_id(),
