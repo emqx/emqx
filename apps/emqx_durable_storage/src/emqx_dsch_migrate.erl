@@ -4,6 +4,9 @@
 -module(emqx_dsch_migrate).
 -moduledoc """
 This module migrates data from pre-6.3.0 release
+
+Kept only for the upgrade path: this is frozen code that mirrors the old
+`emqx_dsch` implementation. Do not extend it.
 """.
 
 %% API:
@@ -176,7 +179,7 @@ replay_wal(Log, Schema0, Cont0) ->
     end.
 
 -doc """
-A pure function that mutates the state record accoring to a command.
+A pure function that mutates the state record according to a command.
 
 Note: this function has to maintain backward-compatibility.
 """.
