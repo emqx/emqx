@@ -29,6 +29,8 @@
 -export([
     kafka_connector_config_fields/0,
     kafka_producer_connector_config_fields/0,
+    client_options_fields/0,
+    consumer_client_options_fields/0,
     kafka_producer_converter/2,
     producer_strategy_key_validator/1,
     producer_buffer_mode_validator/1,
@@ -714,25 +716,34 @@ kafka_connector_config_fields() ->
             })}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
 
-%% Client options that are only exposed by the Kafka producer connectors.
 kafka_producer_connector_config_fields() ->
     kafka_connector_config_fields() ++ client_options_fields().
 
+%% Client options for Kafka producer connectors.
 client_options_fields() ->
+    client_options_fields(32767).
+
+%% Kafka derives a consumer group member ID by appending "-" and a 36-byte UUID
+%% to the client ID seen on JoinGroup. Member IDs are 16-bit length prefixed
+%% strings, so the configured client ID keeps that 37-byte suffix free.
+consumer_client_options_fields() ->
+    client_options_fields(32730).
+
+client_options_fields(MaxLen) ->
     [
         {kafka_client_id,
             mk(binary(), #{
                 required => false,
                 desc => ?DESC(kafka_client_id),
-                validator => fun kafka_client_id_validator/1
+                validator => fun(Id) -> kafka_client_id_validator(Id, MaxLen) end
             })}
     ].
 
 %% Kafka encodes the client ID as a 16-bit length prefixed string.
-kafka_client_id_validator(Id) when is_binary(Id), byte_size(Id) =< 32767 ->
+kafka_client_id_validator(Id, MaxLen) when is_binary(Id), byte_size(Id) =< MaxLen ->
     ok;
-kafka_client_id_validator(_) ->
-    {error, "The 'kafka_client_id' must not be longer than 32767 bytes"}.
+kafka_client_id_validator(_, MaxLen) ->
+    {error, io_lib:format("The 'kafka_client_id' must not be longer than ~b bytes", [MaxLen])}.
 
 auth_union_member_selector(all_union_members) ->
     auth_union_members();

@@ -37,6 +37,7 @@
 
 -define(API_PRODUCE, 0).
 -define(API_METADATA, 3).
+-define(API_FIND_COORDINATOR, 10).
 -define(API_API_VERSIONS, 18).
 
 -record(state, {
@@ -216,11 +217,13 @@ parse_header(_) ->
 
 response(Server, ?API_API_VERSIONS, 0, CorrId, _Body) ->
     #{jmq := Jmq} = gen_server:call(Server, options),
-    Base = <<?API_METADATA:16, 0:16, 0:16, ?API_PRODUCE:16, 0:16, 0:16>>,
+    Base =
+        <<?API_METADATA:16, 0:16, 0:16, ?API_PRODUCE:16, 0:16, 0:16, ?API_FIND_COORDINATOR:16, 0:16,
+            0:16>>,
     {Count, Entries, Tail} =
         case Jmq of
-            false -> {2, Base, <<>>};
-            true -> {4, <<Base/binary, 17:16, 0:16, 1:16, 36:16, 0:16, 1:16>>, <<0:32>>}
+            false -> {3, Base, <<>>};
+            true -> {5, <<Base/binary, 17:16, 0:16, 1:16, 36:16, 0:16, 1:16>>, <<0:32>>}
         end,
     <<CorrId:32, 0:16, Count:32, Entries/binary, Tail/binary>>;
 response(_Server, 17, 1, CorrId, <<5:16, "PLAIN">>) ->
@@ -229,6 +232,11 @@ response(_Server, 36, 1, CorrId, <<Len:32, Token:Len/binary>>) ->
     <<0, "test-user", 0, "test-password">> = Token,
     %% The captured service returns a non-empty final PLAIN token and no lifetime.
     <<CorrId:32, 0:16, -1:16/signed, Len:32, Token/binary, 0:64>>;
+response(Server, ?API_FIND_COORDINATOR, 0, CorrId, _Body) ->
+    {Host, Port} = gen_server:call(Server, {address, bootstrap}),
+    HostBin = list_to_binary(Host),
+    <<CorrId:32/signed, 0:16/signed, 1:32/signed, (byte_size(HostBin)):16/signed, HostBin/binary,
+        Port:32/signed>>;
 response(Server, ?API_METADATA, _ApiVersion, CorrId, Body) ->
     {_Host, Port} = gen_server:call(Server, {address, leader}),
     Topics = parse_topics(Body),

@@ -5,6 +5,8 @@
 
 -behaviour(emqx_resource).
 
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 %% `emqx_resource' API
 -export([
     resource_type/0,
@@ -106,6 +108,7 @@
 
 %% Allocatable resources
 -define(kafka_client_id, kafka_client_id).
+-define(group_client_id, group_client_id).
 -define(kafka_subscriber_id, kafka_subscriber_id).
 
 %%-------------------------------------------------------------------------------------
@@ -129,6 +132,8 @@ on_start(ConnectorResId, Config) ->
         ssl := SSL
     } = Config,
     BootstrapHosts = emqx_bridge_kafka_impl:hosts(BootstrapHosts0),
+    KafkaClientOpts = emqx_bridge_kafka_impl:client_opts(Config),
+    GroupClientId = maps:get(client_id, KafkaClientOpts, undefined),
     %% Note: this is distinct per node.
     ClientID = make_client_id(ConnectorResId),
     ClientOpts0 =
@@ -138,8 +143,9 @@ on_start(ConnectorResId, Config) ->
         end,
     ClientOpts = add_ssl_opts(ClientOpts0, SSL),
     SocketOpts = emqx_bridge_kafka_impl:socket_opts(SocketOpts0),
-    ClientOpts1 = [{extra_sock_opts, SocketOpts} | ClientOpts],
+    ClientOpts1 = maps:to_list(KafkaClientOpts) ++ [{extra_sock_opts, SocketOpts} | ClientOpts],
     ok = emqx_resource:allocate_resource(ConnectorResId, ?MODULE, ?kafka_client_id, ClientID),
+    ok = emqx_resource:allocate_resource(ConnectorResId, ?MODULE, ?group_client_id, GroupClientId),
     ok = emqx_bridge_kafka_oauth_authn:register(ConnectorResId, Auth),
     case brod:start_client(BootstrapHosts, ClientID, ClientOpts1) of
         ok ->
@@ -177,7 +183,9 @@ on_stop(ConnectorResId, _State) ->
                     Acc;
                 ({?kafka_subscriber_id, _SourceResId}, SubscriberId, Acc) ->
                     stop_subscriber(SubscriberId),
-                    Acc + 1
+                    Acc + 1;
+                (_, _, Acc) ->
+                    Acc
             end,
             0,
             emqx_resource:get_allocated_resources(ConnectorResId)
@@ -391,10 +399,7 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
         {max_wait_time, MaxWaitTime},
         {offset_reset_policy, OffsetResetPolicy}
     ],
-    GroupConfig = [
-        {max_rejoin_attempts, MaxRejoinAttempts},
-        {offset_commit_interval_seconds, OffsetCommitInterval}
-    ],
+    GroupConfig = group_config(MaxRejoinAttempts, OffsetCommitInterval, ConnectorResId),
     KafkaTopics = [Topic],
     ensure_no_repeated_topics(KafkaTopics, ConnState),
     GroupSubscriberConfig =
@@ -442,6 +447,21 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
                     }),
                     {error, Reason}
             end
+    end.
+
+-spec group_config(non_neg_integer(), pos_integer(), connector_resource_id()) ->
+    proplists:proplist().
+group_config(MaxRejoinAttempts, OffsetCommitInterval, ConnectorResId) ->
+    Base = [
+        {max_rejoin_attempts, MaxRejoinAttempts},
+        {offset_commit_interval_seconds, OffsetCommitInterval}
+    ],
+    Allocated = emqx_resource:get_allocated_resources(ConnectorResId),
+    case maps:get(?group_client_id, Allocated, undefined) of
+        undefined ->
+            Base;
+        GroupClientId ->
+            [{group_client_id, GroupClientId} | Base]
     end.
 
 %% Currently, brod treats a consumer process to a specific topic as a singleton (per
