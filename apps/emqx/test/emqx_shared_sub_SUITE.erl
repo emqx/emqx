@@ -740,7 +740,7 @@ t_remote(Config) when is_list(Config) ->
         ?ON(N1, emqx:publish(Message2)),
         {true, UsedSubPid1} = last_message(<<"hello2">>, [ConnPid2]),
 
-        ?ON(N2, emqx:publish(Message3)),
+        ?ON(N1, emqx:publish(Message3)),
         {true, UsedSubPid1} = last_message(<<"hello3">>, [ConnPid2]),
 
         ok
