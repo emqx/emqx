@@ -1239,6 +1239,16 @@ t_serialize_parse_subscribe(_) ->
     ?ASSERT_FRAME_THROW(bad_packet_id, parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters))),
     ?ASSERT_FRAME_THROW(
         bad_subqos, parse_serialize(?SUBSCRIBE_PACKET(1, [{<<"t">>, #{qos => 3}}]))
+    ),
+    %% reserved bits 6 and 7 of the Subscription Options byte (MQTT-3.8.3-5)
+    lists:foreach(
+        fun(Opts) ->
+            ?ASSERT_FRAME_THROW(
+                reserved_subopts,
+                parse_to_packet(<<16#82, 6, 0, 1, 0, 1, $t, Opts>>, #{strict_mode => true})
+            )
+        end,
+        [16#40, 16#80, 16#C0]
     ).
 
 t_serialize_parse_subscribe_v5(_) ->
