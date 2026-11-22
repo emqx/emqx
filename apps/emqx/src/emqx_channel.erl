@@ -3500,7 +3500,8 @@ handle_heal_partition(
         undefined ->
             ok;
         _ ->
-            emqx_cm_registry:register_channel(ClientId)
+            emqx_cm_registry:register_channel(ClientId),
+            emqx_broker:heal_subscriptions()
     end.
 
 -if(?EMQX_RELEASE_EDITION == ee).

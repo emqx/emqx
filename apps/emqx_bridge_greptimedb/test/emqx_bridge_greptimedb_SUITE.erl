@@ -204,8 +204,6 @@ example_write_syntax() ->
 example_write_syntax2() ->
     %% N.B.: this single space character is relevant
     %% the measurement name should not be the topic
-    %% from greptimedb:
-    %% error => {error,{case_clause,{error,{<<"3">>,<<"Invalid%20table%20name:%20test/greptimedb">
     <<"mqtt,clientid=${clientid}", " ", "payload=${payload},",
         "${clientid}_int_value=${payload.int_key}i,",
         "uint_value=${payload.uint_key}u,"
@@ -222,7 +220,7 @@ greptimedb_config(grpcv1 = Type, GreptimedbHost, GreptimedbPort, Config) ->
         io_lib:format(
             "bridges.greptimedb.~s {\n"
             "  enable = true\n"
-            "  server = \"~p:~b\"\n"
+            "  server = \"~s:~b\"\n"
             "  dbname = public\n"
             "  username = greptime_user\n"
             "  password = greptime_pwd\n"
@@ -1239,6 +1237,157 @@ do_t_partially_invalid_batch(Config) ->
         end
     ),
     ok.
+
+-doc "A rejected write fails promptly and the same worker delivers a subsequent valid write.".
+t_permanent_write_error(Config) ->
+    BatchSize = min(3, ?config(batch_size, Config)),
+    Values = lists:duplicate(BatchSize, <<"wrong-type">>),
+    test_permanent_write_error(Config, Values).
+
+-doc "A mixed batch keeps local conversion errors and database rejections on their original messages.".
+t_permanent_write_error_mixed_batch(Config) ->
+    case ?config(batch_size, Config) of
+        1 ->
+            {skip, requires_batching};
+        _ ->
+            test_permanent_write_error(Config, [<<"wrong-type">>, 1 bsl 1024, <<"wrong-type">>])
+    end.
+
+test_permanent_write_error(Config, Values) ->
+    BatchSize = length(Values),
+    create_write_error_bridge(Config, BatchSize),
+    ?assertMatch({ok, _}, await_write(start_write(Config, <<"baseline">>, 15.5))),
+    ?assertMatch(#{<<"value">> := 15.5}, query_by_clientid(<<"baseline">>, Config)),
+    ?check_trace(
+        begin
+            {Rejected, {ok, _}} = ?wait_async_action(
+                [
+                    {ClientId, Value, start_write(Config, ClientId, Value)}
+                 || Value <- Values, ClientId <- [emqx_guid:to_hexstr(emqx_guid:gen())]
+                ],
+                #{?snk_kind := greptimedb_connector_send_query},
+                5_000
+            ),
+            Later = start_write(Config, <<"later">>, 99.5),
+            lists:foreach(
+                fun({ClientId, Value, Ref}) ->
+                    Result = await_write(Ref),
+                    case is_integer(Value) of
+                        true ->
+                            ?assertEqual(
+                                {error, {unrecoverable_error, points_trans_failed}}, Result
+                            );
+                        false ->
+                            ?assertMatch({error, {unrecoverable_error, {<<"3">>, _, _}}}, Result)
+                    end,
+                    ?assertEqual(#{}, query_by_clientid(ClientId, Config))
+                end,
+                Rejected
+            ),
+            ?assertMatch({ok, _}, await_write(Later)),
+            ?assertMatch(#{<<"value">> := 99.5}, query_by_clientid(<<"later">>, Config)),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    #{
+                        counters := #{success := 2, failed := BatchSize, 'dropped.expired' := 0},
+                        gauges := #{queuing := 0, inflight := 0}
+                    },
+                    bridge_metrics(Config)
+                )
+            )
+        end,
+        fun(Trace) ->
+            ?assertMatch([_], ?of_kind(buffer_worker_retry_inflight, Trace)),
+            ?assertEqual([], ?of_kind(buffer_worker_retry_inflight_failed, Trace))
+        end
+    ).
+
+-doc "The worker retries a transport failure and stops when the recovered database rejects the write.".
+t_write_retry_after_transport_failure(Config) ->
+    create_write_error_bridge(Config, min(3, ?config(batch_size, Config))),
+    ?assertMatch({ok, _}, await_write(start_write(Config, <<"baseline">>, 15.5))),
+    ProxyName = ?config(proxy_name, Config),
+    ProxyHost = ?config(proxy_host, Config),
+    ProxyPort = ?config(proxy_port, Config),
+    ?check_trace(
+        begin
+            {Pending, {ok, _}} = emqx_common_test_helpers:with_failure(
+                down,
+                ProxyName,
+                ProxyHost,
+                ProxyPort,
+                fun() ->
+                    snabbkaffe:wait_async_action(
+                        fun() -> start_write(Config, <<"retry">>, <<"wrong-type">>) end,
+                        fun
+                            (#{?snk_kind := buffer_worker_flush_nack}) -> true;
+                            (#{?snk_kind := handle_async_reply, action := nack}) -> true;
+                            (_) -> false
+                        end,
+                        5_000
+                    )
+                end
+            ),
+            ?assertMatch(
+                {error, {unrecoverable_error, {<<"3">>, _, _}}},
+                await_write(Pending, 20_000)
+            ),
+            ?assertEqual(#{}, query_by_clientid(<<"retry">>, Config)),
+            ?assertMatch({ok, _}, await_write(start_write(Config, <<"later">>, 42.5))),
+            ?assertMatch(#{<<"value">> := 42.5}, query_by_clientid(<<"later">>, Config))
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(buffer_worker_retry_inflight_succeeded, Trace))
+        end
+    ).
+
+create_write_error_bridge(Config, BatchSize) ->
+    {ok, _} = create_bridge(Config, #{
+        <<"resource_opts">> => #{
+            <<"batch_size">> => BatchSize,
+            <<"batch_time">> => <<"500ms">>,
+            <<"worker_pool_size">> => 1,
+            <<"inflight_window">> => 1,
+            <<"request_ttl">> => <<"30s">>,
+            <<"resume_interval">> => <<"200ms">>,
+            <<"health_check_interval">> => <<"1h">>,
+            <<"metrics_flush_interval">> => <<"100ms">>
+        },
+        <<"write_syntax">> => <<"mqtt,clientid=${clientid} value=${payload.value}">>
+    }),
+    ok.
+
+start_write(Config, ClientId, Value) ->
+    Caller = self(),
+    Ref = make_ref(),
+    Message = #{
+        <<"clientid">> => ClientId,
+        <<"timestamp">> => erlang:system_time(millisecond),
+        <<"payload">> => #{<<"value">> => Value}
+    },
+    case ?config(query_mode, Config) of
+        sync ->
+            spawn_link(fun() -> Caller ! {Ref, send_message(Config, Message)} end);
+        async ->
+            Name = ?config(greptimedb_name, Config),
+            Reply = fun(#{result := Result}) -> Caller ! {Ref, Result} end,
+            ok = emqx_bridge_v2:send_message(?ACTION_TYPE, Name, Message, #{
+                async_reply_fun => {Reply, []}
+            })
+    end,
+    Ref.
+
+await_write(Ref) ->
+    await_write(Ref, 5_000).
+
+await_write(Ref, Timeout) ->
+    receive
+        {Ref, Result} -> Result
+    after Timeout ->
+        ct:fail(write_did_not_complete)
+    end.
 
 t_invalid_data_does_not_block_worker(Config) ->
     QueryMode = ?config(query_mode, Config),
