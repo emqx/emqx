@@ -244,8 +244,7 @@ create_challenge(Username, ClientNonce, ServerNonce, Salt, Iterations, Fingerpri
         salt = Salt,
         iterations = Iterations,
         credential_fingerprint = Fingerprint,
-        expires_at = erlang:system_time(millisecond) + ?CHALLENGE_TTL_MS,
-        extra = #{created_at => erlang:system_time(microsecond)}
+        expires_at = erlang:system_time(millisecond) + ?CHALLENGE_TTL_MS
     },
     case put(Challenge) of
         ok ->
@@ -362,24 +361,23 @@ put_transaction(Id, #emqx_dashboard_scram_challenge{username = Username} = Chall
 
 %% Keep at most `?MAX_CHALLENGES_PER_USERNAME' open challenges for one
 %% username: before a new one is stored, delete the oldest ones so that
-%% one slot is free.  Runs inside the put transaction.
+%% one slot is free.  The oldest are the ones that expire first; among
+%% challenges with the same expiry time, any one can be deleted first.
+%% Runs inside the put transaction.
 delete_oldest_challenges(Username) ->
     Spec = [
         {
-            {emqx_dashboard_scram_challenge, '$1', Username, '_', '_', '_', '_', '_', '$2', '$3'},
+            {emqx_dashboard_scram_challenge, '$1', Username, '_', '_', '_', '_', '_', '$2', '_'},
             [],
-            [{{'$2', '$3', '$1'}}]
+            [{{'$2', '$1'}}]
         }
     ],
-    Open = lists:sort([
-        {ExpiresAt, maps:get(created_at, Extra, 0), Id}
-     || {ExpiresAt, Extra, Id} <- mnesia:select(?TAB, Spec, write)
-    ]),
+    Open = lists:sort(mnesia:select(?TAB, Spec, write)),
     NumToDelete = length(Open) - (?MAX_CHALLENGES_PER_USERNAME - 1),
     case NumToDelete > 0 of
         true ->
             {Oldest, _} = lists:split(NumToDelete, Open),
-            lists:foreach(fun({_, _, Id}) -> mnesia:delete({?TAB, Id}) end, Oldest);
+            lists:foreach(fun({_, Id}) -> mnesia:delete({?TAB, Id}) end, Oldest);
         false ->
             ok
     end.

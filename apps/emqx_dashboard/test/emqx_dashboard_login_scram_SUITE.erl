@@ -175,16 +175,19 @@ t_wrong_proof_counts_as_password_failure(_) ->
 t_scram_challenge_limit_per_username(_) ->
     ClientNonce = <<"clientNonce1234567890">>,
     Limit = 16,
+    %% Challenges created in the same millisecond have the same expiry time,
+    %% so make the first one expire 1 second earlier than the others.
+    {ok, First} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
+    ok = expire_earlier(maps:get(challenge_id, First), 1000),
     Challenges = [
         begin
             {ok, Challenge} = emqx_dashboard_login:scram_challenge(?USERNAME, ClientNonce),
             ?assert(open_challenge_count(?USERNAME) =< Limit),
             Challenge
         end
-     || _ <- lists:seq(1, Limit + 4)
+     || _ <- lists:seq(1, Limit + 3)
     ],
     ?assertEqual(Limit, open_challenge_count(?USERNAME)),
-    [First | _] = Challenges,
     Last = lists:last(Challenges),
     %% The newest challenge carries the same salt and iterations as the first.
     ?assertEqual(maps:get(salt, First), maps:get(salt, Last)),
@@ -248,6 +251,14 @@ open_challenge_count(Username) ->
             #emqx_dashboard_scram_challenge{username = Username, _ = '_'}
         )
     ).
+
+expire_earlier(Id, Ms) ->
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        [#emqx_dashboard_scram_challenge{expires_at = ExpiresAt} = C] =
+            mnesia:read(emqx_dashboard_scram_challenge, Id, write),
+        mnesia:write(C#emqx_dashboard_scram_challenge{expires_at = ExpiresAt - Ms})
+    end),
+    ok.
 
 verify_challenge_with_password(ClientNonce, Challenge) ->
     ServerNonce = maps:get(server_nonce, Challenge),
