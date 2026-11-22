@@ -10,6 +10,8 @@
 
 -export([
     all/1,
+    all_with_matrix/1,
+    groups_with_matrix/1,
     matrix_to_groups/2,
     group_path/1,
     init_per_testcase/3,
@@ -178,11 +180,7 @@
 %%------------------------------------------------------------------------------
 
 all(Suite) ->
-    TestCases = lists:usort([
-        F
-     || {F, 1} <- Suite:module_info(exports),
-        string:substr(atom_to_list(F), 1, 2) == "t_"
-    ]),
+    TestCases = all0(Suite),
     FlakyTests = flaky_tests(Suite),
     lists:map(
         fun(TestCase) ->
@@ -194,6 +192,22 @@ all(Suite) ->
         TestCases
     ).
 
+all_with_matrix(Module) ->
+    All0 = emqx_common_test_helpers:all(Module),
+    All = All0 -- matrix_cases(Module),
+    Groups = lists:map(fun({G, _, _}) -> {group, G} end, groups_with_matrix(Module)),
+    Groups ++ All.
+
+groups_with_matrix(Module) ->
+    matrix_to_groups(Module, matrix_cases(Module)).
+
+all0(Module) ->
+    lists:usort([
+        F
+     || {F, 1} <- Module:module_info(exports),
+        string:substr(atom_to_list(F), 1, 2) == "t_"
+    ]).
+
 -spec flaky_tests(module()) -> #{atom() => pos_integer()}.
 flaky_tests(Suite) ->
     case erlang:function_exported(Suite, flaky_tests, 0) of
@@ -201,6 +215,35 @@ flaky_tests(Suite) ->
             Suite:flaky_tests();
         false ->
             #{}
+    end.
+
+matrix_cases(Module) ->
+    lists:filter(
+        fun
+            ({testcase, TestCase, _Opts}) ->
+                get_tc_prop(Module, TestCase, matrix, false);
+            (TestCase) ->
+                get_tc_prop(Module, TestCase, matrix, false)
+        end,
+        all0(Module)
+    ).
+
+get_tc_prop(Module, TestCase, Key, Default) ->
+    maybe
+        true ?= erlang:function_exported(Module, TestCase, 0),
+        {Key, Val} ?= proplists:lookup(Key, Module:TestCase()),
+        Val
+    else
+        _ -> Default
+    end.
+
+get_matrix_prop(TCConfig, Alternatives, Default) ->
+    GroupPath = group_path(TCConfig, [Default]),
+    case lists:filter(fun(G) -> lists:member(G, Alternatives) end, GroupPath) of
+        [] ->
+            Default;
+        [Opt] ->
+            Opt
     end.
 
 init_per_testcase(Module, TestCase, Config) ->
@@ -1405,6 +1448,12 @@ group_path(Config) ->
     catch
         _:_ ->
             []
+    end.
+
+group_path(TCConfig, Default) ->
+    case group_path(TCConfig) of
+        [] -> Default;
+        Path -> Path
     end.
 
 %% almost verify_none equivalent, but only ignores 'hostname_check_failed'

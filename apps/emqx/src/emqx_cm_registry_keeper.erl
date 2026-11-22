@@ -276,7 +276,11 @@ maybe_emit_finished(Summary) ->
 %%--------------------------------------------------------------------
 
 do_run_chunk(Cursor, State0) ->
-    {NewNext, State1} = run_chunk_loop(Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0),
+    %% A gone-node verdict is valid for one chunk only. The node can restart
+    %% before the next chunk, and the rows of its new channels must stay.
+    {NewNext, State1} = run_chunk_loop(
+        Cursor, ?REGISTRY_GC_CHUNK_SIZE, State0#{gone_nodes := sets:new([{version, 2}])}
+    ),
     case NewNext of
         '$end_of_table' ->
             maybe_emit_finished(sweep_summary(State1)),
@@ -384,20 +388,15 @@ classify_remote_pid_on_replicant(_Pid, State) ->
     {keep, State}.
 
 %% Reuse the same cluster-wide consensus predicate that
-%% emqx_cm_registry:can_run_cleanup/1 uses, cached per sweep so each
-%% unique remote node-id triggers at most one mria:is_peer_alive/1 RPC
-%% per sweep. Any non-{ok, false} answer (including {aborted, _} on RPC
-%% error) is treated as "keep this sweep, retry next" to preserve the
-%% safety bias.
+%% emqx_cm_registry:can_run_cleanup/1 uses. The verdicts are cached so each
+%% unique remote node triggers at most one mria:is_peer_alive/1 RPC per
+%% chunk. An alive verdict is kept for the rest of the sweep (it only keeps
+%% rows), a gone verdict for the current chunk only (see do_run_chunk/2).
+%% Any non-{ok, false} answer (including {aborted, _} on RPC error) is
+%% treated as "keep this sweep, retry next" to preserve the safety bias.
 classify_remote_pid_on_core(Pid, State) ->
     N = node(Pid),
     #{gone_nodes := Gone, alive_nodes := Alive} = State,
-    %% Check alive first: a node that rejoined the cluster mid-sweep
-    %% may carry a stale gone-mark from an earlier chunk; the alive
-    %% cache is the authoritative vote. On a cache hit the per-sweep
-    %% caches are unchanged so the gone-excludes-alive invariant
-    %% trivially still holds; only the cache-miss branch needs to
-    %% re-establish it after mutating one of the sets.
     case {sets:is_element(N, Alive), sets:is_element(N, Gone)} of
         {true, _} ->
             {keep, State};
@@ -406,19 +405,11 @@ classify_remote_pid_on_core(Pid, State) ->
         _ ->
             case mria:is_peer_alive(N) of
                 {ok, false} ->
-                    State1 = State#{gone_nodes := sets:add_element(N, Gone)},
-                    {remote_orphan, normalize_node_caches(State1)};
+                    {remote_orphan, State#{gone_nodes := sets:add_element(N, Gone)}};
                 _ ->
-                    State1 = State#{alive_nodes := sets:add_element(N, Alive)},
-                    {keep, normalize_node_caches(State1)}
+                    {keep, State#{alive_nodes := sets:add_element(N, Alive)}}
             end
     end.
-
-%% Invariant: gone_nodes excludes alive_nodes. Called from the
-%% cache-miss branch only -- after the sets are mutated -- so we
-%% don't pay sets:subtract/2 on every remote-pid classification.
-normalize_node_caches(#{gone_nodes := Gone, alive_nodes := Alive} = State) ->
-    State#{gone_nodes := sets:subtract(Gone, Alive)}.
 
 %%--------------------------------------------------------------------
 %% Helpers

@@ -41,7 +41,14 @@
 
 namespace() -> "dashboard_sso".
 
-scopes() -> ?SCOPE_DENIED.
+scopes() ->
+    %% The SP metadata is part of the SAML backend setup, so it takes the
+    %% same scope as the `/sso/:backend' configuration endpoints.
+    %% The ACS is the IdP callback and is reachable without a session.
+    #{
+        <<"/sso/saml/metadata">> => ?SCOPE_SSO_MGMT,
+        <<"/sso/saml/acs">> => ?SCOPE_PUBLIC
+    }.
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{

@@ -42,11 +42,6 @@
 
 -export([precision_field/0]).
 
-%% only for test
--ifdef(TEST).
--export([is_unrecoverable_error/1]).
--endif.
-
 -type ts_precision() :: ns | us | ms | s.
 
 %% Allocatable resources
@@ -484,7 +479,7 @@ is_auth_key(_) ->
 %% Query
 do_query(InstId, Channel, Client, Points) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
-    case greptimedb:write_batch(Client, Points) of
+    case classify_query_result(greptimedb:write_batch(Client, Points)) of
         {ok, #{response := {affected_rows, #{value := Rows}}}} ->
             ?SLOG(debug, #{
                 msg => "greptimedb_write_point_success",
@@ -492,27 +487,21 @@ do_query(InstId, Channel, Client, Points) ->
                 affected_rows => Rows
             }),
             {ok, {affected_rows, Rows}};
-        {error, {unauth, _, _}} ->
-            ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
+        {error, {unrecoverable_error, <<"authorization failure">>}} = Error ->
             ?SLOG(error, #{
                 msg => "greptimedb_authorization_failed",
                 client => redact_auth(Client),
                 connector => InstId
             }),
-            {error, {unrecoverable_error, <<"authorization failure">>}};
-        {error, Reason} = Err ->
+            Error;
+        {error, {_, Reason}} = Error ->
             ?tp(greptimedb_connector_do_query_failure, #{error => Reason}),
             ?SLOG(error, #{
                 msg => "greptimedb_write_point_failed",
                 connector => InstId,
                 reason => Reason
             }),
-            case is_unrecoverable_error(Err) of
-                true ->
-                    {error, {unrecoverable_error, Reason}};
-                false ->
-                    {error, {recoverable_error, Reason}}
-            end
+            Error
     end.
 
 on_format_query_result({ok, {affected_rows, Rows}}) ->
@@ -523,14 +512,20 @@ on_format_query_result(Result) ->
 do_async_query(Channel, Client, Points, ReplyFunAndArgs) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {fun ?MODULE:reply_callback/2, [ReplyFunAndArgs]},
-    ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
+    send_async(Client, Points, WrappedReplyFunAndArgs).
 
 do_async_batch_query(Channel, Client, Points, BatchResults, ReplyFunAndArgs) ->
     emqx_trace:rendered_action_template(Channel, #{points => Points}),
     WrappedReplyFunAndArgs = {
         fun ?MODULE:batch_reply_callback/3, [ReplyFunAndArgs, BatchResults]
     },
-    ok = greptimedb:async_write_batch(Client, Points, WrappedReplyFunAndArgs).
+    send_async(Client, Points, WrappedReplyFunAndArgs).
+
+send_async(Client, Points, ReplyFunAndArgs) ->
+    case greptimedb:async_write_batch(Client, Points, ReplyFunAndArgs) of
+        ok -> ok;
+        Error -> classify_query_result(Error)
+    end.
 
 reply_callback(ReplyFunAndArgs, Result0) ->
     Result = classify_query_result(Result0),
@@ -545,17 +540,39 @@ batch_reply_callback(ReplyFunAndArgs, BatchResults, Result0) ->
 classify_query_result({error, {unauth, _, _}}) ->
     ?tp(greptimedb_connector_do_query_failure, #{error => <<"authorization failure">>}),
     {error, {unrecoverable_error, <<"authorization failure">>}};
-classify_query_result({error, Reason} = Error) ->
-    case is_unrecoverable_error(Error) of
-        true ->
-            {error, {unrecoverable_error, Reason}};
-        false ->
-            {error, {recoverable_error, Reason}}
-    end;
-classify_query_result(Result) ->
-    Result.
+classify_query_result({error, {error, {Status, Message}, Metadata}}) ->
+    %% The driver shares a stream error across requests. Retry each request with a unary RPC
+    %% so only requests that the database rejects individually fail permanently.
+    {error, {recoverable_error, {Status, Message, Metadata}}};
+classify_query_result({error, {Status, Message}, Metadata}) ->
+    {error, {grpc_error_type(Status, Metadata), {Status, Message, Metadata}}};
+classify_query_result({http_error, _, _} = Error) ->
+    {error, {recoverable_error, Error}};
+classify_query_result({error, {unrecoverable_error, _}} = Error) ->
+    Error;
+classify_query_result({error, {recoverable_error, _}} = Error) ->
+    Error;
+classify_query_result({error, Reason}) ->
+    {error, {recoverable_error, Reason}};
+classify_query_result({ok, #{response := {affected_rows, #{value := _}}}} = Result) ->
+    Result;
+classify_query_result({ok, Response}) ->
+    {error, {unrecoverable_error, {unexpected_write_response, Response}}};
+classify_query_result(Reason) ->
+    {error, {recoverable_error, Reason}}.
 
-merge_batch_result({error, _} = Error, _BatchResults) ->
+grpc_error_type(_, #{trailers := #{<<"x-greptime-err-retry-hint">> := <<"non_retryable">>}}) ->
+    unrecoverable_error;
+grpc_error_type(_, #{trailers := #{<<"x-greptime-err-retry-hint">> := <<"retryable">>}}) ->
+    recoverable_error;
+grpc_error_type(<<"3">>, _) ->
+    %% INVALID_ARGUMENT from servers that do not send a retry hint.
+    unrecoverable_error;
+grpc_error_type(_, _) ->
+    recoverable_error.
+
+merge_batch_result({error, {recoverable_error, _}} = Error, _BatchResults) ->
+    %% The resource worker retries the whole batch while any write is still pending.
     Error;
 merge_batch_result(Result, BatchResults) ->
     lists:map(
@@ -952,11 +969,6 @@ str(B) when is_binary(B) ->
 str(S) when is_list(S) ->
     S.
 
-is_unrecoverable_error({error, {unrecoverable_error, _}}) ->
-    true;
-is_unrecoverable_error(_) ->
-    false.
-
 is_int64(Int) ->
     is_integer(Int) andalso Int >= ?INT64_MIN andalso Int =< ?INT64_MAX.
 
@@ -966,6 +978,39 @@ is_int64(Int) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+classify_query_result_test_() ->
+    NonRetryable = #{trailers => #{<<"x-greptime-err-retry-hint">> => <<"non_retryable">>}},
+    Retryable = #{trailers => #{<<"x-greptime-err-retry-hint">> => <<"retryable">>}},
+    HTTPError = {http_error, {<<"503">>, <<>>}, #{}},
+    Cases = [
+        {unrecoverable_error, {<<"13">>, <<"write rejected">>, NonRetryable}},
+        {unrecoverable_error, {<<"3">>, <<"invalid argument">>, #{}}},
+        {recoverable_error, {<<"3">>, <<"try again">>, Retryable}},
+        {recoverable_error, {<<"14">>, <<"unavailable">>, #{}}}
+    ],
+    [
+        [
+            ?_assertEqual(
+                {error, {Type, Reason}},
+                classify_query_result({error, {Status, Message}, Metadata})
+            ),
+            ?_assertEqual(
+                {error, {recoverable_error, Reason}},
+                classify_query_result({error, {error, {Status, Message}, Metadata}})
+            )
+        ]
+     || {Type, {Status, Message, Metadata} = Reason} <- Cases
+    ] ++
+        [
+            ?_assertEqual(
+                {error, {recoverable_error, HTTPError}}, classify_query_result(HTTPError)
+            ),
+            ?_assertEqual(
+                {error, {unrecoverable_error, {unexpected_write_response, <<>>}}},
+                classify_query_result({ok, <<>>})
+            )
+        ].
 
 is_auth_key_test_() ->
     [
@@ -1016,10 +1061,11 @@ integer_point_validation_test() ->
     ),
     Self = self(),
     ReplyFunAndArgs = {fun(Result) -> Self ! Result end, []},
-    ok = batch_reply_callback(ReplyFunAndArgs, BatchResults, {ok, written}),
+    Success = {ok, #{response => {affected_rows, #{value => 1}}}},
+    ok = batch_reply_callback(ReplyFunAndArgs, BatchResults, Success),
     receive
         CallbackResult ->
-            ?assertEqual([{ok, written}, InvalidResult], CallbackResult)
+            ?assertEqual([Success, InvalidResult], CallbackResult)
     after 1_000 ->
         error(callback_timeout)
     end,

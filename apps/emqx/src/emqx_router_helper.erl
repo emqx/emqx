@@ -4,19 +4,23 @@
 
 %% Router helper process.
 %%
-%% NOTICE: this process is deprecated, it's only used for v2 routing
-%% schema.
-%%
 %% Responsibility is twofold:
-%% 1. Cleaning own portion of the global routing table when restarted.
+%% 1. Cleaning own portion of the global routing table when restarted
+%%    (v2 routing schema only, see `post_start/0').
 %%    The assumption is that the node has crashed (worst-case), so the
 %%    previous incarnation's routes are still present upon restart.
-%% 2. Managing portions of global routing table belonging to dead / "left"
+%% 2. Managing portions of cluster-wide tables belonging to dead / "left"
 %%    cluster members, i.e. members that are not supposed to come back
-%%    online again.
+%%    online again: the global routing table (v2 routing schema only) and
+%%    the shared subscription table (both routing schemas).
+%%    With the v3 routing schema, Mria removes the routes of a node that
+%%    goes down (`auto_clean'), but nothing does the same for the shared
+%%    subscription table.
 %%
-%% Only core nodes are responsible for the latter task. Moreover, helper
-%% adopts the following operational model:
+%% Only core nodes purge. Every node, replicants included, keeps the status
+%% of the nodes that are down or left, and dispatch to shared subscription
+%% members skips the members on these nodes (see `unreachable_nodes/0').
+%% Moreover, helper adopts the following operational model:
 %% 1. Core nodes are supposed to be explicitly evicted (or "left") from
 %%    the cluster. Even if a core node is marked down for several hours,
 %%    helper won't attempt to purge its portion of the global routing
@@ -57,6 +61,7 @@
     post_start/0,
     monitor/1,
     is_routable/1,
+    unreachable_nodes/0,
     schedule_purge/0,
     schedule_force_purge/0
 ]).
@@ -75,6 +80,15 @@
 ]).
 
 -record(routing_node, {name, const = unused}).
+
+%% Status of a node that is down or has left the cluster.
+%% A node that is up has no record.
+-record(ns, {
+    node :: node(),
+    status :: down | left,
+    since :: _MonotonicTimestamp :: integer(),
+    reachable = false :: boolean()
+}).
 
 -define(TAB_STATUS, ?MODULE).
 
@@ -173,6 +187,32 @@ is_routable_v2(Node) ->
         error:badarg -> true
     end.
 
+-doc """
+Return the nodes that this node considers down or left.
+
+Dispatch to shared subscription members skips the members on these nodes. Each
+node finds them from membership events, and from the periodic reconcile, which
+also finds the nodes that went down before this node started.
+
+Returns `[]` at the cost of one `ets:info/2` call when no node is down, which is
+the common case, or when the router helper is not running.
+""".
+-spec unreachable_nodes() -> [node()].
+unreachable_nodes() ->
+    case ets:info(?TAB_STATUS, size) of
+        0 ->
+            [];
+        undefined ->
+            [];
+        _ ->
+            MS = ets:fun2ms(fun(#ns{node = Node, reachable = false}) -> Node end),
+            try
+                lists:delete(node(), ets:select(?TAB_STATUS, MS))
+            catch
+                error:badarg -> []
+            end
+    end.
+
 %% @doc Schedule dead node purges.
 -spec schedule_purge() -> scheduled.
 schedule_purge() ->
@@ -189,13 +229,6 @@ schedule_force_purge() ->
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
-
--record(ns, {
-    node :: node(),
-    status :: down | left,
-    since :: _MonotonicTimestamp :: integer(),
-    reachable = false :: boolean()
-}).
 
 init([]) ->
     process_flag(trap_exit, true),
@@ -246,7 +279,6 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    emqx_stats:cancel_update(route_stats),
     ekka:unmonitor(membership).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -330,13 +362,13 @@ reconcile(State = #{last_membership := MembersLast}) ->
     %% Missing core nodes must have been "force-left" from the cluster.
     %% On replicants, `cores()` may return `undefined` under severe connectivity loss.
     Members = emqx_maybe:define(cores(), MembersLast),
-    ok = lists:foreach(fun(Node) -> record_node_left(Node) end, MembersLast -- Members),
-    %% 2. Find out if there are (possibly) orphaned routes in the routing table.
+    ok = lists:foreach(fun record_node_left/1, MembersLast -- Members),
+    %% 2. Find out if there are (possibly) orphaned routes in the routing table,
+    %% or orphaned members in the shared subscription table.
     %% Mark them as down: they are most likely replicants.
     RunningNodes = mria:running_nodes(),
-    RoutingNodes = list_routing_nodes(),
-    OrphanNodes = [N || N <- RoutingNodes -- RunningNodes, lookup_node_status(N) == notfound],
-    ok = lists:foreach(fun(Node) -> record_node_down(Node) end, OrphanNodes),
+    OrphanNodes = [N || N <- list_orphan_nodes(RunningNodes), lookup_node_status(N) == notfound],
+    ok = lists:foreach(fun record_node_down/1, OrphanNodes),
     %% 3. Avoid purging live nodes, if missed lifecycle events for whatever reason.
     %% This is a fallback mechanism. It's also possible a node "leave" that triggered
     %% this reconcile has not yet finished "leaving". Since it's extremely unlikely,
@@ -437,7 +469,7 @@ purge_dead_node(Node) ->
 
 purge_dead_node_trans(Node) ->
     StillKnown = lookup_node_status(Node) =/= notfound,
-    case StillKnown andalso node_has_routes(Node) of
+    case StillKnown andalso node_has_state(Node) of
         true ->
             case cores() of
                 Nodes = [_ | _] ->
@@ -470,13 +502,41 @@ add_routing_node(Node) ->
     end.
 
 remove_routing_node(Node) ->
-    mria:dirty_delete(?ROUTING_NODE_V2, Node).
+    case emqx_router:get_schema_vsn() of
+        v3 -> ok;
+        v2 -> mria:dirty_delete(?ROUTING_NODE_V2, Node)
+    end.
 
 list_routing_nodes() ->
-    ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end)).
+    case emqx_router:get_schema_vsn() of
+        v3 -> [];
+        v2 -> ets:select(?ROUTING_NODE_V2, ets:fun2ms(fun(#routing_node{name = N}) -> N end))
+    end.
 
+%% Does the node have routes that a purge must remove?
+%% The node is in the routing node table when it added at least one route.
+%% v2 routing schema only: with v3 the table does not exist, and Mria removes
+%% the routes of a node that goes down (`auto_clean'), so there is nothing
+%% to purge.
 node_has_routes(Node) ->
     ets:member(?ROUTING_NODE_V2, Node).
+
+%% Nodes that are not running, but still own routes (v2 routing schema only)
+%% or shared subscription members.
+%% Replicants scan the shared subscription table too: only core nodes purge,
+%% but dispatch on every node skips the members of the nodes found here.
+list_orphan_nodes(RunningNodes) ->
+    RoutingNodes = list_routing_nodes() -- RunningNodes,
+    RoutingNodes ++ emqx_shared_sub:member_nodes(RunningNodes ++ RoutingNodes).
+
+%% Does the node own state that a purge removes?
+%% With v3, Mria removes the routes of the node (`auto_clean'), so only
+%% shared subscription members are left to purge.
+node_has_state(Node) ->
+    case emqx_router:get_schema_vsn() of
+        v3 -> emqx_shared_sub:has_members_on(Node);
+        v2 -> node_has_routes(Node) orelse emqx_shared_sub:has_members_on(Node)
+    end.
 
 %%
 
@@ -514,10 +574,9 @@ pick_responsible(Task) ->
     %% Pick a responsible core node.
     %% We expect the same node to be picked as responsible across the cluster (unless
     %% the cluster is highly turbulent).
-    Nodes = lists:sort(mria_mnesia:running_nodes()),
-    case length(Nodes) of
-        0 -> node();
-        N -> lists:nth(1 + erlang:phash2(Task, N), Nodes)
+    case lists:sort(mria_mnesia:running_nodes()) of
+        [] -> node();
+        Nodes -> lists:nth(1 + erlang:phash2(Task, length(Nodes)), Nodes)
     end.
 
 %%
