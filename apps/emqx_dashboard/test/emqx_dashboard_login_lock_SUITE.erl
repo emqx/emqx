@@ -35,6 +35,9 @@
 
 -define(USERNAME, <<"admin">>).
 -define(PASSWORD, <<"public_www1">>).
+-define(WRONG_PASSWORD, <<"wrong_password">>).
+-define(GOOD_TOTP, <<"123456">>).
+-define(BAD_TOTP, <<"654321">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -53,15 +56,17 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(_TestCase, Config) ->
+init_per_testcase(TestCase, Config) ->
     mnesia:clear_table(?ADMIN),
     emqx_dashboard_admin:add_user(
         ?USERNAME, ?PASSWORD, ?ROLE_SUPERUSER, <<"simple_description">>
     ),
     emqx_config:put([dashboard, unsuccessful_login_lock_duration], 1),
+    maybe_setup_mfa(TestCase),
     Config.
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(TestCase, Config) ->
+    maybe_teardown_mfa(TestCase),
     emqx_config:put([dashboard, unsuccessful_login_lock_duration], 600),
     emqx_dashboard_login_lock:cleanup_all(),
     Config.
@@ -238,6 +243,104 @@ t_cleanup_many(_) ->
     ct:sleep(100),
     ?assertEqual(1111, failed_attempt_record_count()).
 
+t_mfa_wrong_code_counts_as_unsuccessful_login(_) ->
+    repeat(max_attempts(), fun() ->
+        ?assertMatch(
+            {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+            mfa_login(?PASSWORD, ?BAD_TOTP)
+        )
+    end),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+        mfa_login(?PASSWORD, ?GOOD_TOTP)
+    ).
+
+t_mfa_wrong_password_and_code_counts_as_unsuccessful_login(_) ->
+    repeat(max_attempts(), fun() ->
+        ?assertMatch(
+            {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+            mfa_login(?WRONG_PASSWORD, ?BAD_TOTP)
+        )
+    end),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+        mfa_login(?PASSWORD, ?GOOD_TOTP)
+    ).
+
+t_mfa_missing_code_not_counted(_) ->
+    repeat(max_attempts() + 1, fun() ->
+        ?assertMatch(
+            {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+            mfa_login(?PASSWORD, undefined)
+        ),
+        ?assertMatch(
+            {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+            mfa_login(?WRONG_PASSWORD, undefined)
+        )
+    end),
+    ?assertEqual(0, failed_attempt_record_count()),
+    ?assertMatch({ok, _}, mfa_login(?PASSWORD, ?GOOD_TOTP)).
+
+t_mfa_wrong_code_and_wrong_password_share_limit(_) ->
+    5 = max_attempts(),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_USERNAME_OR_PWD">>}},
+        mfa_login(?WRONG_PASSWORD, ?GOOD_TOTP)
+    ),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+        mfa_login(?PASSWORD, ?BAD_TOTP)
+    ),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_USERNAME_OR_PWD">>}},
+        mfa_login(?WRONG_PASSWORD, ?GOOD_TOTP)
+    ),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+        mfa_login(?WRONG_PASSWORD, ?BAD_TOTP)
+    ),
+    ?assertEqual(4, failed_attempt_record_count()),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+        mfa_login(?PASSWORD, ?BAD_TOTP)
+    ),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+        mfa_login(?PASSWORD, ?GOOD_TOTP)
+    ).
+
+t_mfa_successful_login_resets_wrong_code_count(_) ->
+    BelowLimit = max_attempts() - 1,
+    WrongCodes = fun() ->
+        repeat(BelowLimit, fun() ->
+            ?assertMatch(
+                {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+                mfa_login(?PASSWORD, ?BAD_TOTP)
+            )
+        end)
+    end,
+    WrongCodes(),
+    ?assertMatch({ok, _}, mfa_login(?PASSWORD, ?GOOD_TOTP)),
+    %% The reset deletes the attempt records asynchronously.
+    ?retry(100, 20, ?assertEqual(0, failed_attempt_record_count())),
+    WrongCodes(),
+    ?assertEqual(BelowLimit, failed_attempt_record_count()),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+        mfa_login(?PASSWORD, ?BAD_TOTP)
+    ),
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"LOGIN_LOCKED">>}},
+        mfa_login(?PASSWORD, ?GOOD_TOTP)
+    ).
+
+t_mfa_wrong_password_and_code_is_one_attempt(_) ->
+    ?assertMatch(
+        {error, 401, #{<<"code">> := <<"BAD_MFA_TOKEN">>}},
+        mfa_login(?WRONG_PASSWORD, ?BAD_TOTP)
+    ),
+    ?assertEqual(1, failed_attempt_record_count()).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -260,3 +363,40 @@ noauth_header() ->
 
 failed_attempt_record_count() ->
     length(mnesia:dirty_all_keys(login_attempts)).
+
+max_attempts() ->
+    emqx_config:get([dashboard, unsuccessful_login_max_attempts]).
+
+repeat(N, Fun) ->
+    lists:foreach(fun(_) -> Fun() end, lists:seq(1, N)).
+
+mfa_login(Password, undefined) ->
+    api_post([login], #{username => ?USERNAME, password => Password});
+mfa_login(Password, MfaToken) ->
+    api_post([login], #{username => ?USERNAME, password => Password, mfa_token => MfaToken}).
+
+is_mfa_case(TestCase) ->
+    lists:prefix("t_mfa_", atom_to_list(TestCase)).
+
+maybe_setup_mfa(TestCase) ->
+    case is_mfa_case(TestCase) of
+        true ->
+            %% A long lock, so that it cannot expire before the assertions.
+            emqx_config:put([dashboard, unsuccessful_login_lock_duration], 600),
+            ok = meck:new(pot, [passthrough, no_history]),
+            ok = meck:expect(pot, valid_totp, fun(Token, _) -> Token =:= ?GOOD_TOTP end),
+            {ok, ok} = emqx_dashboard_admin:set_mfa_state(?USERNAME, #{
+                mechanism => totp,
+                secret => <<"JBSWY3DPEHPK3PXP">>,
+                first_verify_ts => erlang:system_time(second)
+            }),
+            ok;
+        false ->
+            ok
+    end.
+
+maybe_teardown_mfa(TestCase) ->
+    case is_mfa_case(TestCase) of
+        true -> ok = meck:unload(pot);
+        false -> ok
+    end.
