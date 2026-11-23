@@ -564,6 +564,25 @@ t_config_update_invalid_uescape(_Config) ->
     ),
     ?assertEqual(Before, read_conf(<<"mqtt">>)).
 
+%% `PUT /configs' refuses a change of `plugins.install_dir' in both modes, and accepts the
+%% value in use.
+t_config_update_plugins_install_dir(_Config) ->
+    InUse = emqx_config:get([plugins, install_dir]),
+    Hocon = fun(Dir) -> iolist_to_binary(["plugins { install_dir = \"", Dir, "\" }"]) end,
+    OtherDir = filename:join(InUse, "other"),
+    lists:foreach(
+        fun(Mode) ->
+            {error, Body} = update_configs_with_binary(Hocon(OtherDir), undefined, Mode),
+            ?assertMatch(
+                {_, _}, binary:match(Body, <<"install_dir_cannot_be_changed_at_runtime">>)
+            ),
+            ?assertEqual(InUse, emqx_config:get([plugins, install_dir])),
+            ?assertMatch({ok, _}, update_configs_with_binary(Hocon(InUse), undefined, Mode))
+        end,
+        [merge, replace]
+    ),
+    ?assertEqual(InUse, emqx_config:get([plugins, install_dir])).
+
 t_config_update_unknown_root(_Config) ->
     ?assertMatch(
         {error, <<"{\"errors\":{\"a\":\"{root_key_not_found,", _/binary>>},
@@ -625,15 +644,15 @@ update_configs_with_binary(Bin) ->
     update_configs_with_binary(Bin, _InogreReadonly = undefined).
 
 update_configs_with_binary(Bin, IgnoreReadonly) ->
-    Path =
+    update_configs_with_binary(Bin, IgnoreReadonly, merge).
+
+update_configs_with_binary(Bin, IgnoreReadonly, Mode) ->
+    QS =
         case IgnoreReadonly of
-            undefined ->
-                emqx_mgmt_api_test_util:api_path(["configs"]);
-            Boolean ->
-                emqx_mgmt_api_test_util:api_path([
-                    "configs?ignore_readonly=" ++ atom_to_list(Boolean)
-                ])
+            undefined -> "";
+            Boolean -> "&ignore_readonly=" ++ atom_to_list(Boolean)
         end,
+    Path = emqx_mgmt_api_test_util:api_path(["configs?mode=" ++ atom_to_list(Mode) ++ QS]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Headers = [{"accept", "text/plain"}, Auth],
     case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
