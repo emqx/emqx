@@ -438,6 +438,36 @@ t_config_update_unknown_root(_Config) ->
     ).
 
 -doc """
+`PUT /configs` refuses a change of `plugins.install_dir` in both modes, and accepts the
+value in use.
+""".
+t_config_update_plugins_install_dir(_Config) ->
+    InUse = emqx_plugins_fs:install_dir(),
+    Hocon = fun(Dir) -> iolist_to_binary(["plugins { install_dir = \"", Dir, "\" }"]) end,
+    OtherDir = filename:join(InUse, "other"),
+    lists:foreach(
+        fun(Mode) ->
+            {error, Body} = put_configs_text(Mode, Hocon(OtherDir)),
+            ?assertMatch(
+                {_, _}, binary:match(Body, <<"install_dir_cannot_be_changed_at_runtime">>)
+            ),
+            ?assertEqual(InUse, emqx_plugins_fs:install_dir()),
+            ?assertMatch({ok, _}, put_configs_text(Mode, Hocon(InUse)))
+        end,
+        [merge, replace]
+    ),
+    ?assertEqual(InUse, emqx_plugins_fs:install_dir()).
+
+%% `PUT /configs?mode=Mode' with a text body. Returns `{ok, Body}' or `{error, Body}'.
+put_configs_text(Mode, Bin) ->
+    Path = emqx_mgmt_api_test_util:api_path(["configs?mode=" ++ atom_to_list(Mode)]),
+    Headers = [{"accept", "text/plain"}, emqx_mgmt_api_test_util:auth_header_()],
+    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
+        {ok, {{"HTTP/1.1", 200, _}, _, Body}} -> {ok, Body};
+        {ok, {{"HTTP/1.1", 400, _}, _, Body}} -> {error, Body}
+    end.
+
+-doc """
 A merge of `log` that omits `log.file` succeeds and keeps the file handlers.
 """.
 t_config_merge_log_without_file(_Config) ->
