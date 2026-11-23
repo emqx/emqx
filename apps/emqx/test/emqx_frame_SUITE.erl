@@ -1257,7 +1257,24 @@ t_serialize_parse_subscribe_v5(_) ->
         {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0}}
     ],
     Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF}, TopicFilters),
-    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})),
+    %% reserved bits 6 and 7 of the Subscription Options byte (MQTT-3.8.3-5);
+    %% the packet has packet id 1, no properties and one filter "t"
+    V5 = #{strict_mode => true, version => ?MQTT_PROTO_V5},
+    lists:foreach(
+        fun(Opts) ->
+            ?ASSERT_FRAME_THROW(
+                reserved_subopts,
+                parse_to_packet(<<16#82, 7, 0, 1, 0, 0, 1, $t, Opts>>, V5)
+            )
+        end,
+        [16#40, 16#80, 16#C0]
+    ),
+    %% every other bit may be set: Retain Handling 2, RAP, NL, QoS 2
+    ?assertMatch(
+        ?SUBSCRIBE_PACKET(1, #{}, [{<<"t">>, #{rh := 2, rap := 1, nl := 1, qos := 2}}]),
+        parse_to_packet(<<16#82, 7, 0, 1, 0, 0, 1, $t, 16#2E>>, V5)
+    ).
 
 t_serialize_parse_suback(_) ->
     Packet = ?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128]),
