@@ -1249,6 +1249,12 @@ t_serialize_parse_subscribe(_) ->
             )
         end,
         [16#40, 16#80, 16#C0]
+    ),
+    %% bits 2 to 5 are reserved in MQTT 3.1.1 too, but have always been accepted:
+    %% with bits 6 and 7 clear, nonzero Retain Handling, RAP and NL still parse
+    ?assertMatch(
+        ?SUBSCRIBE_PACKET(1, [{<<"t">>, #{rh := 2, rap := 1, nl := 1, qos := 2}}]),
+        parse_to_packet(<<16#82, 6, 0, 1, 0, 1, $t, 16#2E>>, #{strict_mode => true})
     ).
 
 t_serialize_parse_subscribe_v5(_) ->
