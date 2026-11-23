@@ -162,6 +162,11 @@ search(Pid, SearchOptions) ->
     Result = eldap:search(Pid, SearchOptions),
     handle_ldap_result(Pid, Result).
 
+%% A simple bind with an empty password is an unauthenticated bind
+%% (RFC 4513, section 5.1.2). It does not check a password.
+%% Return the wrong-password result and send no bind request.
+simple_bind(_Pid, _DN, Password) when Password =:= <<>>; Password =:= "" ->
+    {error, 'invalidCredentials'};
 simple_bind(Pid, DN, Password) ->
     Result = eldap:simple_bind(Pid, DN, Password),
     handle_ldap_result(Pid, Result).
