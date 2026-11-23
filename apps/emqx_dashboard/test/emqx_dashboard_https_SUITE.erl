@@ -306,6 +306,42 @@ t_bad_certfile(_Config) ->
         application:ensure_all_started(emqx_dashboard)
     ).
 
+t_h2_auth_challenge(init, Config) ->
+    DashboardConf = #{
+        <<"dashboard">> => #{
+            <<"listeners">> => #{<<"https">> => #{<<"bind">> => 18084}}
+        }
+    },
+    {ok, _} = application:ensure_all_started(gun),
+    Apps = emqx_cth_suite_start(?FUNCTION_NAME, DashboardConf, Config),
+    [{apps, Apps} | Config];
+t_h2_auth_challenge('end', Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)).
+t_h2_auth_challenge(_Config) ->
+    {ok, Conn} = gun:open("127.0.0.1", 18084, #{
+        transport => tls,
+        protocols => [http2],
+        tls_opts => [{verify, verify_none}],
+        retry => 0
+    }),
+    try
+        ?assertEqual({ok, http2}, gun:await_up(Conn, 5000)),
+        assert_h2_auth_challenge(Conn, []),
+        InvalidKey = base64:encode(<<"no-such-key:no-such-secret">>),
+        assert_h2_auth_challenge(Conn, [{<<"authorization">>, <<"Basic ", InvalidKey/binary>>}])
+    after
+        gun:close(Conn)
+    end.
+
+assert_h2_auth_challenge(Conn, Headers) ->
+    StreamRef = gun:get(Conn, ?BASE_PATH ++ "/clients", Headers),
+    {response, nofin, 401, ResponseHeaders} = gun:await(Conn, StreamRef, 5000),
+    ?assertMatch(
+        {<<"www-authenticate">>, <<"Basic ", _/binary>>},
+        lists:keyfind(<<"www-authenticate">>, 1, ResponseHeaders)
+    ),
+    {ok, _} = gun:await_body(Conn, StreamRef, 5000).
+
 validate_https(MaxConnection, SSLCert, Verify) ->
     assert_ranch_options(MaxConnection, SSLCert, Verify),
     assert_https_request().
