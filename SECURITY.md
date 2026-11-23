@@ -180,7 +180,7 @@ know about them before reporting.
 
 We are open to reports that turn out to match one of these. We will tell you that
 the issue is already tracked and give you the internal reference
-(`emqx-dev-team-tasks#NUM`) so you know it is a real record, even though the
+(`emqx-dev-backlog#NUM`) so you know it is a real record, even though the
 repository is private and you will not be able to open it.
 
 Such a report is **not treated as a new finding**. We will still confirm the
