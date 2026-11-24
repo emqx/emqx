@@ -491,8 +491,8 @@ decode_resp1(_) ->
 
 valid_init_result(ok, NeedBootstrap) ->
     is_boolean(NeedBootstrap);
-valid_init_result({error, _}, undefined) ->
-    true;
+valid_init_result({error, _}, NeedBootstrap) ->
+    NeedBootstrap =:= undefined orelse NeedBootstrap =:= false;
 valid_init_result(_, _) ->
     false.
 

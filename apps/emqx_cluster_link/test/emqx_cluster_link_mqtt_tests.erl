@@ -77,7 +77,7 @@ actor_init_ack_types_test_() ->
                 }},
                 decode_ack(Ack#{?RESULT := Result, ?NEED_BOOTSTRAP := Bootstrap})
             )
-         || {Result, Bootstrap} <- [{ok, true}, {ok, false}, {Error, undefined}]
+         || {Result, Bootstrap} <- [{ok, true}, {ok, false}, {Error, undefined}, {Error, false}]
         ],
         ?_assertEqual({error, invalid_actor_init_ack}, emqx_cluster_link_mqtt:decode_resp(<<>>)),
         ?_assertEqual({error, invalid_actor_init_ack}, decode_ack(maps:remove(?PROTO_VER, Ack))),
