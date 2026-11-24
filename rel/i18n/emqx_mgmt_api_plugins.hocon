@@ -26,7 +26,8 @@ trigger_action_desc.label:
 """Trigger Action"""
 
 get_plugin_config_desc.desc:
-"""Get plugin config. Config schema is defined by user's schema.avsc file."""
+"""Get plugin config. Config schema is defined by user's schema.avsc file.
+Credentials in the returned config are masked."""
 get_plugin_config_desc.label:
 """Get Plugin Config"""
 
@@ -36,7 +37,8 @@ update_plugin_config_desc.label:
 """Update Plugin Config"""
 
 download_plugin_config_desc.desc:
-"""Download plugin config."""
+"""Download plugin config as a backup file.
+The file contains the stored config, including credentials. Credentials are not masked."""
 download_plugin_config_desc.label:
 """Download Plugin Config"""
 

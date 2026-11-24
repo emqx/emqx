@@ -416,9 +416,17 @@ t_pinned_plugin(_Config) ->
     ConfigPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]),
     {200, Config0} = emqx_mgmt_api_test_util:simple_request(get, ConfigPath, ""),
     ?assertMatch(#{<<"hostname">> := <<"localhost">>}, Config0),
+    %% The read API masks the password, and the update keeps the stored one.
+    ?assertMatch(
+        #{<<"auth">> := #{<<"password">> := #{<<"string">> := <<"******">>}}}, Config0
+    ),
     Config1 = Config0#{<<"port">> => 3308},
     ?assertMatch({204, _}, emqx_mgmt_api_test_util:simple_request(put, ConfigPath, Config1)),
     ?assertEqual({200, Config1}, emqx_mgmt_api_test_util:simple_request(get, ConfigPath, "")),
+    Stored1 = emqx_plugins:get_config(NameVsn),
+    ?assertMatch(
+        #{<<"port">> := 3308, <<"auth">> := #{<<"password">> := #{<<"string">> := _}}}, Stored1
+    ),
     ?assert(filelib:is_regular(emqx_plugins_fs:config_file_path(NameVsn))),
     %% A node whose plugin discovery call crashes is still asked to update, so
     %% that a failure on it is reported instead of skipped.
@@ -472,7 +480,7 @@ t_pinned_plugin(_Config) ->
         ok,
         emqx_mgmt_api_plugins:do_update_plugin_config_v4(OtherVsn, #{<<"hostname">> => <<"x">>})
     ),
-    ?assertEqual(Config1, emqx_plugins:get_config(NameVsn)),
+    ?assertEqual(Stored1, emqx_plugins:get_config(NameVsn)),
     ?assert(plugin_is_running(NameVsn)),
     ok.
 
@@ -793,6 +801,104 @@ t_upload_download_config(_Config) ->
     ),
     %% Clean up
     {ok, []} = uninstall_plugin(NameVsn).
+
+-doc """
+The config read API masks credentials, the config update API keeps the stored values for
+masked fields, and the download API returns the stored config. The test plugin has no code,
+so the masking does not depend on plugin code.
+""".
+t_config_redaction(Config) ->
+    %% A plain password, a string union credential, a header list, and a union
+    %% whose record holds a password.
+    Schema =
+        ~"""
+    {"type": "record", "name": "redact_plugin", "fields": [
+        {"name": "foo", "type": "string"},
+        {"name": "password", "type": "string"},
+        {"name": "token", "type": ["null", "string"]},
+        {"name": "headers", "type": {"type": "array", "items": {
+            "type": "record", "name": "NameValue", "fields": [
+                {"name": "name", "type": "string"},
+                {"name": "value", "type": "string"}
+            ]
+        }}},
+        {"name": "auth", "type": ["null", {
+            "type": "record", "name": "Auth", "fields": [
+                {"name": "user", "type": "string"},
+                {"name": "password", "type": "string"}
+            ]
+        }]}
+    ]}
+    """,
+    %% The plugin name is not used by other cases: the broker keeps the local
+    %% config of a plugin by its name, also after the plugin is uninstalled.
+    PackagePath = make_test_plugin_package(
+        Config,
+        "redact_plugin",
+        "1.0.0",
+        "redact_plugin",
+        "0.1.0",
+        Schema,
+        ~"""
+        foo = "bar"
+        password = "secret"
+        token {string = "token-secret"}
+        headers = [
+            {name = "Authorization", value = "Bearer token"},
+            {name = "X-Label", value = "visible"}
+        ]
+        auth {Auth {user = "u", password = "auth-secret"}}
+        """,
+        <<"{application, redact_plugin, [{vsn, \"0.1.0\"}]}.\n">>
+    ),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    on_exit(fun() ->
+        _ = emqx_plugins:ensure_stopped(NameVsn),
+        _ = emqx_plugins:ensure_disabled(NameVsn),
+        _ = emqx_plugins:ensure_uninstalled(NameVsn),
+        _ = emqx_plugins:delete_package(NameVsn),
+        _ = file:delete(emqx_plugins_fs:config_file_path(NameVsn))
+    end),
+    ok = allow_package(PackagePath),
+    ok = install_plugin(PackagePath),
+    %% The read API masks every credential and keeps other values.
+    ConfigPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config"]),
+    {ok, ReadBody} = emqx_mgmt_api_test_util:request_api(get, ConfigPath),
+    Redacted = emqx_utils_json:decode(ReadBody),
+    ?assertEqual(
+        #{
+            <<"foo">> => <<"bar">>,
+            <<"password">> => <<"******">>,
+            <<"token">> => #{<<"string">> => <<"******">>},
+            <<"headers">> => [
+                #{<<"name">> => <<"Authorization">>, <<"value">> => <<"******">>},
+                #{<<"name">> => <<"X-Label">>, <<"value">> => <<"visible">>}
+            ],
+            <<"auth">> => #{
+                <<"Auth">> => #{<<"user">> => <<"u">>, <<"password">> => <<"******">>}
+            }
+        },
+        Redacted
+    ),
+    %% The update with masked values keeps the stored credentials.
+    ?assertMatch({ok, 204, _}, update_plugin_config(NameVsn, Redacted#{<<"foo">> => <<"baz">>})),
+    Stored = #{
+        <<"foo">> => <<"baz">>,
+        <<"password">> => <<"secret">>,
+        <<"token">> => #{<<"string">> => <<"token-secret">>},
+        <<"headers">> => [
+            #{<<"name">> => <<"Authorization">>, <<"value">> => <<"Bearer token">>},
+            #{<<"name">> => <<"X-Label">>, <<"value">> => <<"visible">>}
+        ],
+        <<"auth">> => #{
+            <<"Auth">> => #{<<"user">> => <<"u">>, <<"password">> => <<"auth-secret">>}
+        }
+    },
+    ?assertEqual(Stored, emqx_plugins:get_config(NameVsn)),
+    %% The download returns the stored config with the credentials.
+    DownloadPath = emqx_mgmt_api_test_util:api_path(["plugins", NameVsn, "config", "download"]),
+    {ok, DownloadBody} = emqx_mgmt_api_test_util:request_api(get, DownloadPath),
+    ?assertEqual(Stored, emqx_utils_json:decode(DownloadBody)).
 
 -doc """
 A JSON body on the config upload endpoint returns 400 BAD_FORM_DATA, not 500.
