@@ -32,8 +32,8 @@ register(RegFrame, #auth{registry = RegUrl}) ->
     case request(RegUrl, Params) of
         {ok, 200, Body} ->
             case emqx_utils_json:safe_decode(Body) of
-                {ok, #{<<"code">> := 0, <<"authcode">> := Authcode}} ->
-                    {ok, Authcode};
+                {ok, #{<<"code">> := 0, <<"authcode">> := AuthCode}} ->
+                    {ok, AuthCode};
                 {ok, #{<<"code">> := Code}} ->
                     {error, Code};
                 _ ->
@@ -70,7 +70,9 @@ authenticate(AuthFrame, #auth{authentication = AuthUrl}) ->
 request(Url, Params) ->
     RetryOpts = #{times => 3, interval => 1000, backoff => 2.0},
     Req = {Url, [], "application/json", emqx_utils_json:encode(Params)},
-    reply(request_(post, Req, [{autoredirect, true}], [{body_format, binary}], RetryOpts)).
+    %% Redirects are not followed so a validated target cannot bounce the
+    %% request to an internal address.
+    reply(request_(post, Req, [{autoredirect, false}], [{body_format, binary}], RetryOpts)).
 
 request_(
     Method,

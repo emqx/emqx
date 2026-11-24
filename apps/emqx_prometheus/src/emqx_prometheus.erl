@@ -73,7 +73,7 @@
 
 -define(TIMER_MSG, '#interval').
 
--define(HTTP_OPTIONS, [{autoredirect, true}, {timeout, 60000}]).
+-define(HTTP_OPTIONS, [{autoredirect, false}, {timeout, 60000}]).
 
 -define(SAFELY(EXPR, ELSE),
     (try
