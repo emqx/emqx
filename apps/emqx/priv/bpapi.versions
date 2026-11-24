@@ -44,6 +44,7 @@
 {emqx_mgmt_api_plugins,5}.
 {emqx_mgmt_cluster,2}.
 {emqx_mgmt_cluster,3}.
+{emqx_mgmt_cursor,1}.
 {emqx_mgmt_data_backup,1}.
 {emqx_mgmt_data_backup,2}.
 {emqx_mgmt_data_backup,3}.

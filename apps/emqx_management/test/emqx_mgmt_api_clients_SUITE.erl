@@ -64,7 +64,8 @@ persistent_session_testcases() ->
         t_delete_offline_durable_session,
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
-        t_list_clients_v2_bad_query_string_parameters
+        t_list_clients_v2_bad_query_string_parameters,
+        t_list_clients_v2_remote_cursor
     ].
 persistence_disabled_cluster_testcases() ->
     [
@@ -1954,7 +1955,7 @@ t_list_clients_v2(Config) ->
             %% Verify that a malicious cursor that could generate an atom on the node is
             %% rejected
             EvilAtomBin0 = <<131, 100, 0, 5, "some_atom_that_doesnt_exist_on_the_remote_node">>,
-            EvilAtomBin = emqx_base62:encode(EvilAtomBin0),
+            EvilAtomBin = base64:encode(EvilAtomBin0, #{mode => urlsafe, padding => false}),
 
             ?assertMatch(
                 {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
@@ -2339,6 +2340,66 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
         end,
         []
     ),
+    ok.
+
+-doc "A cursor ID that one node issued is looked up on that node when another node receives it.".
+t_list_clients_v2_remote_cursor(Config) ->
+    [N1, N2] = ?config(cluster_nodes, Config),
+    %% The first ETS page on the first node
+    CursorTerm = [1, 1, #{1 => 1, 2 => undefined}],
+    Id = erpc:call(N2, emqx_mgmt_cursor, store, [clients_v2, CursorTerm]),
+    ?assertEqual({ok, CursorTerm}, erpc:call(N1, emqx_mgmt_cursor, lookup, [clients_v2, Id])),
+    ?assertMatch({ok, {{_, 200, _}, _, _}}, list_v2_request(#{limit => "1", cursor => Id}, Config)),
+    ok.
+
+-doc "`GET /clients_v2` accepts only a cursor ID that a node issued.".
+t_list_clients_v2_unknown_cursor(Config) ->
+    CursorTerm = [1, 1, #{1 => 1, 2 => undefined}],
+    Base62 = emqx_base62:encode(term_to_binary(CursorTerm)),
+    Base64 = base64:encode(term_to_binary(CursorTerm), #{mode => urlsafe, padding => false}),
+    UnknownId = base64:encode(
+        <<(crypto:strong_rand_bytes(16))/binary, (atom_to_binary(node()))/binary>>,
+        #{mode => urlsafe, padding => false}
+    ),
+    lists:foreach(
+        fun(Cursor) ->
+            ?assertMatch(
+                {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
+                list_v2_request(#{limit => "1", cursor => Cursor}, Config)
+            )
+        end,
+        [Base62, Base64, UnknownId]
+    ),
+    ok.
+
+-doc "When a node has too many open cursors, a new cursor drops the oldest one.".
+t_list_clients_v2_cursor_limit(Config) ->
+    Clients = [
+        begin
+            {ok, C} = emqtt:start_link(#{clientid => ClientId}),
+            {ok, _} = emqtt:connect(C),
+            C
+        end
+     || ClientId <- [<<"cursor_limit1">>, <<"cursor_limit2">>]
+    ],
+    try
+        application:set_env(emqx_management, cursor_max_open, 1),
+        {ok, {{_, 200, _}, _, #{<<"meta">> := #{<<"cursor">> := Cursor1}}}} =
+            list_v2_request(#{limit => "1"}, Config),
+        {ok, {{_, 200, _}, _, #{<<"meta">> := #{<<"cursor">> := Cursor2}}}} =
+            list_v2_request(#{limit => "1"}, Config),
+        ?assertMatch(
+            {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
+            list_v2_request(#{limit => "1", cursor => Cursor1}, Config)
+        ),
+        ?assertMatch(
+            {ok, {{_, 200, _}, _, _}},
+            list_v2_request(#{limit => "1", cursor => Cursor2}, Config)
+        )
+    after
+        application:unset_env(emqx_management, cursor_max_open),
+        lists:foreach(fun emqtt:stop/1, Clients)
+    end,
     ok.
 
 -doc """
