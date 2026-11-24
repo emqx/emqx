@@ -633,3 +633,25 @@ link_name(#st{actor = ?PS_ACTOR = Actor, target = Target}) ->
     <<"cluster_link:", Target/binary, ":", (get_actor_id())/binary, ":", Actor/binary>>;
 link_name(#st{actor = Actor, target = Target}) ->
     <<"cluster_link:", Target/binary, ":", Actor/binary>>.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+invalid_ack_preserves_pending_handshake_test() ->
+    ReqId = <<"request-1">>,
+    St0 = mk_state(#{name => <<"east">>}, <<"node@west">>, 1),
+    TRef = erlang:start_timer(?ACTOR_INIT_TIMEOUT, self(), actor_init_timeout),
+    try
+        St = St0#st{actor_init_req_id = ReqId, actor_init_timer = TRef},
+        Publish =
+            {publish, #{
+                properties => #{'Correlation-Data' => ReqId},
+                payload => term_to_binary(#{'$op' => <<"actor_init_ack">>})
+            }},
+        ?assertEqual({noreply, St}, handle_info(Publish, St)),
+        ?assert(is_integer(erlang:read_timer(TRef)))
+    after
+        erlang:cancel_timer(TRef)
+    end.
+
+-endif.
