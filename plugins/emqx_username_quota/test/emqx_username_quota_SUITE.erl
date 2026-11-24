@@ -585,8 +585,8 @@ t_api_list_malformed_cursor(_Config) ->
         [<<"quota">>, <<"usernames">>],
         #{query_string => #{<<"cursor">> => <<"not-valid-base64!@#">>}}
     ),
-    %% Valid base64 but wrong Erlang term structure inside
-    BadCursor = base64:encode(term_to_binary({wrong, structure}), #{
+    %% Valid base64 but wrong JSON structure inside
+    BadCursor = base64:encode(<<"{\"wrong\":\"structure\"}">>, #{
         mode => urlsafe, padding => false
     }),
     {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
@@ -594,11 +594,22 @@ t_api_list_malformed_cursor(_Config) ->
         [<<"quota">>, <<"usernames">>],
         #{query_string => #{<<"cursor">> => BadCursor}}
     ),
-    %% Valid cursor format but references a different node
-    RemoteCursor = base64:encode(
-        term_to_binary({'other@host', 1, 1, {0, <<"u">>}}),
-        #{mode => urlsafe, padding => false}
+    %% Valid base64 of an Erlang term: not accepted
+    TermCursor = base64:encode(term_to_binary({node(), 1, 1, {0, <<"u">>}}), #{
+        mode => urlsafe, padding => false
+    }),
+    {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => TermCursor}}
     ),
+    {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => BadCursor}}
+    ),
+    %% Valid cursor format but references a different node
+    RemoteCursor = emqx_username_quota_snapshot:encode_cursor('other@host', 1, 1, {0, <<"u">>}),
     {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
         get,
         [<<"quota">>, <<"usernames">>],
