@@ -156,6 +156,29 @@ t_install_plugin_sha256_mismatch(Config) ->
     ok = disallow_installation(NameVsn),
     ok.
 
+t_install_plugin_bad_file_name(Config) ->
+    DemoShDir = proplists:get_value(demo_sh_dir, Config),
+    PackagePath = get_demo_plugin_package(DemoShDir),
+    NameVsn = filename:basename(PackagePath, ?PACKAGE_SUFFIX),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok = emqx_plugins:delete_package(NameVsn),
+    {ok, Bin} = file:read_file(PackagePath),
+    BadNameVsn = "../" ++ NameVsn,
+    ok = allow_installation(BadNameVsn),
+    on_exit(fun() -> disallow_installation(BadNameVsn) end),
+    {ok, {{_, 400, _}, _, Body}} = install_plugin_as(BadNameVsn ++ ?PACKAGE_SUFFIX, Bin),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_PLUGIN_INFO">>,
+            <<"message">> := <<"Bad plugin file name: ", _/binary>>
+        },
+        emqx_utils_json:decode(Body, [return_maps])
+    ),
+    InstallDir = emqx_plugins:install_dir(),
+    ?assertNot(filelib:is_file(filename:join(InstallDir, BadNameVsn ++ ?PACKAGE_SUFFIX))),
+    ?assertNot(filelib:is_file(filename:join(InstallDir, NameVsn ++ ?PACKAGE_SUFFIX))),
+    ok.
+
 t_install_plugin_matching_exisiting_name(Config) ->
     DemoShDir = proplists:get_value(demo_sh_dir, Config),
     PackagePath = get_demo_plugin_package(DemoShDir),
@@ -324,6 +347,18 @@ install_plugin(FilePath) ->
         {ok, {{"HTTP/1.1", 204, "No Content"}, _Headers, <<>>}} -> ok;
         Error -> Error
     end.
+
+%% Upload `Bin' under the file name `FileName'.
+install_plugin_as(FileName, Bin) ->
+    {ok, _Role, Token} = emqx_dashboard_admin:sign_token(<<"admin">>, <<"public">>),
+    Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
+    Boundary = emqx_utils:rand_id(32),
+    Body = emqx_mgmt_api_test_util:format_multipart_formdata(
+        Bin, [], "plugin", [FileName], <<"application/gzip">>, Boundary
+    ),
+    ContentType = "multipart/form-data; boundary=" ++ binary_to_list(Boundary),
+    Headers = [{"Authorization", "Bearer " ++ binary_to_list(Token)}],
+    httpc:request(post, {Path, Headers, ContentType, Body}, [], [{body_format, binary}]).
 
 install_plugin(Config, FilePath) ->
     #{host := Host, auth := Auth} = get_host_and_auth(Config),
