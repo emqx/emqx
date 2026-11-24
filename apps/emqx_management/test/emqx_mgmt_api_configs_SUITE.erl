@@ -447,25 +447,27 @@ t_config_update_plugins_install_dir(_Config) ->
     OtherDir = filename:join(InUse, "other"),
     lists:foreach(
         fun(Mode) ->
-            {error, Body} = put_configs_text(Mode, Hocon(OtherDir)),
+            {400, #{<<"errors">> := Reason}} = put_configs_text(Mode, Hocon(OtherDir)),
             ?assertMatch(
-                {_, _}, binary:match(Body, <<"install_dir_cannot_be_changed_at_runtime">>)
+                {_, _}, binary:match(Reason, <<"install_dir_cannot_be_changed_at_runtime">>)
             ),
             ?assertEqual(InUse, emqx_plugins_fs:install_dir()),
-            ?assertMatch({ok, _}, put_configs_text(Mode, Hocon(InUse)))
+            ?assertMatch({200, _}, put_configs_text(Mode, Hocon(InUse)))
         end,
         [merge, replace]
     ),
     ?assertEqual(InUse, emqx_plugins_fs:install_dir()).
 
-%% `PUT /configs?mode=Mode' with a text body. Returns `{ok, Body}' or `{error, Body}'.
+%% `PUT /configs?mode=Mode' with a text body. Returns `{Status, Body}'.
 put_configs_text(Mode, Bin) ->
-    Path = emqx_mgmt_api_test_util:api_path(["configs?mode=" ++ atom_to_list(Mode)]),
-    Headers = [{"accept", "text/plain"}, emqx_mgmt_api_test_util:auth_header_()],
-    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
-        {ok, {{"HTTP/1.1", 200, _}, _, Body}} -> {ok, Body};
-        {ok, {{"HTTP/1.1", 400, _}, _, Body}} -> {error, Body}
-    end.
+    emqx_mgmt_api_test_util:simple_request(#{
+        url => emqx_mgmt_api_test_util:api_path(["configs"]),
+        method => put,
+        query_params => #{mode => atom_to_binary(Mode)},
+        auth_header => [{"accept", "text/plain"}, emqx_mgmt_api_test_util:auth_header_()],
+        'content-type' => "text/plain",
+        body => {raw, Bin}
+    }).
 
 -doc """
 A merge of `log` that omits `log.file` succeeds and keeps the file handlers.
