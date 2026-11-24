@@ -1645,12 +1645,15 @@ pos_decoder(MsgType) ->
 decode_pos(mqueue_msgs, Pos) ->
     decode_mqueue_pos(Pos);
 decode_pos(inflight_msgs, Pos) ->
-    try binary_to_term(cow_base64url:decode(Pos, #{padding => false}), [safe]) of
-        Cursor -> Cursor
-    catch
-        %% NOTE
-        %% Compatibility with integer timestamp positions returned by older inflight APIs.
-        error:_ -> decode_msg_pos(Pos)
+    case emqx_utils_cursor:decode_json(Pos) of
+        {ok, #{<<"t">> := Ts, <<"p">> := PacketId}} when is_integer(Ts), is_integer(PacketId) ->
+            {Ts, PacketId};
+        {ok, _} ->
+            error(badarg);
+        {error, bad_cursor} ->
+            %% NOTE
+            %% Compatibility with integer timestamp positions returned by older inflight APIs.
+            decode_msg_pos(Pos)
     end.
 
 encode_msgs_meta(inflight_msgs, #{start := StartPos, position := Pos}) ->
@@ -1678,8 +1681,8 @@ encode_pos(end_of_data) ->
 encode_pos(Pos) when is_integer(Pos) ->
     %% Preserve the decimal format of legacy inflight positions.
     integer_to_binary(Pos);
-encode_pos(Pos) ->
-    cow_base64url:encode(term_to_binary(Pos), #{padding => false}).
+encode_pos({Ts, PacketId}) ->
+    emqx_utils_cursor:encode_json(#{<<"t">> => Ts, <<"p">> => PacketId}).
 
 -spec decode_mqueue_pos(binary()) -> {integer(), infinity | integer()}.
 decode_mqueue_pos(Pos) ->
