@@ -1816,7 +1816,7 @@ t_list_clients_v2(Config) ->
             %% Verify that a malicious cursor that could generate an atom on the node is
             %% rejected
             EvilAtomBin0 = <<131, 100, 0, 5, "some_atom_that_doesnt_exist_on_the_remote_node">>,
-            EvilAtomBin = emqx_base62:encode(EvilAtomBin0),
+            EvilAtomBin = base64:encode(EvilAtomBin0, #{mode => urlsafe, padding => false}),
 
             ?assertMatch(
                 {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
@@ -2001,6 +2001,23 @@ t_list_clients_v2_bad_query_string_parameters(Config) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% `GET /clients_v2` accepts only a cursor that a node of the cluster issued.
+t_list_clients_v2_unsigned_cursor(Config) ->
+    %% A well-formed cursor term that no node issued
+    CursorTerm = [1, 1, #{1 => 1, 2 => undefined}],
+    Base62 = emqx_base62:encode(term_to_binary(CursorTerm)),
+    Base64 = base64:encode(term_to_binary(CursorTerm), #{mode => urlsafe, padding => false}),
+    lists:foreach(
+        fun(Cursor) ->
+            ?assertMatch(
+                {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
+                list_v2_request(#{limit => "1", cursor => Cursor}, Config)
+            )
+        end,
+        [Base62, Base64]
     ),
     ok.
 
