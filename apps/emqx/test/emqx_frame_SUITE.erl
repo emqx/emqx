@@ -1353,7 +1353,7 @@ t_parse_publish_with_connect_limits(_Config) ->
                 strict_mode => Strict,
                 max_connect_user_properties => 0
             }),
-            ?assertMatch({ok, Packet, <<>>, _}, emqx_frame:parse(Bin, State))
+            ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin, State))
         end,
         [{QoS, Strict} || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Strict <- [false, true]]
     ),
