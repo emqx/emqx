@@ -84,6 +84,7 @@ groups() ->
         ]},
         {publish, [parallel], [
             t_parse_sticky_frames,
+            t_parse_publish_with_connect_limits,
             t_serialize_parse_qos0_publish,
             t_serialize_parse_qos1_publish,
             t_serialize_parse_qos2_publish,
@@ -1332,6 +1333,29 @@ t_invalid_will_qos(_) ->
             cause := invalid_will_qos, proto_ver := ?MQTT_PROTO_V5, proto_name := <<"MQTT">>
         }},
         emqx_frame:parse(ConnectBinFun(Will_T_WillQoS3))
+    ),
+    ok.
+
+%% PUBLISH parsing keeps the properties and ignores the CONNECT-only limits.
+t_parse_publish_with_connect_limits(_Config) ->
+    Props = #{'User-Property' => [{<<"key">>, <<"one">>}, {<<"key">>, <<"two">>}]},
+    lists:foreach(
+        fun({QoS, Strict}) ->
+            PacketId =
+                case QoS of
+                    ?QOS_0 -> undefined;
+                    _ -> 1
+                end,
+            Packet = ?PUBLISH_PACKET(QoS, <<"ordinary/topic">>, PacketId, Props, payload(1024)),
+            Bin = serialize_to_binary(Packet, ?MQTT_PROTO_V5),
+            State = emqx_frame:initial_parse_state(#{
+                version => ?MQTT_PROTO_V5,
+                strict_mode => Strict,
+                max_connect_user_properties => 0
+            }),
+            ?assertMatch({Packet, <<>>, _}, emqx_frame:parse(Bin, State))
+        end,
+        [{QoS, Strict} || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Strict <- [false, true]]
     ),
     ok.
 
