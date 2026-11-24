@@ -372,6 +372,90 @@ test_legacy_plugin(#{app_name := AppName} = LegacyPlugin, _Config) ->
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
+%% A config update of the `plugins' root that changes `install_dir' fails, and the directory
+%% in use does not change. An update with the same value, or without the key, succeeds.
+t_install_dir_change_refused({init, Config}) ->
+    Config;
+t_install_dir_change_refused({'end', _Config}) ->
+    ok;
+t_install_dir_change_refused(_Config) ->
+    InUse = emqx_config:get([plugins, install_dir]),
+    OtherDir = filename:join(InUse, "other"),
+    Opts = #{rawconf_with_defaults => true, override_to => cluster},
+    ?assertMatch(
+        {error,
+            {pre_config_update, emqx_plugins, #{
+                reason := install_dir_cannot_be_changed_at_runtime
+            }}},
+        emqx_conf:update([plugins], #{<<"install_dir">> => bin(OtherDir)}, Opts)
+    ),
+    ?assertEqual(InUse, emqx_config:get([plugins, install_dir])),
+    ?assertEqual(bin(InUse), emqx:get_raw_config([plugins, install_dir])),
+    %% `emqx ctl conf load' and `PUT /api/v5/configs', in both modes
+    Hocon = iolist_to_binary(["plugins { install_dir = \"", OtherDir, "\" }"]),
+    ?assertMatch({error, _}, emqx_conf_cli:load_config(Hocon, #{mode => merge})),
+    ?assertMatch({error, _}, emqx_conf_cli:load_config(Hocon, #{mode => replace})),
+    ?assertEqual(InUse, emqx_config:get([plugins, install_dir])),
+    %% The same value, and an update without the key
+    ?assertMatch(
+        {ok, _}, emqx_conf:update([plugins], #{<<"install_dir">> => bin(InUse)}, Opts)
+    ),
+    ?assertMatch({ok, _}, emqx_conf:update([plugins], #{<<"states">> => []}, Opts)),
+    %% `emqx ctl conf load' fills in the default of a missing key. The default directory is not
+    %% the one in use here, so a `plugins' block without the key fails in both modes.
+    StatesOnly = <<"plugins { states = [] }">>,
+    ?assertMatch({error, _}, emqx_conf_cli:load_config(StatesOnly, #{mode => merge})),
+    ?assertMatch({error, _}, emqx_conf_cli:load_config(StatesOnly, #{mode => replace})),
+    ?assertEqual(InUse, emqx_config:get([plugins, install_dir])),
+    ok.
+
+%% A replicated config update that changes `install_dir' keeps the local value and applies the
+%% other fields, so that the cluster RPC transaction does not fail on this node.
+t_install_dir_change_replicated({init, Config}) ->
+    Config;
+t_install_dir_change_replicated({'end', _Config}) ->
+    ok;
+t_install_dir_change_replicated(_Config) ->
+    InUse = emqx_config:get([plugins, install_dir]),
+    OtherDir = filename:join(InUse, "other"),
+    Opts = #{rawconf_with_defaults => true, override_to => cluster},
+    State = #{<<"name_vsn">> => <<"replicated-1.0.0">>, <<"enable">> => false},
+    Req = #{<<"install_dir">> => bin(OtherDir), <<"states">> => [State]},
+    ?assertMatch({ok, _}, emqx:update_config([plugins], Req, Opts, #{kind => replicate})),
+    ?assertEqual(InUse, emqx_config:get([plugins, install_dir])),
+    ?assertEqual(bin(InUse), emqx:get_raw_config([plugins, install_dir])),
+    ?assertMatch([#{name_vsn := "replicated-1.0.0", enable := false}], emqx_plugins:configured()),
+    ok.
+
+%% An update of `plugins.states' through the `plugins' root still starts and stops a plugin.
+t_states_update_starts_and_stops_plugin({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_states_update_starts_and_stops_plugin({'end', Config}) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    _ = emqx_plugins:ensure_stopped(NameVsn),
+    _ = emqx_plugins:ensure_uninstalled(NameVsn),
+    ok;
+t_states_update_starts_and_stops_plugin(Config) ->
+    NameVsn = bin(proplists:get_value(name_vsn, Config)),
+    ok = emqx_plugins:ensure_installed(NameVsn),
+    Opts = #{rawconf_with_defaults => true, override_to => cluster},
+    SetEnable = fun(Enable) ->
+        State = #{<<"name_vsn">> => NameVsn, <<"enable">> => Enable},
+        emqx_conf:update([plugins], #{<<"states">> => [State]}, Opts)
+    end,
+    IsRunning = fun() ->
+        lists:keymember(?EMQX_PLUGIN_APP_NAME, 1, application:which_applications())
+    end,
+    ?assertMatch({ok, _}, SetEnable(false)),
+    ?assertNot(IsRunning()),
+    ?assertMatch({ok, _}, SetEnable(true)),
+    ?assert(IsRunning()),
+    ?assertMatch({ok, _}, SetEnable(false)),
+    ?assertNot(IsRunning()),
+    ok.
+
 t_enable_disable({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
