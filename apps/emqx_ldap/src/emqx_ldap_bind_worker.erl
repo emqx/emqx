@@ -61,13 +61,19 @@ on_stop(InstId, _State) ->
 on_query(
     InstId,
     {bind, DN, Data},
-    #{
-        bind_password := PWTks,
-        bind_pool_name := PoolName
-    } = State
+    #{bind_password := PWTks} = State
 ) ->
-    Password = emqx_placeholder:proc_tmpl(PWTks, Data),
+    case emqx_placeholder:proc_tmpl(PWTks, Data) of
+        <<>> ->
+            %% A simple bind with an empty password is an unauthenticated bind
+            %% (RFC 4513, section 5.1.2). It does not check a password.
+            %% Return the wrong-password result and send no bind request.
+            {ok, #{result => 'invalidCredentials'}};
+        Password ->
+            do_bind(InstId, DN, Password, State)
+    end.
 
+do_bind(InstId, DN, Password, #{bind_pool_name := PoolName} = State) ->
     LogMeta = #{connector => InstId, state => State},
     ?TRACE("QUERY", "ldap_connector_about_to_bind", LogMeta),
     case
