@@ -816,7 +816,11 @@ choose_packet_opts(Opts) ->
                 emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size]),
                 emqx_config:get_zone_conf(Zone, [mqtt, max_connect_packet_size])
             ),
-            [{packet, mqtt}, {packet_size, PacketSize}, {mode, binary}];
+            [
+                {packet, mqtt},
+                {packet_size, emqx_frame:transport_packet_size(PacketSize)},
+                {mode, binary}
+            ];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
             [{packet, raw}];

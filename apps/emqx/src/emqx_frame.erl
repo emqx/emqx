@@ -4,7 +4,7 @@
 
 -module(emqx_frame).
 
--compile({inline, [validate_connect_first/2, validate_frame_len/3, parse_properties/3]}).
+-compile({inline, [validate_connect_first/2, validate_packet_size/3, parse_properties/3]}).
 
 -include("emqx_mqtt.hrl").
 
@@ -19,6 +19,7 @@
     parse/2,
     parse_complete/2,
     guess_first_packet_protocol/1,
+    transport_packet_size/1,
     serialize_fun/0,
     serialize_fun/1,
     initial_serialize_opts/1,
@@ -40,10 +41,15 @@
     serialize_opts/0
 ]).
 
+%% The size of the largest packet MQTT can encode: a 5-byte fixed header and the
+%% largest Remaining Length. The default limit, so that no packet is refused for
+%% its size when no limit is given.
+-define(MAX_WHOLE_PACKET_SIZE, (?MAX_PACKET_SIZE + 5)).
+
 -type options() :: #{
     strict_mode => boolean(),
-    max_size => 1..?MAX_PACKET_SIZE,
-    max_connect_size => 1..?MAX_PACKET_SIZE,
+    max_size => 1..?MAX_WHOLE_PACKET_SIZE,
+    max_connect_size => 1..?MAX_WHOLE_PACKET_SIZE,
     max_connect_user_properties => non_neg_integer() | infinity,
     version => emqx_types:proto_ver(),
     expect_connect => boolean()
@@ -51,9 +57,9 @@
 
 -record(options, {
     strict_mode :: boolean(),
-    max_size :: 1..?MAX_PACKET_SIZE,
+    max_size :: 1..?MAX_WHOLE_PACKET_SIZE,
     %% Size limit for a CONNECT packet, on top of `max_size'.
-    max_connect_size :: 1..?MAX_PACKET_SIZE,
+    max_connect_size :: 1..?MAX_WHOLE_PACKET_SIZE,
     %% Limit on the number of 'User-Property' pairs in a CONNECT packet.
     %% Applies to the CONNECT properties and the will properties separately.
     max_connect_user_properties :: non_neg_integer() | infinity,
@@ -78,8 +84,8 @@
 
 -define(DEFAULT_OPTIONS, #{
     strict_mode => false,
-    max_size => ?MAX_PACKET_SIZE,
-    max_connect_size => ?MAX_PACKET_SIZE,
+    max_size => ?MAX_WHOLE_PACKET_SIZE,
+    max_connect_size => ?MAX_WHOLE_PACKET_SIZE,
     max_connect_user_properties => infinity,
     version => ?MQTT_PROTO_V4,
     expect_connect => false
@@ -197,7 +203,8 @@ parse_complete(
             parse_bodyless_packet(Header);
         _ ->
             {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
-            ok = validate_frame_len(RemLen, Header, Options),
+            HeaderSize = 1 + byte_size(Rest1) - byte_size(Rest2),
+            ok = validate_packet_size(HeaderSize + RemLen, Header, Options),
             parse_packet_complete(Rest2, Header, Options)
     end.
 
@@ -212,6 +219,20 @@ validate_connect_first(Type, _Options) ->
         cause => unexpected_packet_before_connect,
         header_type => emqx_packet:type_name(Type)
     }).
+
+-doc """
+The `packet_size' socket option for a `{packet, mqtt}' socket, for a limit on
+the whole packet size.
+
+The transport compares `packet_size' with the Remaining Length, not with the
+whole packet. The fixed header is at least 2 bytes, so `Limit - 2' refuses
+only packets that are surely over `Limit'. The parser then checks the exact
+size of the packets that pass. The result is never 0, because `packet_size'
+0 means no limit.
+""".
+-spec transport_packet_size(pos_integer()) -> pos_integer().
+transport_packet_size(Limit) ->
+    max(1, Limit - 2).
 
 -spec guess_first_packet_protocol(binary()) -> map().
 guess_first_packet_protocol(<<Type:4, _Flags:4, _/binary>> = Data) ->
@@ -310,22 +331,36 @@ parse_remaining_len(
     Options
 ) ->
     FrameLen = Value + Len * Multiplier,
-    ok = validate_frame_len(FrameLen, Header, Options),
+    ok = validate_packet_size(fixed_header_size(Multiplier) + FrameLen, Header, Options),
     parse_body_frame(Rest, Header, FrameLen, <<>>, Options).
 
-%% A CONNECT packet is held to `max_connect_size' as well as `max_size'. Both
-%% limits are checked on the Remaining Length.
-validate_frame_len(
-    FrameLen,
+%% The size of the fixed header: one byte for the packet type and flags, and
+%% one to four bytes for the Remaining Length. `Multiplier' is the multiplier
+%% of the last Remaining Length byte.
+fixed_header_size(1) -> 2;
+fixed_header_size(16#80) -> 3;
+fixed_header_size(16#4000) -> 4;
+fixed_header_size(16#200000) -> 5.
+
+%% `PacketSize' is the size of the whole packet, fixed header included, as
+%% MQTT 5.0 defines it for Maximum Packet Size. A packet of exactly the limit
+%% is allowed. A CONNECT packet is held to `max_connect_size' as well as
+%% `max_size'.
+%% A packet with a Remaining Length of 0 (2 bytes), and a 4-byte packet on the
+%% stream fast path in `parse_remaining_len/5', skip this check.
+validate_packet_size(
+    PacketSize,
     #mqtt_packet_header{type = ?CONNECT},
     #options{max_connect_size = MaxConnectSize}
-) when FrameLen > MaxConnectSize ->
+) when PacketSize > MaxConnectSize ->
     ?PARSE_ERR(#{
-        cause => connect_packet_too_large, limit => MaxConnectSize, received => FrameLen
+        cause => connect_packet_too_large, limit => MaxConnectSize, received => PacketSize
     });
-validate_frame_len(FrameLen, _Header, #options{max_size = MaxSize}) when FrameLen > MaxSize ->
-    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => FrameLen});
-validate_frame_len(_FrameLen, _Header, _Options) ->
+validate_packet_size(PacketSize, _Header, #options{max_size = MaxSize}) when
+    PacketSize > MaxSize
+->
+    ?PARSE_ERR(#{cause => frame_too_large, limit => MaxSize, received => PacketSize});
+validate_packet_size(_PacketSize, _Header, _Options) ->
     ok.
 
 -compile({inline, [parse_bodyless_packet/1]}).
@@ -1406,7 +1441,7 @@ serialize_variable_byte_integer(N) when N < (1 bsl 28) ->
 %% Is the frame too large?
 %% A packet whose size equals the limit is allowed: MQTT-3.1.2-24 forbids only
 %% packets *exceeding* Maximum Packet Size. This matches the parser, which also
-%% rejects on `FrameLen > MaxSize'.
+%% rejects on `PacketSize > MaxSize'.
 -spec is_too_large(iodata(), pos_integer()) -> boolean().
 is_too_large(IoData, MaxSize) ->
     iolist_size(IoData) > MaxSize.

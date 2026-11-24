@@ -108,7 +108,9 @@ groups() ->
             t_transport_refuses_oversized_connect,
             t_packet_size_raised_after_connect,
             t_pipelined_publish_larger_than_connect_limit,
-            t_publish_larger_than_max_packet_size
+            t_publish_larger_than_max_packet_size,
+            t_publish_at_max_packet_size,
+            t_publish_one_byte_over_max_packet_size
         ]}
     ].
 
@@ -1363,6 +1365,67 @@ t_publish_larger_than_max_packet_size(Config) ->
     ?WAIT(
         ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, frame_too_large)), 5
     ).
+
+-doc """
+`mqtt.max_packet_size` is a limit on the whole packet, fixed header included. A
+PUBLISH of exactly that size is accepted.
+""".
+t_publish_at_max_packet_size(Config) ->
+    {_Limit, MaxSize} = connect_packet_size_limits(),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Connect = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = Topic})),
+    Publish = publish_frame_of_size(Topic, MaxSize),
+    Socket = raw_connect(Config),
+    ok = raw_send(Socket, Connect),
+    [#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}}] = recv_packets(Socket, 1),
+    ok = raw_send(Socket, Publish),
+    ?assertMatch(
+        [#mqtt_packet{header = #mqtt_packet_header{type = ?PUBACK}}], recv_packets(Socket, 1)
+    ),
+    ok = raw_close(Socket).
+
+-doc """
+A PUBLISH one byte larger than `mqtt.max_packet_size`, fixed header included,
+closes the connection with `frame_too_large`.
+""".
+t_publish_one_byte_over_max_packet_size(Config) ->
+    {_Limit, MaxSize} = connect_packet_size_limits(),
+    Topic = atom_to_binary(?FUNCTION_NAME),
+    Connect = emqx_frame:serialize(?CONNECT_PACKET(#mqtt_packet_connect{clientid = Topic})),
+    Publish = publish_frame_of_size(Topic, MaxSize + 1),
+    CountBefore = listener_shutdown_count(Config, frame_too_large),
+    Socket = raw_connect(Config),
+    ok = raw_send(Socket, Connect),
+    [#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}}] = recv_packets(Socket, 1),
+    {ok, {ok, #{reason := {shutdown, Reason}}}} = ?wait_async_action(
+        begin
+            ok = raw_send(Socket, Publish),
+            ?assertEqual(ok, wait_socket_closed(Socket))
+        end,
+        #{?snk_kind := terminate, reason := {shutdown, #{cause := frame_too_large}}},
+        5000
+    ),
+    ?assertMatch(#{cause := frame_too_large, limit := MaxSize}, Reason),
+    ?WAIT(
+        ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, frame_too_large)), 5
+    ).
+
+%% A QoS 1 PUBLISH whose whole size, fixed header included, is `Size' bytes.
+publish_frame_of_size(Topic, Size) ->
+    %% Topic length, topic and packet identifier.
+    VarHeaderSize = 2 + byte_size(Topic) + 2,
+    Frames = [
+        iolist_to_binary(
+            emqx_frame:serialize(
+                ?PUBLISH_PACKET(?QOS_1, Topic, 1, binary:copy(<<"x">>, PayloadSize))
+            )
+        )
+     || RemLenBytes <- [1, 2, 3, 4],
+        PayloadSize <- [Size - 1 - RemLenBytes - VarHeaderSize],
+        PayloadSize >= 0
+    ],
+    [Frame | _] = [F || F <- Frames, byte_size(F) =:= Size],
+    Frame.
 
 connect_packet_size_limits() ->
     Limit = emqx_config:get_zone_conf(default, [mqtt, max_connect_packet_size]),
