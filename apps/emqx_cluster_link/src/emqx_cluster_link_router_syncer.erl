@@ -379,36 +379,11 @@ handle_info(
     {publish, #{payload := Payload, properties := #{'Correlation-Data' := ReqId}}},
     St = #st{actor_init_req_id = ReqId}
 ) ->
-    {actor_init_ack,
-        #{
-            result := Res,
-            need_bootstrap := NeedBootstrap
-        } = AckInfoMap} = emqx_cluster_link_mqtt:decode_resp(Payload),
-    St1 = St#st{
-        actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfoMap
-    },
-    case Res of
-        ok ->
-            _ = maybe_deactivate_alarm(St),
-            {noreply,
-                post_actor_init(St1#st{error = undefined, status = connected}, NeedBootstrap)};
-        Error ->
-            Reason = error_reason(Error),
-            ?SLOG(error, #{
-                msg => "failed_to_init_link",
-                reason => Reason,
-                target_cluster => St#st.target,
-                actor => St#st.actor,
-                remote_link_proto_ver => maps:get(proto_ver, AckInfoMap, undefined)
-            }),
-            _ = maybe_alarm(Reason, St1),
-            ?tp(
-                debug,
-                clink_handshake_error,
-                #{actor => {St1#st.actor, St1#st.incarnation}, reason => Reason}
-            ),
-            St2 = ensure_reconnect_timer(St1#st{error = Reason, status = disconnected}),
-            {noreply, St2}
+    case emqx_cluster_link_mqtt:decode_resp(Payload) of
+        {actor_init_ack, AckInfo} ->
+            {noreply, handle_actor_init_ack(AckInfo, St)};
+        {error, invalid_actor_init_ack} ->
+            {noreply, St}
     end;
 handle_info({timeout, TRef, reconnect}, St = #st{reconnect_timer = TRef}) ->
     {noreply, process_connect(St#st{reconnect_timer = undefined})};
@@ -434,6 +409,32 @@ handle_info(Info, St) ->
 terminate(_Reason, State) ->
     _ = maybe_deactivate_alarm(State),
     ok.
+
+handle_actor_init_ack(#{result := Res, need_bootstrap := NeedBootstrap} = AckInfo, St) ->
+    St1 = St#st{
+        actor_init_req_id = undefined, actor_init_timer = undefined, remote_actor_info = AckInfo
+    },
+    case Res of
+        ok ->
+            _ = maybe_deactivate_alarm(St),
+            post_actor_init(St1#st{error = undefined, status = connected}, NeedBootstrap);
+        Error ->
+            Reason = error_reason(Error),
+            ?SLOG(error, #{
+                msg => "failed_to_init_link",
+                reason => Reason,
+                target_cluster => St#st.target,
+                actor => St#st.actor,
+                remote_link_proto_ver => maps:get(proto_ver, AckInfo, undefined)
+            }),
+            _ = maybe_alarm(Reason, St1),
+            ?tp(
+                debug,
+                clink_handshake_error,
+                #{actor => {St1#st.actor, St1#st.incarnation}, reason => Reason}
+            ),
+            ensure_reconnect_timer(St1#st{error = Reason, status = disconnected})
+    end.
 
 process_connect(St = #st{target = TargetCluster, actor = Actor, link_conf = Conf}) ->
     case start_link_client(Actor, Conf) of
