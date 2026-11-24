@@ -7,6 +7,7 @@
 -feature(maybe_expr, enable).
 
 -include("emqx_plugins.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
@@ -82,6 +83,7 @@
 
 %% `emqx_config_handler' API
 -export([
+    pre_config_update/4,
     post_config_update/5
 ]).
 
@@ -1027,6 +1029,52 @@ do_put_config_internal(Path, Values, _ConfLocation = global) when is_list(Path) 
 %%--------------------------------------------------------------------
 %% `emqx_config_handler' API
 %%--------------------------------------------------------------------
+
+%% Keep `install_dir' at the value that the node started with.
+%% An update of the `plugins' root that sets another `install_dir' fails on the node that
+%% initiates it. A replicated update keeps the local value and logs a warning, so that the
+%% cluster RPC transaction does not fail on this node.
+pre_config_update([?CONF_ROOT], Req, OldRawConf, ExtraContext) ->
+    Kind = maps:get(kind, ExtraContext, ?KIND_INITIATE),
+    check_install_dir(merge_raw_conf(Req, OldRawConf), Kind).
+
+%% Merge as `emqx_config_handler' does for a handler without `pre_config_update'.
+merge_raw_conf(Req, OldRawConf) when is_map(Req), is_map(OldRawConf) ->
+    maps:merge(OldRawConf, Req);
+merge_raw_conf(Req, _OldRawConf) ->
+    Req.
+
+check_install_dir(#{<<"install_dir">> := Requested} = NewRawConf, Kind) ->
+    InUse = emqx_config:get([?CONF_ROOT, install_dir], ""),
+    case is_same_dir(Requested, InUse) of
+        true ->
+            {ok, NewRawConf};
+        false when Kind =:= ?KIND_REPLICATE ->
+            ?SLOG(warning, #{
+                msg => "plugins_install_dir_change_ignored",
+                install_dir => InUse,
+                requested => Requested
+            }),
+            {ok, NewRawConf#{<<"install_dir">> => unicode:characters_to_binary(InUse)}};
+        false ->
+            {error, #{
+                reason => install_dir_cannot_be_changed_at_runtime,
+                install_dir => InUse,
+                requested => Requested,
+                hint =>
+                    <<"Change it in the config file or EMQX_PLUGINS__INSTALL_DIR, then restart.">>
+            }}
+    end;
+check_install_dir(NewRawConf, _Kind) ->
+    %% The key is in neither the request nor the old raw config: the value does not change.
+    {ok, NewRawConf}.
+
+is_same_dir(A, B) ->
+    try
+        unicode:characters_to_binary(A) =:= unicode:characters_to_binary(B)
+    catch
+        error:_ -> false
+    end.
 
 post_config_update([?CONF_ROOT], _Req, #{states := NewStates}, #{states := OldStates}, _Envs) ->
     NewStatesIndex = maps:from_list([{NV, S} || S = #{name_vsn := NV} <- NewStates]),
