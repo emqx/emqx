@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { getSchemaEditorValue, setSchemaEditorValue } from './schema_editor.js';
-import { esc, setMsg, toast } from './ui_helpers.js';
+import { esc, setMsg, toast, withUnmanagedFields } from './ui_helpers.js';
 import { loadedTools, editingToolKey } from './state.js';
 import { renderConnectionOptions } from './connections.js';
 
@@ -50,6 +50,22 @@ function hasFormat(type) {
   return ['stream__write', 'stream__read', 'kv__write', 'kv__read', 'kv__read_all'].includes(type);
 }
 
+// Tool fields that the tool form edits, by tool type.
+function toolFormKeys(type) {
+  const common = ['type', 'id', 'desc'];
+  if (type === 'message__publish') return [...common, 'topic_prefix', 'payload_schema'];
+  if (type === 'message__request') {
+    return [...common, 'topic_prefix', 'request_payload_schema', 'payload_type', 'autodiscover_images', 'images'];
+  }
+  if (type === 'http') {
+    return [...common, 'method', 'url', 'input_schema', 'payload_type', 'autodiscover_images', 'images'];
+  }
+  if (type === 'image__fetch') return [...common, 'url'];
+  if (type === 'postgresql__query') return [...common, 'resource', 'query'];
+  if (isStreamTool(type)) return [...common, 'stream', 'format'];
+  return common;
+}
+
 export function collectToolBody() {
   const type = document.getElementById('tool-type').value;
   const id   = document.getElementById('tool-id').value.trim();
@@ -91,7 +107,9 @@ export async function saveTool() {
   if (hasFormat(body.type) && !body.format) return setMsg('tool-msg', 'Format is required', true);
   try {
     if (editingToolKey.type) {
-      await api('PUT', `/tools/${encodeURIComponent(editingToolKey.type)}/${encodeURIComponent(editingToolKey.id)}`, body);
+      const loaded = loadedTools.find(s => s.type === editingToolKey.type && s.id === editingToolKey.id);
+      const update = withUnmanagedFields(loaded, body, toolFormKeys(body.type));
+      await api('PUT', `/tools/${encodeURIComponent(editingToolKey.type)}/${encodeURIComponent(editingToolKey.id)}`, update);
       setMsg('tool-msg', 'Updated ✓');
       toast('Tool "' + body.id + '" updated', 'ok');
       resetToolEditor();
