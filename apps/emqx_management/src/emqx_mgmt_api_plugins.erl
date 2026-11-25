@@ -409,8 +409,26 @@ get_plugins() ->
 
 upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) ->
     [{FileName, Bin}] = maps:to_list(maps:without([type], Plugin)),
-    %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     NameVsn = string:trim(FileName, trailing, ".tar.gz"),
+    %% The file name names the package file in the install directory.
+    case validate_name(NameVsn) of
+        ok ->
+            upload_install(NameVsn, FileName, Bin);
+        {error, Reason} ->
+            {400, #{
+                code => 'BAD_PLUGIN_INFO',
+                message => iolist_to_binary(["Bad plugin file name: ", FileName, ". ", Reason])
+            }}
+    end;
+upload_install(post, #{}) ->
+    {400, #{
+        code => 'BAD_FORM_DATA',
+        message =>
+            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
+    }}.
+
+upload_install(NameVsn, FileName, Bin) ->
+    %% File bin is too large, we use rpc:multicall instead of cluster_rpc:multicall
     case emqx_plugins:describe(NameVsn) of
         {error, #{msg := "bad_info_file", reason := {enoent, _Path}}} ->
             case emqx_plugins:parse_name_vsn(FileName) of
@@ -442,13 +460,7 @@ upload_install(post, #{body := #{<<"plugin">> := Plugin}}) when is_map(Plugin) -
                 code => 'ALREADY_INSTALLED',
                 message => iolist_to_binary(io_lib:format("~p is already installed", [FileName]))
             }}
-    end;
-upload_install(post, #{}) ->
-    {400, #{
-        code => 'BAD_FORM_DATA',
-        message =>
-            <<"form-data should be `plugin=@packagename-vsn.tar.gz;type=application/x-gzip`">>
-    }}.
+    end.
 
 do_install_package(NameVsn, FileName, Bin) ->
     case emqx_plugins:is_allowed_installation(NameVsn, Bin) of

@@ -2,7 +2,7 @@
 {application, emqx_cluster_link, [
     {description, "EMQX Cluster Linking"},
     % strict semver, bump manually!
-    {vsn, "0.1.5"},
+    {vsn, "0.1.6"},
     {modules, []},
     {registered, []},
     {applications, [
