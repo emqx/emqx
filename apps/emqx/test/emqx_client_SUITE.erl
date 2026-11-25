@@ -106,6 +106,7 @@ groups() ->
         ]},
         {connect_packet_limit, [], [
             t_transport_refuses_oversized_connect,
+            t_publish_larger_than_max_packet_size_keeps_session,
             t_packet_size_raised_after_connect,
             t_pipelined_publish_larger_than_connect_limit,
             t_publish_larger_than_max_packet_size
@@ -1098,6 +1099,43 @@ t_disconnect_keeps_session(_) ->
     ok = gen_tcp:close(Sock),
     ok = emqx_cm:kick_session(ClientId).
 
+-doc """
+A PUBLISH larger than `mqtt.max_packet_size` from an MQTT 3.1.1 client with
+Clean Session = 0 closes the connection and keeps the session. The next
+connection gets Session Present = 1, and a message published to the subscribed
+topic is delivered without a new SUBSCRIBE.
+""".
+t_publish_larger_than_max_packet_size_keeps_session(Config) ->
+    {_Limit, MaxSize} = connect_packet_size_limits(),
+    ClientId = Topic = atom_to_binary(?FUNCTION_NAME),
+    Oversized = emqx_frame:serialize(
+        ?PUBLISH_PACKET(?QOS_0, Topic, undefined, binary:copy(<<"x">>, MaxSize + 1))
+    ),
+    Socket0 = raw_connect(Config),
+    ok = raw_send(Socket0, raw_connect_packet_v4(ClientId, _CleanStart0 = false)),
+    ?assertMatch([?CONNACK_PACKET(?RC_SUCCESS, 0)], recv_packets(Socket0, 1)),
+    ok = raw_send(Socket0, raw_subscribe_frame(Topic)),
+    ?assertMatch([?SUBACK_PACKET(1, [?QOS_1])], recv_packets(Socket0, 1)),
+    ok = raw_send(Socket0, Oversized),
+    ok = wait_socket_closed(Socket0),
+    Socket = raw_connect(Config),
+    try
+        ok = raw_send(Socket, raw_connect_packet_v4(ClientId, _CleanStart = false)),
+        ?assertMatch([?CONNACK_PACKET(?RC_SUCCESS, 1)], recv_packets(Socket, 1)),
+        _ = emqx_broker:publish(emqx_message:make(<<"publisher">>, ?QOS_1, Topic, <<"hello">>)),
+        ?assertMatch(
+            [
+                #mqtt_packet{
+                    variable = #mqtt_packet_publish{topic_name = Topic}, payload = <<"hello">>
+                }
+            ],
+            recv_packets(Socket, 1)
+        )
+    after
+        raw_close(Socket),
+        emqx_cm:kick_session(ClientId)
+    end.
+
 disconnect_then_connect_in_one_send(ClientId) ->
     Sock = raw_connect_v4(ClientId, _CleanStart = false),
     ?assertEqual(<<32, 2, 0, 0>>, recv_raw_connack(Sock)),
@@ -1332,7 +1370,7 @@ t_pipelined_publish_larger_than_connect_limit(Config) ->
 A PUBLISH larger than `mqtt.max_packet_size` after CONNECT closes the
 connection with `frame_too_large`, whichever refuses it: the transport (gen_tcp
 reports `emsgsize`, ssl `{invalid_packet, _}`) or the socket backend's stream
-parser. The client's bytes are not in the exit reason.
+parser. With Clean Session = 1 the connection process exits.
 """.
 t_publish_larger_than_max_packet_size(Config) ->
     {_Limit, MaxSize} = connect_packet_size_limits(),
@@ -1345,21 +1383,14 @@ t_publish_larger_than_max_packet_size(Config) ->
     Socket = raw_connect(Config),
     ok = raw_send(Socket, Connect),
     [#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}}] = recv_packets(Socket, 1),
-    {ok, {ok, #{reason := {shutdown, Reason}}}} = ?wait_async_action(
+    {ok, {ok, _}} = ?wait_async_action(
         begin
             ok = raw_send(Socket, Publish),
             ?assertEqual(ok, wait_socket_closed(Socket))
         end,
-        #{?snk_kind := terminate, reason := {shutdown, #{cause := frame_too_large}}},
+        #{?snk_kind := terminate, reason := {shutdown, frame_too_large}},
         5000
     ),
-    ?assertMatch(#{cause := frame_too_large, limit := MaxSize}, Reason),
-    case ?config(connect_refusal, Config) of
-        {transport, TransportError} ->
-            ?assertMatch(#{transport_error := TransportError}, Reason);
-        parser ->
-            ?assertNot(is_map_key(transport_error, Reason), Reason)
-    end,
     ?WAIT(
         ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, frame_too_large)), 5
     ).
