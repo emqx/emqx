@@ -12,8 +12,8 @@ include env.sh
 
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
-export EMQX_DASHBOARD_VERSION ?= e1.10.6-beta.2
-export EMQX_EE_DASHBOARD_VERSION ?= e1.10.6-beta.2
+export EMQX_DASHBOARD_VERSION ?= e1.10.6
+export EMQX_EE_DASHBOARD_VERSION ?= e1.10.6
 
 .PHONY: print-dashboard-version
 print-dashboard-version:
