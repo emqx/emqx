@@ -129,12 +129,33 @@ action_example(put) ->
         enable => true,
         description => <<"my action">>,
         connector => <<"my_connector">>,
-        parameters =>
-            #{
-                write_syntax => write_syntax_value(),
-                field_types => #{payload => json2},
-                precision => ms
-            },
+        parameters => #{
+            write => [
+                #{
+                    measurement => <<"mqtt">>,
+                    tags => [
+                        #{key => <<"clientid">>, value => <<"${clientid}">>}
+                    ],
+                    fields => [
+                        #{
+                            key => <<"temperature">>,
+                            type => float,
+                            value => <<"${payload.temperature}">>
+                        },
+                        #{
+                            key => <<"count">>,
+                            type => integer,
+                            value => <<"${payload.count}">>
+                        }
+                    ],
+                    timestamp => #{
+                        value => <<"${timestamp}">>,
+                        source_precision => ms
+                    }
+                }
+            ],
+            precision => ms
+        },
         resource_opts =>
             #{
                 batch_time => <<"100ms">>,
@@ -157,12 +178,6 @@ action_example(put) ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
-
-write_syntax_value() ->
-    <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
-        "${clientid}_int_value=${payload.int_key}i,",
-        "uint_value=${payload.uint_key}u,"
-        "bool=${payload.bool}">>.
 
 validate_field_types(undefined) ->
     ok;
@@ -204,13 +219,18 @@ has_placeholder(Name) ->
     ).
 
 validate_action_parameters(Parameters) when is_map(Parameters) ->
-    WriteSyntax = parameter_value(write_syntax, Parameters),
-    FieldTypes = parameter_value(field_types, Parameters),
-    validate_action_parameters(WriteSyntax, FieldTypes);
+    case emqx_bridge_greptimedb:action_parameters_validator(Parameters) of
+        ok ->
+            WriteSyntax = parameter_value(write_syntax, Parameters),
+            FieldTypes = parameter_value(field_types, Parameters),
+            validate_field_types_usage(WriteSyntax, FieldTypes);
+        {error, _} = Error ->
+            Error
+    end;
 validate_action_parameters(_Parameters) ->
     ok.
 
-validate_action_parameters(WriteSyntax, FieldTypes) when is_map(FieldTypes) ->
+validate_field_types_usage(WriteSyntax, FieldTypes) when is_map(FieldTypes) ->
     Lines = write_syntax_lines(WriteSyntax),
     FieldsInTemplate = maps:from_list([
         {emqx_utils_conv:bin(FieldName), true}
@@ -232,7 +252,7 @@ validate_action_parameters(WriteSyntax, FieldTypes) when is_map(FieldTypes) ->
                     [Missing]
                 )}
     end;
-validate_action_parameters(_WriteSyntax, _FieldTypes) ->
+validate_field_types_usage(_WriteSyntax, _FieldTypes) ->
     ok.
 
 parameter_value(Key, Parameters) ->
