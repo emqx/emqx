@@ -598,6 +598,11 @@ t_handle_in_frame_error(_) ->
         {ok, [{outgoing, DisconnectPacket}, {close, frame_too_large}], _},
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, ConnectedChan)
     ),
+    %% no DISCONNECT packet for v4
+    ?assertMatch(
+        {ok, {close, frame_too_large}, _},
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, v4(ConnectedChan))
+    ),
     DisconnectedChan = channel(#{conn_state => disconnected}),
     {ok, DisconnectedChan} =
         emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, DisconnectedChan).
@@ -1322,7 +1327,7 @@ t_terminate_reason_reaches_session_hooks(_) ->
         {normal, fun sock_closed_normal/1, will_channel(connected, 0, 10)},
         {auth_expired, fun auth_expire/1, will_channel(connected, 0, 10)},
         {internal_error, fun internal_error/1, will_channel(connected, 60_000, 10)},
-        {frame_error, fun frame_error_v4/1, v4(will_channel(connected, 60_000, 10))},
+        {frame_error, fun frame_error_v4/1, v4(will_channel(connected, 0, 10))},
         {oom, fun oom/1, will_channel(connected, 60_000, 10)}
     ],
     Results = [{Name, session_terminations(Fun, Channel)} || {Name, Fun, Channel} <- Scenarios],
@@ -1344,7 +1349,7 @@ t_terminate_reason_reaches_session_hooks(_) ->
                 {{shutdown, internal_error}, {'session.terminated', {shutdown, internal_error}}}
             ]},
             {frame_error, [
-                {{shutdown, #{shutdown_count := frame_too_large}}, {'session.terminated', _}}
+                {{shutdown, frame_too_large}, {'session.terminated', {shutdown, frame_too_large}}}
             ]},
             {oom, [
                 {{shutdown, #{shutdown_count := proc_heap_too_large}}, {'session.terminated', _}}
@@ -1352,6 +1357,32 @@ t_terminate_reason_reaches_session_hooks(_) ->
         ],
         Results
     ).
+
+-doc """
+A packet larger than `mqtt.max_packet_size` on a connected MQTT 3.1.1 channel
+with session expiry > 0 closes the connection, but does not end the session.
+After the socket is closed, the channel keeps the session until it expires, and
+`session.terminated` does not run.
+""".
+t_frame_too_large_v4_keeps_session(_) ->
+    Self = self(),
+    Hook = 'session.terminated',
+    ok = emqx_hooks:add(Hook, {?MODULE, record_session_hook, [Hook, Self]}, ?HP_HIGHEST),
+    on_exit(fun() -> emqx_hooks:del(Hook, {?MODULE, record_session_hook}) end),
+    Channel0 = channel(#{conn_state => connected}),
+    ConnInfo = emqx_channel:info(conninfo, Channel0),
+    Channel1 = v4(emqx_channel:set_field(conninfo, ConnInfo#{expiry_interval => 60_000}, Channel0)),
+    {ok, {close, frame_too_large}, Channel2} =
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, Channel1),
+    {ok, {event, disconnected}, Channel3} =
+        emqx_channel:handle_info({sock_closed, frame_too_large}, Channel2),
+    ?assertEqual(disconnected, emqx_channel:info(conn_state, Channel3)),
+    ?assertNotEqual(undefined, emqx_channel:info(session_state, Channel3)),
+    ?assertMatch(#{expire_session := _}, emqx_channel:info(timers, Channel3)),
+    receive
+        {session_hook, Terminated} -> ct:fail({unexpected_session_hook, Terminated})
+    after 0 -> ok
+    end.
 
 record_session_hook(_ClientInfo, _SessInfo, Hook, Pid) ->
     Pid ! {session_hook, Hook},
@@ -1756,8 +1787,12 @@ auth_expire(Channel0) ->
 internal_error(Channel) ->
     emqx_channel:handle_info(test_internal_error, Channel).
 
-frame_error_v4(Channel) ->
-    emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, Channel).
+%% The connection process closes the socket and then handles
+%% `{sock_closed, Reason}' for the `{close, Reason}' reply.
+frame_error_v4(Channel0) ->
+    {ok, {close, Reason}, Channel} =
+        emqx_channel:handle_in({frame_error, #{cause => frame_too_large}}, Channel0),
+    emqx_channel:handle_info({sock_closed, Reason}, Channel).
 
 %% The connection process exits from its OOM check without a channel step.
 oom(Channel) ->
