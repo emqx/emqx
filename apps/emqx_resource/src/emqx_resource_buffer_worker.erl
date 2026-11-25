@@ -2101,7 +2101,18 @@ handle_async_batch_reply2([], _, _, _) ->
     %% this usually should never happen unless the async callback is being evaluated concurrently
     ok;
 handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
-    ?INFLIGHT_ITEM(_, _, RealBatch, _IsRetriable, _AsyncWorkerMRef) = Inflight,
+    ?INFLIGHT_ITEM(_, SeqNoInflight, RealBatch, _IsRetriable, _AsyncWorkerMRef) = Inflight,
+    #{seq_no := SeqNoCtx} = ReplyContext,
+    case SeqNoCtx =:= SeqNoInflight of
+        false ->
+            %% this usually should never happen unless the async callback is being
+            %% evaluated concurrently, which is likely a bug in the connector/driver?
+            ok;
+        true ->
+            handle_async_batch_reply3(RealBatch, ReplyContext, Results0, Now)
+    end.
+
+handle_async_batch_reply3(RealBatch, ReplyContext, Results0, Now) ->
     #{
         resource_id := Id,
         buffer_worker := BufferWorkerPid,
