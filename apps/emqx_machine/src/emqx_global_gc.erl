@@ -36,6 +36,9 @@ needs a restart.
 
 -export([run/0, run/1]).
 
+%% Exported for the sweep worker's loop.
+-export([sweep/3]).
+
 -ifdef(TEST).
 -export([chunk_pause/2]).
 -endif.
@@ -105,6 +108,7 @@ stop() -> gen_server:stop(?MODULE).
 %%--------------------------------------------------------------------
 
 init([]) ->
+    process_flag(trap_exit, true),
     State = #{timer => undefined, interval => undefined, worker => undefined},
     {ok, ensure_timer(State)}.
 
@@ -122,7 +126,7 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, TRef, run}, State = #{timer := TRef}) ->
     {noreply, ensure_timer(start_sweep(State#{timer := undefined})), hibernate};
-handle_info({'DOWN', MRef, process, Pid, Reason}, State = #{worker := {Pid, MRef}}) ->
+handle_info({'EXIT', Pid, Reason}, State = #{worker := Pid}) ->
     ok = log_worker_exit(Reason),
     {noreply, State#{worker := undefined}, hibernate};
 handle_info(_Info, State) ->
@@ -171,14 +175,16 @@ cancel_timer(State = #{timer := TRef}) ->
 start_sweep(State0) ->
     State = kill_worker(State0),
     Interval = pacing_interval(State),
-    State#{worker := erlang:spawn_monitor(fun() -> sweep(Interval) end)}.
+    State#{worker := spawn_link(fun() -> sweep(Interval) end)}.
 
 kill_worker(State = #{worker := undefined}) ->
     State;
-kill_worker(State = #{worker := {Pid, MRef}}) ->
-    %% Demonitor with flush first, so the kill leaves no 'DOWN' behind and the
-    %% only 'DOWN' this server ever sees is a worker ending on its own.
-    true = erlang:demonitor(MRef, [flush]),
+kill_worker(State = #{worker := Pid}) ->
+    true = unlink(Pid),
+    receive
+        {'EXIT', Pid, _} -> ok
+    after 0 -> ok
+    end,
     true = erlang:exit(Pid, kill),
     State#{worker := undefined}.
 
@@ -192,7 +198,7 @@ sweep(Interval) ->
     Pids = processes(),
     Scanned = length(Pids),
     Pause = chunk_pause(Interval, Scanned),
-    Collected = sweep(Pids, Pause, 0),
+    Collected = ?MODULE:sweep(Pids, Pause, 0),
     ?SLOG(info, #{
         msg => "global_gc_finished",
         elapsed_ms => erlang:monotonic_time(millisecond) - Start,
@@ -225,7 +231,7 @@ sweep(Pids, Pause, Collected0) ->
             Collected;
         _ ->
             ok = timer:sleep(Pause),
-            sweep(Rest, Pause, Collected)
+            ?MODULE:sweep(Rest, Pause, Collected)
     end.
 
 %% The chunk comes back reversed. A sweep collects every process it is given,
