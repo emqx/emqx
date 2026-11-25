@@ -929,7 +929,7 @@ install_plugin_as(FileName, Bin) ->
     Path = emqx_mgmt_api_test_util:api_path(["plugins", "install"]),
     Boundary = emqx_utils:rand_id(32),
     Body = emqx_mgmt_api_test_util:format_multipart_formdata(
-        Bin, [], "plugin", [FileName], <<"application/gzip">>, Boundary
+        [], [{<<"plugin">>, list_to_binary(FileName), Bin}], <<"application/gzip">>, Boundary
     ),
     ContentType = "multipart/form-data; boundary=" ++ binary_to_list(Boundary),
     Headers = [{"Authorization", "Bearer " ++ binary_to_list(Token)}],
