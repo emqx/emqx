@@ -39,7 +39,8 @@
     t_sse_parser_crlf_endings,
     t_sse_parser_split_chunks,
     t_sse_parser_usage_chunk,
-    t_request_queue_fifo
+    t_request_queue_fifo,
+    t_failed_sessions_are_not_restarted
 ]).
 -define(LLM_TESTS, [
     t_request_finish,
@@ -229,6 +230,38 @@ t_request_queue_fifo(_Config) ->
 
 %% Basic request/final round-trip: the LLM receives no tools so it must
 %% respond directly.  We only assert on the frame shape, not on the text.
+-doc """
+Check that sessions that fail on malformed requests are not restarted, and that a burst
+of such failures does not stop the session supervisor.
+""".
+t_failed_sessions_are_not_restarted(_Config) ->
+    SessSup = whereis(emqx_agent_sess_sup),
+    AgentSup = whereis(emqx_agent_sup),
+    Topic = <<"$sess/in/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    %% The request has no fields other than its type, so each session fails on it.
+    Payload = emqx_utils_json:encode(#{<<"type">> => <<"request">>}),
+    lists:foreach(
+        fun(_) -> _ = emqx_broker:publish(emqx_message:make(?MODULE, 0, Topic, Payload)) end,
+        lists:seq(1, 30)
+    ),
+    ?assertEqual(ok, wait_no_sessions(50)),
+    ?assertEqual(SessSup, whereis(emqx_agent_sess_sup)),
+    ?assertEqual(AgentSup, whereis(emqx_agent_sup)).
+
+wait_no_sessions(0) ->
+    {error, sessions_left};
+wait_no_sessions(N) ->
+    case is_pid(whereis(emqx_agent_sess_sup)) andalso active_sessions() =:= 0 of
+        true ->
+            ok;
+        false ->
+            timer:sleep(100),
+            wait_no_sessions(N - 1)
+    end.
+
+active_sessions() ->
+    proplists:get_value(active, supervisor:count_children(emqx_agent_sess_sup)).
+
 t_request_finish(Config) ->
     publish_in(
         Config,
