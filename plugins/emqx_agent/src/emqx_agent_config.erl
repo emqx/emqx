@@ -365,10 +365,10 @@ update_config_entry(Section, Pred, Entry) ->
 restore_config_entry(Entry, OldEntry) ->
     case unwrap_union(Entry) of
         Entry ->
-            emqx_agent_config_secrets:deobfuscate(Entry, OldEntry);
+            emqx_agent_redact:deobfuscate(Entry, OldEntry);
         Body ->
             [Record] = maps:keys(Entry),
-            #{Record => emqx_agent_config_secrets:deobfuscate(Body, OldEntry)}
+            #{Record => emqx_agent_redact:deobfuscate(Body, OldEntry)}
     end.
 
 normalize_config_for_storage(Config) ->

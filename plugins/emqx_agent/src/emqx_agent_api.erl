@@ -131,7 +131,7 @@ normalize_plugin_response(Status) when is_integer(Status) ->
 
 '/agent/providers'(get, _Params) ->
     Providers = lists:map(
-        fun emqx_agent_config_secrets:redact/1, emqx_ai_completion_config:get_providers_raw()
+        fun emqx_agent_redact:redact/1, emqx_ai_completion_config:get_providers_raw()
     ),
     ?OK(Providers).
 
@@ -195,7 +195,7 @@ no_cache_headers(ContentType) ->
 %%--------------------------------------------------------------------
 
 '/agent/tools'(get, _Params) ->
-    ?OK(lists:map(fun emqx_agent_config_secrets:redact/1, emqx_agent_service:tool_list()));
+    ?OK(lists:map(fun emqx_agent_redact:redact/1, emqx_agent_service:tool_list()));
 '/agent/tools'(post, #{body := Body}) ->
     case emqx_agent_service:tool_create(Body) of
         ok ->
@@ -217,13 +217,13 @@ no_cache_headers(ContentType) ->
 
 '/agent/tools/:type/:id'(get, #{bindings := #{type := Type, id := Id}}) ->
     case emqx_agent_service:tool_get(Type, Id) of
-        {ok, Tool} -> ?OK(emqx_agent_config_secrets:redact(Tool));
+        {ok, Tool} -> ?OK(emqx_agent_redact:redact(Tool));
         {error, not_found} -> ?NOT_FOUND(<<"Tool not found">>)
     end;
 '/agent/tools/:type/:id'(put, #{bindings := #{type := Type, id := Id}, body := Body}) ->
     case emqx_agent_service:tool_update(Type, Id, Body) of
         {ok, Tool} ->
-            ?OK(emqx_agent_config_secrets:redact(Tool));
+            ?OK(emqx_agent_redact:redact(Tool));
         {error, {missing_field, Field}} ->
             ?BAD_REQUEST(iolist_to_binary(["Missing required field: ", field_to_str(Field)]));
         {error, not_found} ->
@@ -247,7 +247,7 @@ no_cache_headers(ContentType) ->
 %%--------------------------------------------------------------------
 
 '/agent/connections'(get, _Params) ->
-    ?OK(lists:map(fun emqx_agent_config_secrets:redact/1, emqx_agent_service:connection_list()));
+    ?OK(lists:map(fun emqx_agent_redact:redact/1, emqx_agent_service:connection_list()));
 '/agent/connections'(post, #{body := Body}) ->
     case emqx_agent_service:connection_create(Body) of
         ok ->
@@ -265,13 +265,13 @@ no_cache_headers(ContentType) ->
 
 '/agent/connections/:id'(get, #{bindings := #{id := Id}}) ->
     case emqx_agent_service:connection_get(Id) of
-        {ok, Connection} -> ?OK(emqx_agent_config_secrets:redact(Connection));
+        {ok, Connection} -> ?OK(emqx_agent_redact:redact(Connection));
         {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>)
     end;
 '/agent/connections/:id'(put, #{bindings := #{id := Id}, body := Body}) ->
     case emqx_agent_service:connection_update(Id, Body) of
         {ok, Connection} ->
-            ?OK(emqx_agent_config_secrets:redact(Connection));
+            ?OK(emqx_agent_redact:redact(Connection));
         {error, not_found} ->
             ?NOT_FOUND(<<"Connection not found">>);
         {error, Reason} ->
@@ -292,14 +292,14 @@ no_cache_headers(ContentType) ->
 
 '/agent/connections/:id/start'(post, #{bindings := #{id := Id}}) ->
     case emqx_agent_service:connection_start(Id) of
-        {ok, Connection} -> ?OK(emqx_agent_config_secrets:redact(Connection));
+        {ok, Connection} -> ?OK(emqx_agent_redact:redact(Connection));
         {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>);
         {error, Reason} -> ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.
 
 '/agent/connections/:id/stop'(post, #{bindings := #{id := Id}}) ->
     case emqx_agent_service:connection_stop(Id) of
-        {ok, Connection} -> ?OK(emqx_agent_config_secrets:redact(Connection));
+        {ok, Connection} -> ?OK(emqx_agent_redact:redact(Connection));
         {error, not_found} -> ?NOT_FOUND(<<"Connection not found">>);
         {error, Reason} -> ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
     end.

@@ -1,5 +1,5 @@
 {
-  "$enable_builder_tools_desc": {"en": "Register builder tools that read and modify Agent configuration."},
+  "$enable_builder_tools_desc": {"en": "Run builder tools that read and modify Agent configuration."},
   "$tools_desc": {"en": "Configured agent tools."},
   "$connections_desc": {"en": "Configured external connections used by agent tools."},
   "$pipelines_desc": {"en": "Configured agent pipelines."},

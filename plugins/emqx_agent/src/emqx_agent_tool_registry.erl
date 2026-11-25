@@ -70,9 +70,15 @@ statuses() ->
 register_type(Type, Module) when is_binary(Type), is_atom(Module) ->
     gen_server:call(?MODULE, {register_type, Type, Module}).
 
+%% Returns ok when the registry is not running: the registered types are
+%% stored in a table of the registry process, so they are gone with it.
 -spec unregister_type(tool_type()) -> ok.
 unregister_type(Type) when is_binary(Type) ->
-    gen_server:call(?MODULE, {unregister_type, Type}).
+    try
+        gen_server:call(?MODULE, {unregister_type, Type})
+    catch
+        exit:{noproc, _} -> ok
+    end.
 
 -spec resolve_type(tool_type()) -> module().
 resolve_type(Type) when is_binary(Type) ->
@@ -171,25 +177,9 @@ reconcile_tool({Type, ToolId}, ToolConfig) ->
     ok = drop_runtime(Type, ToolId),
     case resolve_type_safe(Type) of
         {ok, Module} ->
-            case Module:create(ToolConfig) of
-                {ok, Tool} ->
-                    ?SLOG(info, #{
-                        msg => "agent_tool_reconcile_created",
-                        type => Type,
-                        tool_id => ToolId,
-                        module => Module
-                    }),
-                    insert_runtime(Tool);
-                {error, Reason} ->
-                    ?SLOG(error, #{
-                        msg => "agent_tool_reconcile_create_failed",
-                        type => Type,
-                        tool_id => ToolId,
-                        module => Module,
-                        reason => Reason,
-                        config => ToolConfig
-                    }),
-                    put_status(Type, ToolId, failed, Reason)
+            case emqx_agent_tool:is_enabled(Module) of
+                true -> create_runtime(Type, ToolId, Module, ToolConfig);
+                false -> put_status(Type, ToolId, disabled, null)
             end;
         {error, Reason} ->
             ?SLOG(error, #{
@@ -199,6 +189,37 @@ reconcile_tool({Type, ToolId}, ToolConfig) ->
                 reason => Reason
             }),
             put_status(Type, ToolId, missing_type, Reason)
+    end.
+
+create_runtime(Type, ToolId, Module, ToolConfig) ->
+    case safe_create(Module, ToolConfig) of
+        {ok, Tool} ->
+            ?SLOG(info, #{
+                msg => "agent_tool_reconcile_created",
+                type => Type,
+                tool_id => ToolId,
+                module => Module
+            }),
+            insert_runtime(Tool);
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "agent_tool_reconcile_create_failed",
+                type => Type,
+                tool_id => ToolId,
+                module => Module,
+                reason => Reason,
+                config => emqx_agent_redact:redact(ToolConfig)
+            }),
+            put_status(Type, ToolId, failed, Reason)
+    end.
+
+safe_create(Module, ToolConfig) ->
+    try
+        Module:create(ToolConfig)
+    catch
+        %% The stack trace is not kept: it can hold the tool configuration.
+        Class:Reason ->
+            {error, {Class, Reason}}
     end.
 
 resolve_type_safe(Type) ->

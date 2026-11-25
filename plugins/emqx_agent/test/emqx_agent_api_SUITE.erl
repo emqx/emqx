@@ -219,6 +219,63 @@ t_http_tool_header_roundtrip(Config) ->
         {<<"X-Api-Key">>, <<"test-key">>, Mask}
     ]).
 
+-doc "Keep a masked header value when only the header name case changes.".
+t_http_tool_header_case_change(Config) ->
+    Id = ?config(tc_id, Config),
+    Mask = <<"******">>,
+    Type = <<"http">>,
+    Path = [agent, tools, Type, Id],
+    Header = fun(Name, Value) -> #{<<"name">> => Name, <<"value">> => Value} end,
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, tools], http_tool_body(Id, [Header(<<"Authorization">>, <<"secret">>)]))
+    ),
+    {ok, 200, Tool} = api_get(Path),
+    ?assertMatch(
+        {ok, 200, _},
+        api_put(Path, Tool#{<<"headers">> => [Header(<<"authorization">>, Mask)]})
+    ),
+    ?assertMatch(
+        {ok, #{
+            <<"headers">> := [#{<<"name">> := <<"authorization">>, <<"value">> := <<"secret">>}]
+        }},
+        emqx_agent_service:tool_get(Type, Id)
+    ).
+
+-doc "Drop a masked header when headers that differ only in case have different values.".
+t_http_tool_header_case_change_ambiguous(Config) ->
+    Id = ?config(tc_id, Config),
+    Mask = <<"******">>,
+    Type = <<"http">>,
+    Path = [agent, tools, Type, Id],
+    Header = fun(Name, Value) -> #{<<"name">> => Name, <<"value">> => Value} end,
+    ?assertMatch(
+        {ok, 201, _},
+        api_post(
+            [agent, tools],
+            http_tool_body(Id, [
+                Header(<<"Authorization">>, <<"first">>), Header(<<"authorization">>, <<"second">>)
+            ])
+        )
+    ),
+    {ok, 200, Tool} = api_get(Path),
+    ?assertMatch(
+        {ok, 200, _},
+        api_put(Path, Tool#{<<"headers">> => [Header(<<"AUTHORIZATION">>, Mask)]})
+    ),
+    ?assertMatch({ok, #{<<"headers">> := []}}, emqx_agent_service:tool_get(Type, Id)).
+
+http_tool_body(Id, Headers) ->
+    #{
+        <<"type">> => <<"http">>,
+        <<"id">> => Id,
+        <<"desc">> => <<"test HTTP tool">>,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://stub/api">>,
+        <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+        <<"headers">> => Headers
+    }.
+
 header_roundtrip(Id, Headers) ->
     Stored = [#{<<"name">> => Name, <<"value">> => Value} || {Name, Value, _} <- Headers],
     Redacted = [#{<<"name">> => Name, <<"value">> => Value} || {Name, _, Value} <- Headers],

@@ -84,4 +84,4 @@ find_provider(Name) ->
     end.
 
 format_provider(Provider) ->
-    emqx_agent_config_secrets:redact(Provider).
+    emqx_agent_redact:redact(Provider).

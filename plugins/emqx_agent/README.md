@@ -245,9 +245,10 @@ The root payload is represented as `Image .` and the PNG bytes are attached sepa
 
 ### Meta-Tools
 
-Meta-tools read and modify Agent configuration. The plugin does not register them by default.
-To enable them for a trusted builder workflow, set `enable_builder_tools = true` in the
-Agent plugin configuration.
+Meta-tools read and modify Agent configuration. The plugin does not run them by default.
+The configuration can store meta-tool definitions, but the plugin does not start them and
+rejects their invocation. To run them for a trusted builder workflow, set
+`enable_builder_tools = true` in the Agent plugin configuration.
 
 - `agent__create_tool`
 - `agent__update_tool`

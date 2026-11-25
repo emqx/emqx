@@ -17,7 +17,6 @@
 -module(emqx_utils_redact).
 
 -export([redact/1, redact/2, redact_headers/1, is_sensitive_key/1, is_redacted/2, is_redacted/3]).
--export([check_is_sensitive_header/1]).
 -export([deobfuscate/2]).
 -export([redacted_value/0]).
 

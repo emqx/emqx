@@ -155,7 +155,7 @@ render_params(RowTemplate, Args) ->
     Params.
 
 validate_connection(ConnectionId) ->
-    case emqx_agent_config:lookup_connection(ConnectionId) of
+    case lookup_connection(ConnectionId) of
         {ok, Connection} ->
             case is_postgresql(Connection) of
                 true ->
@@ -168,7 +168,7 @@ validate_connection(ConnectionId) ->
                     ?SLOG(error, #{
                         msg => "postgresql_tool_connection_invalid_type",
                         connection_id => ConnectionId,
-                        connection => Connection
+                        connection => emqx_agent_redact:redact(Connection)
                     }),
                     {error, {invalid_resource_type, ConnectionId}}
             end;
@@ -178,6 +178,15 @@ validate_connection(ConnectionId) ->
                 connection_id => ConnectionId
             }),
             {error, {resource_not_found, ConnectionId}}
+    end.
+
+%% Read the parsed config. During a config change it already holds the new
+%% connections, while the stored plugin config still holds the old ones.
+lookup_connection(ConnectionId) ->
+    Connections = emqx_agent_config:parsed_config([connections], []),
+    case [Conn || #{<<"id">> := Id} = Conn <- Connections, Id =:= ConnectionId] of
+        [Connection | _] -> {ok, Connection};
+        [] -> {error, not_found}
     end.
 
 is_postgresql(#{<<"type">> := <<"postgresql">>}) -> true;
