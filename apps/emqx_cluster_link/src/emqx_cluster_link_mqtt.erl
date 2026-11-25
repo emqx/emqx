@@ -447,8 +447,8 @@ decode_route_op1(#{?F_OPERATION := Op}) when
     Op =:= ?OP_ACTOR_INIT; Op =:= ?OP_ROUTE; Op =:= ?OP_HEARTBEAT
 ->
     {error, invalid_route_op};
-decode_route_op1(Payload) ->
-    {error, {unknown_payload, Payload}}.
+decode_route_op1(_Payload) ->
+    {error, {unknown_payload, redacted}}.
 
 decode_routes([{Topic, ID} = Route | Rest], ActorInfo, Acc) when is_binary(Topic), is_binary(ID) ->
     decode_routes(Rest, ActorInfo, [{add, Route} | Acc]);
