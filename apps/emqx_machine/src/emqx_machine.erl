@@ -210,6 +210,7 @@ node_status() ->
         role => mria_rlog:role()
     }).
 
+%% TODO: deprecate custom_shard_transports parameter.
 configure_shard_transports() ->
     ShardTransports = application:get_env(emqx_machine, custom_shard_transports, #{}),
     lists:foreach(
