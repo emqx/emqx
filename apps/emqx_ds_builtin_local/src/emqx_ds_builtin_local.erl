@@ -125,6 +125,7 @@
 
 -type db_runtime_config() :: #{
     db_group := emqx_ds:db_group(),
+    backup_priority := integer(),
     %% Beamformer
     subscriptions := emqx_ds_beamformer:opts(),
     %% Optimistic transaction:
@@ -631,6 +632,7 @@ verify_db_opts(Opts) ->
         #{
             backend := builtin_local,
             db_group := DBGroup,
+            backup_priority := BUPp,
             payload_type := PType,
             n_shards := NShards,
             storage := Storage,
@@ -650,6 +652,7 @@ verify_db_opts(Opts) ->
         },
         RTOpts = #{
             db_group => DBGroup,
+            backup_priority => BUPp,
             subscriptions => Subs,
             transactions => Trans,
             rocksdb => RocksDB
