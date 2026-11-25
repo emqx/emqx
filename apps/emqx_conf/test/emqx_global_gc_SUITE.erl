@@ -32,7 +32,7 @@ t_run_gc(_) ->
         ?assert(is_reference(Timer)),
         ok = timer:sleep(1500),
         ?assertEqual(ok, emqx_global_gc:run()),
-        ?assertMatch(#{worker := {_Pid, _MRef}}, sys:get_state(Pid))
+        ?assertMatch(#{worker := Worker} when is_pid(Worker), sys:get_state(Pid))
     after
         ok = emqx_global_gc:stop()
     end.
@@ -141,16 +141,76 @@ t_no_overlapping_sweeps(_) ->
     Idle = [spawn(fun idle/0) || _ <- lists:seq(1, 5000)],
     try
         ?assertEqual(ok, emqx_global_gc:run()),
-        #{worker := {Worker1, _}} = sys:get_state(Pid),
+        #{worker := Worker1} = sys:get_state(Pid),
         ?assert(is_process_alive(Worker1)),
         ?assertEqual(ok, emqx_global_gc:run()),
-        #{worker := {Worker2, _}} = sys:get_state(Pid),
+        #{worker := Worker2} = sys:get_state(Pid),
         ?assertNotEqual(Worker1, Worker2),
         ?retry(20, 100, ?assertNot(is_process_alive(Worker1)))
     after
         lists:foreach(fun(P) -> exit(P, kill) end, Idle),
         ok = emqx_global_gc:stop()
     end.
+
+-doc """
+A supervisor that stops the server also stops the sweep in progress, the same
+as `stop/0` does.
+""".
+t_supervisor_shutdown_kills_worker(_) ->
+    ok = load_interval(<<"1h">>),
+    {ok, Sup} = supervisor:start_link(?MODULE, sup),
+    unlink(Sup),
+    Idle = [spawn(fun idle/0) || _ <- lists:seq(1, 5000)],
+    try
+        ?assertEqual(ok, emqx_global_gc:run()),
+        #{worker := Worker} = sys:get_state(emqx_global_gc),
+        ?assert(is_process_alive(Worker)),
+        MRef = monitor(process, Worker),
+        ok = supervisor:terminate_child(Sup, emqx_global_gc),
+        receive
+            {'DOWN', MRef, process, Worker, _} -> ok
+        after 5000 ->
+            ct:fail("sweep worker survived the supervisor shutdown")
+        end
+    after
+        lists:foreach(fun(P) -> exit(P, kill) end, Idle),
+        ok = proc_lib:stop(Sup)
+    end.
+
+-doc """
+A server that is killed, and so never runs `terminate/2`, still takes the sweep
+in progress down with it.
+""".
+t_server_kill_kills_worker(_) ->
+    ok = load_interval(<<"1h">>),
+    {ok, Pid} = emqx_global_gc:start_link(),
+    unlink(Pid),
+    Idle = [spawn(fun idle/0) || _ <- lists:seq(1, 5000)],
+    try
+        ?assertEqual(ok, emqx_global_gc:run()),
+        #{worker := Worker} = sys:get_state(Pid),
+        ?assert(is_process_alive(Worker)),
+        MRef = monitor(process, Worker),
+        true = exit(Pid, kill),
+        receive
+            {'DOWN', MRef, process, Worker, _} -> ok
+        after 5000 ->
+            ct:fail("sweep worker survived the server")
+        end
+    after
+        lists:foreach(fun(P) -> exit(P, kill) end, Idle)
+    end.
+
+%% supervisor callback for t_supervisor_shutdown_kills_worker
+init(sup) ->
+    Child = #{
+        id => emqx_global_gc,
+        start => {emqx_global_gc, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker
+    },
+    {ok, {#{strategy => one_for_one, intensity => 0, period => 1}, [Child]}}.
 
 idle() ->
     receive
