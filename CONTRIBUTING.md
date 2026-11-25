@@ -186,12 +186,12 @@ release can fail to compile, or can compile and then behave differently at run t
 `.tool-versions` in the repository root gives the exact version:
 
 ```
-erlang 28.5.0.7-9
+erlang 28.5.0.7-10
 ```
 
 The trailing number is the fork revision. It does not exist upstream, so no upstream
 installation matches the version that this branch needs. The matching fork tag is
-`OTP-28.5.0.7-9`.
+`OTP-28.5.0.7-10`.
 
 Each branch pins its own version. Read `.tool-versions` on the branch that you work on. Do not
 copy the version from another branch.
