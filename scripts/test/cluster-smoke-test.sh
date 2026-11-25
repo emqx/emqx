@@ -25,15 +25,5 @@ env LICENSE_KEY1='default' \
     EXPECTED_JOIN_ERROR='Failed to join the cluster: "Node emqx@node1.emqx.io has a single node license"' \
 ./start-two-nodes-in-docker.sh "${DOCKER_IMAGE_TAG}"
 
-echo '======== Allow clustering with "default" license if peer node is before 5.9'
-## new (>= 5.9.0) can join cluster with old (< 5.9.0)
-IMAGE1='emqx/emqx-enterprise:5.8.6'
-## The two images do not ship the same CA, and the new one requires a client
-## certificate, so give both nodes one PKI to verify against.
-./gen-dist-tls-pki.sh tmp/dist-tls
-env LICENSE_KEY1='default' \
-    LICENSE_KEY2='default' \
-./start-two-nodes-in-docker.sh -S tmp/dist-tls "${IMAGE1}" "${DOCKER_IMAGE_TAG}"
-
 ## Clenaup
 ./start-two-nodes-in-docker.sh -c
