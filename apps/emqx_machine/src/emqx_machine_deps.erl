@@ -32,7 +32,7 @@ Instructions:
 """.
 
 %% API:
--export([gen_smt/0, solve/0, generate/1]).
+-export([gen_smt/0, solve/0, generate/1, descr/1]).
 -export([vertices/0, range/1, pinned_levels/0, edges/0]).
 
 -include_lib("classy/include/classy_rl.hrl").
@@ -46,16 +46,30 @@ Instructions:
 %%================================================================================
 
 -doc """
+Return description of run level for documentation and troubleshooting.
+""".
+-spec descr(atom()) -> string().
+descr(emqx_rl_mria_declare) ->
+    "Mria tables are created";
+descr(emqx_rl_mria_ready) ->
+    "Local replicas of Mria tables are ready";
+descr(emqx_rl_boot) ->
+    "Business apps are started";
+descr(emqx_rl_joinable) ->
+    "EMQX broker is ready for clustering";
+descr(emqx_rl_ready) ->
+    "EMQX system is fully up".
+
+-doc """
 List of vertices.
 Anything that can depend on something or be a dependency of something is a vertex.
 """.
 vertices() ->
     [
-        %% Business apps are starting:
+        emqx_rl_mria_declare,
+        emqx_rl_mria_ready,
         emqx_rl_boot,
-        %% Peers can join:
         emqx_rl_joinable,
-        %% System is fully ready:
         emqx_rl_ready
     ].
 
@@ -77,7 +91,6 @@ or if they are sent across network.
 """.
 pinned_levels() ->
     #{
-        emqx_rl_boot => ?mria_rl_ready,
         emqx_rl_ready => ?classy_rl_ready
     }.
 
@@ -91,6 +104,8 @@ means "B depends on A".
 """.
 edges() ->
     [
+        {emqx_rl_mria_declare, emqx_rl_mria_ready, []},
+        {emqx_rl_mria_ready, emqx_rl_boot, []},
         {emqx_rl_boot, emqx_rl_ready, []},
         {emqx_rl_boot, emqx_rl_joinable, []}
     ].
@@ -228,9 +243,8 @@ gen_edges() ->
 %% erlfmt-ignore
 gen_lower_bound() ->
     [assert,
-      [~"and" | [[~">", I, emqx_rl_boot] ||
-                    I <- vertices(),
-                    I =/= emqx_rl_boot]]
+      [~"and" | [[~">", I, ?min_level] ||
+                    I <- vertices()]]
     ].
 
 %% erlfmt-ignore

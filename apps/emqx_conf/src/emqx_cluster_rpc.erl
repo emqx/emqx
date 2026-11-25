@@ -5,7 +5,8 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/0, create_tables/0]).
+-export([create_tables/0, wait_for_tables/0]).
+-export([start_link/0]).
 
 %% Note: multicall functions are statically checked by
 %% `emqx_bapi_trans' and `emqx_bpapi_static_checks' modules. Don't
@@ -20,7 +21,6 @@
     skip_failed_commit/1,
     fast_forward_to_commit/2,
     force_leave_clean/1,
-    wait_for_cluster_rpc_tables/0,
     maybe_init_tnx_id/2,
     update_mfa/3
 ]).
@@ -111,6 +111,23 @@ create_tables() ->
                 {attributes, record_info(fields, cluster_rpc_commit)}
             ]),
         {ok, [?CLUSTER_MFA, ?CLUSTER_COMMIT]}
+    end.
+
+wait_for_tables() ->
+    %% Workaround for https://github.com/emqx/mria/issues/94:
+    Msg1 = #{msg => "wait_for_cluster_rpc_shard"},
+    case mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1500) of
+        ok -> ?SLOG(info, Msg1#{result => ok});
+        Error0 -> ?SLOG(error, Msg1#{result => Error0})
+    end,
+    Msg2 = #{msg => "wait_for_cluster_rpc_tables"},
+    case mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]) of
+        ok ->
+            ?SLOG(info, Msg2#{result => ok}),
+            ok;
+        Error1 ->
+            ?SLOG(error, Msg2#{result => Error1}),
+            Error1
     end.
 
 start_link() ->
@@ -319,23 +336,6 @@ force_leave_clean(Node) ->
         {aborted, Reason} -> {error, Reason}
     end.
 
-wait_for_cluster_rpc_tables() ->
-    %% Workaround for https://github.com/emqx/mria/issues/94:
-    Msg1 = #{msg => "wait_for_cluster_rpc_shard"},
-    case mria_rlog:wait_for_shards([?CLUSTER_RPC_SHARD], 1500) of
-        ok -> ?SLOG(info, Msg1#{result => ok});
-        Error0 -> ?SLOG(error, Msg1#{result => Error0})
-    end,
-    Msg2 = #{msg => "wait_for_cluster_rpc_tables"},
-    case mria:wait_for_tables([?CLUSTER_MFA, ?CLUSTER_COMMIT]) of
-        ok ->
-            ?SLOG(info, Msg2#{result => ok}),
-            ok;
-        Error1 ->
-            ?SLOG(error, Msg2#{result => Error1}),
-            Error1
-    end.
-
 on_kick_decided(_Cluster, Target, _Intent) ->
     %% TODO: do it in on_membership_change instead?
     case classy:node_of_site(Target, false) of
@@ -364,13 +364,7 @@ init([Node, RetryMs]) ->
 handle_continue({?CATCH_UP, init}, State) ->
     %% emqx app must be started before
     %% trying to catch up the rpc commit logs
-    Result =
-        maybe
-            ok ?= wait_for_cluster_rpc_tables(),
-            %% Wait for 10 seconds until EMQX applications are started,
-            %% otherwise the committed transaction catch up may fail.
-            emqx_machine:wait_cluster_ready(10_000)
-        end,
+    Result = emqx_machine:wait_cluster_ready(10_000),
     case Result of
         ok ->
             {noreply, State, catch_up(State)};

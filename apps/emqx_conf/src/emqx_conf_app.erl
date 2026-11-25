@@ -10,6 +10,7 @@
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
 -export([unset_config_loaded/0]).
+-export([create_tables/0, wait_for_tables/0]).
 
 -ifdef(TEST).
 -export([sync_cluster_conf/0]).
@@ -26,27 +27,37 @@
 
 -elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
-start(_StartType, _StartArgs) ->
+create_tables() ->
     maybe
-        {ok, Tables} ?= emqx_cluster_rpc:create_tables(),
-        ok ?= mria:wait_for_tables(Tables),
-        _ = emqx_config:create_tables(),
-        ensure_allowed_namespaced_root_keys(),
-        try
-            ok = init_conf()
-        catch
-            C:E:St ->
-                ?SLOG(critical, #{
-                    msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
-                }),
-                exit_loop(1)
-        end,
-        ok = emqx_config_logger:refresh_config(),
-        ok = warn_if_no_trusted_certs(),
-        {ok, Sup} = emqx_conf_sup:start_link(),
-        emqx_conf_cli:load(),
-        {ok, Sup}
+        {ok, _} ?= emqx_cluster_rpc:create_tables(),
+        {ok, _} ?= emqx_config:create_tables(),
+        ok
     end.
+
+%% Note: this function is called before application start, as it's
+%% registered at run level ?emqx_rl_mria_ready
+wait_for_tables() ->
+    maybe
+        ok ?= emqx_cluster_rpc:wait_for_tables(),
+        emqx_config:wait_for_tables()
+    end.
+
+start(_StartType, _StartArgs) ->
+    ensure_allowed_namespaced_root_keys(),
+    try
+        ok = init_conf()
+    catch
+        C:E:St ->
+            ?SLOG(critical, #{
+                msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
+            }),
+            exit_loop(1)
+    end,
+    ok = emqx_config_logger:refresh_config(),
+    ok = warn_if_no_trusted_certs(),
+    {ok, Sup} = emqx_conf_sup:start_link(),
+    emqx_conf_cli:load(),
+    {ok, Sup}.
 
 stop(_State) ->
     emqx_config:clear_all_invalid_namespaced_configs(),
@@ -152,7 +163,7 @@ init_load(TnxId) ->
     end.
 
 init_conf() ->
-    ok = emqx_cluster_rpc:wait_for_cluster_rpc_tables(),
+    ok = emqx_cluster_rpc:wait_for_tables(),
     {ok, TnxId} = sync_cluster_conf(),
     ok = init_load(TnxId).
 

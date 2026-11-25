@@ -91,7 +91,7 @@
     remove_handlers/0
 ]).
 
--export([create_tables/0]).
+-export([create_tables/0, wait_for_tables/0]).
 -export([ensure_atom_conf_path/2]).
 -export([load_config_files/2]).
 -export([upgrade_raw_conf/2]).
@@ -202,7 +202,7 @@
 
 -type runtime_config_key_path() :: [atom()].
 
--spec create_tables() -> [atom()].
+-spec create_tables() -> {ok, [mria:table()]} | {error, stopping}.
 create_tables() ->
     maybe
         ok ?=
@@ -213,12 +213,12 @@ create_tables() ->
                 {record_name, ?CONFIG_TAB},
                 {attributes, record_info(fields, ?CONFIG_TAB)}
             ]),
-        Tables = [?CONFIG_TAB],
-        ok ?= mria:wait_for_tables(Tables),
-        Tables
-    else
-        {error, stopping} -> []
+        {ok, [?CONFIG_TAB]}
     end.
+
+-spec wait_for_tables() -> ok | {error, _}.
+wait_for_tables() ->
+    mria:wait_for_tables([?CONFIG_TAB]).
 
 %% @doc For the given path, get root value enclosed in a single-key map.
 -spec get_root(emqx_utils_maps:config_key_path()) -> map().

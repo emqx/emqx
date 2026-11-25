@@ -7,7 +7,9 @@
 %% this file.
 -ifndef(EMQX_MACHINE_RL_HRL).
 -define(EMQX_MACHINE_RL_HRL, true).
--define(emqx_rl_boot, 20).
--define(emqx_rl_joinable, 21).
+-define(emqx_rl_mria_declare, 21).
+-define(emqx_rl_mria_ready, 22).
+-define(emqx_rl_boot, 23).
+-define(emqx_rl_joinable, 24).
 -define(emqx_rl_ready, 300).
 -endif.

@@ -146,6 +146,10 @@ on_run_level(enter, ?classy_rl_single) ->
         emqx,
         #{vsn => get_emqx_vsn()}
     );
+on_run_level(enter, ?emqx_rl_mria_declare) ->
+    declare_mria_tables();
+on_run_level(enter, ?emqx_rl_mria_ready) ->
+    wait_mria_tables();
 on_run_level(enter, ?emqx_rl_joinable) ->
     optvar:set(?ready_to_cluster, true);
 on_run_level(leave, ?emqx_rl_joinable) ->
@@ -371,6 +375,15 @@ on_node_classify(#{emqx := #{vsn := Vsn}}) ->
     ];
 on_node_classify(#{}) ->
     [].
+
+%% IMPR: avoid hardcoding the tables here. Find a way to let apps
+%% manage their tables.
+
+declare_mria_tables() ->
+    emqx_conf_app:create_tables().
+
+wait_mria_tables() ->
+    emqx_conf_app:wait_for_tables().
 
 %% TODO: Forward mria start/stop callbacks for autoheal
 
