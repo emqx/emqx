@@ -164,6 +164,8 @@ do_handle_route_op_msg(
             ok = update_routes(ClusterName, Actor, RouteOps);
         {heartbeat, #{actor := Actor}} ->
             ok = actor_heartbeat(ClusterName, Actor);
+        {error, invalid_route_op} ->
+            error(invalid_route_op);
         {error, {unknown_payload, ParsedPayload}} ->
             ?SLOG(warning, #{
                 msg => "unexpected_cluster_link_route_op_payload",
