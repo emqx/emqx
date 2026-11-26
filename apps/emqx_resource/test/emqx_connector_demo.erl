@@ -327,7 +327,7 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_eval_ask_now(Req, {async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {random_reply, Num, ReplyTab} ->
             %% only take the first Num in the batch should be random enough
-            Pid ! {{random_reply, Num, ReplyTab}, ReplyFunAndArgs},
+            Pid ! {{random_reply, Num, ReplyTab, length(BatchReq)}, ReplyFunAndArgs},
             {ok, Pid}
     end.
 
@@ -660,14 +660,14 @@ counter_loop(
                     end,
                 apply_reply(ReplyFun, Res),
                 State;
-            {{random_reply, RandNum, ReplyTab}, ReplyFun} ->
+            {{random_reply, RandNum, ReplyTab, NBatch}, ReplyFun} ->
                 %% usually a behaving  connector should reply once and only once for
                 %% each (batch) request
                 %% but we try to reply random results a random number of times
                 %% with 'ok' in the result, the buffer worker should eventually
                 %% drain the buffer (and inflights table)
                 ReplyCount = 1 + (RandNum rem 3),
-                Results = make_random_replies(ReplyCount),
+                Results = make_random_replies_batch(ReplyCount, NBatch),
                 %% To track expected state.
                 ets:insert(ReplyTab, {erlang:monotonic_time(), Results}),
                 %% add a delay to trigger inflight full
@@ -722,10 +722,13 @@ maybe_register(_Name, _Pid, false) ->
 apply_reply({ReplyFun, Args}, Result) when is_function(ReplyFun) ->
     apply(ReplyFun, Args ++ [Result]).
 
-make_random_replies(0) ->
+make_random_replies_batch(0, _NBatch) ->
     [];
-make_random_replies(N) ->
-    [make_random_reply(N) | make_random_replies(N - 1)].
+make_random_replies_batch(N, NBatch) ->
+    [
+        [make_random_reply(N) || _ <- lists:seq(1, NBatch)]
+        | make_random_replies_batch(N - 1, NBatch)
+    ].
 
 make_random_reply(N) ->
     case rand:uniform(3) of

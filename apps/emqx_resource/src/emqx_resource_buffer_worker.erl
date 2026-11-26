@@ -658,13 +658,17 @@ retry_inflight_sync(Ref, SeqNo, [_ | _] = Batch, Data0) ->
                     result => Result
                 }
             ),
-            _ = retry_nacked_batch(InflightTID, Ref, SeqNo, AckedIndices, AckedPostFn),
-            Data1 = aggregate_counters(Data0, AckedCounters),
+            UpdateRes = retry_nacked_batch(InflightTID, Ref, SeqNo, AckedIndices, AckedPostFn),
+            Data1 =
+                case UpdateRes of
+                    noop -> Data0;
+                    updated -> aggregate_counters(Data0, AckedCounters)
+                end,
             {keep_state, Data1, {state_timeout, ResumeT, unblock}};
         %% Send ok or failed but the resource is working
         ?ack ->
             BufferWorkerPid = self(),
-            {IsAcked, Queries1} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+            {IsAcked, Queries1} = ack_inflight_batch(InflightTID, Ref, SeqNo, BufferWorkerPid),
             %% we need to defer bumping the counters after
             %% `inflight_drop' to avoid the race condition when an
             %% inflight request might get completed concurrently with
@@ -1989,6 +1993,7 @@ handle_async_reply1(
 
 do_handle_async_reply(
     #{
+        seq_no := SeqNo,
         simple_query := IsSimpleQuery,
         resource_id := Id,
         request_ref := Ref,
@@ -2026,11 +2031,12 @@ do_handle_async_reply(
             ok = do_async_ack(
                 InflightTID,
                 Ref,
+                SeqNo,
                 Id,
                 PostFn,
                 BufferWorkerPid,
                 DeltaCounters,
-                [MinimizedQuery],
+                MinimizedQuery,
                 IsSimpleQuery
             )
     end.
@@ -2220,6 +2226,7 @@ do_handle_async_batch_reply(
             ok = do_async_ack(
                 InflightTID,
                 Ref,
+                SeqNo,
                 Id,
                 %% in this branch, `PostFn = AckedPostFn`.
                 PostFn,
@@ -2230,13 +2237,29 @@ do_handle_async_batch_reply(
             )
     end.
 
-do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, Batch, IsSimpleQuery) ->
-    {IsKnownRef, Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
+do_async_ack(
+    InflightTID,
+    Ref,
+    SeqNo,
+    Id,
+    PostFn,
+    BufferWorkerPid,
+    DeltaCounters,
+    MinimizedBatchOrQuery,
+    IsSimpleQuery
+) ->
+    {IsKnownRef, Queries} =
+        case is_list(MinimizedBatchOrQuery) of
+            false ->
+                ack_inflight(InflightTID, Ref, BufferWorkerPid);
+            true ->
+                ack_inflight_batch(InflightTID, Ref, SeqNo, BufferWorkerPid)
+        end,
     case IsSimpleQuery of
         true ->
             %% If this was a simple request, there's no inflight table, so we take the
             %% batch from the async reply context.
-            PostFn(result_context(Batch)),
+            PostFn(result_context(wrap_list(MinimizedBatchOrQuery))),
             bump_counters(Id, DeltaCounters);
         false when IsKnownRef ->
             PostFn(result_context(Queries)),
@@ -2245,6 +2268,9 @@ do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, Batch
             ok
     end,
     ok.
+
+wrap_list(Xs) when is_list(Xs) -> Xs;
+wrap_list(X) -> [X].
 
 %% check if the async reply is valid.
 %% e.g. if a connector evaluates the callback more than once:
@@ -2295,7 +2321,10 @@ retry_nacked_batch(InflightTID, Ref, SeqNo, AckedIndices, AckedPostFn) ->
         MS = [
             {
                 ?INFLIGHT_ITEM('$1', '$2', '_', '_', '_'),
-                [{'==', '$1', {const, Ref}}, {'==', '$2', {const, SeqNo}}],
+                [
+                    {'==', '$1', {const, Ref}},
+                    {'==', '$2', {const, SeqNo}}
+                ],
                 [
                     {?INFLIGHT_ITEM(
                         '$1',
@@ -2310,10 +2339,13 @@ retry_nacked_batch(InflightTID, Ref, SeqNo, AckedIndices, AckedPostFn) ->
             }
         ],
         1 ?= ets:select_replace(InflightTID, MS),
-        [_ | _] ?= AckedRev,
-        Acked = lists:reverse(AckedRev),
-        AckedPostFn(result_context(Acked)),
-        dec_inflight_update(InflightTID, map_size(AckedIndices)),
+        %% even if no query as acked, we still updated the inflight item to be retriable.
+        maybe
+            [_ | _] ?= AckedRev,
+            Acked = lists:reverse(AckedRev),
+            AckedPostFn(result_context(Acked)),
+            dec_inflight_update(InflightTID, map_size(AckedIndices))
+        end,
         updated
     else
         _ ->
@@ -2575,6 +2607,45 @@ ack_inflight(InflightTID, Ref, BufferWorkerPid) ->
     end,
     IsKnownRef = (Count > 0),
     {IsKnownRef, Queries}.
+
+ack_inflight_batch(?NO_INFLIGHT, _Ref, _SeqNo, _BufferWorkerPid) ->
+    {false, []};
+ack_inflight_batch(InflightTID, Ref, SeqNo, BufferWorkerPid) ->
+    maybe
+        SeqNoFinal = SeqNo + 1,
+        MS = [
+            {
+                ?INFLIGHT_ITEM('$1', '$2', '$3', '_', '_'),
+                [
+                    {'==', '$1', {const, Ref}},
+                    {'==', '$2', {const, SeqNo}},
+                    {is_list, '$3'}
+                ],
+                [
+                    {?INFLIGHT_ITEM(
+                        '$1',
+                        {const, SeqNoFinal},
+                        '$3',
+                        {const, false},
+                        {const, erased}
+                    )}
+                ]
+            }
+        ],
+        1 ?= ets:select_replace(InflightTID, MS),
+        [?INFLIGHT_ITEM(_, SeqNoFinal, Batch0, _, _)] ?= ets:take(InflightTID, Ref),
+        Count = length(Batch0),
+        Removed = true,
+        FlushCheck = dec_inflight_remove(InflightTID, Count, Removed),
+        case FlushCheck of
+            no_flush -> ok;
+            flush -> ?MODULE:flush_worker(BufferWorkerPid)
+        end,
+        {true, Batch0}
+    else
+        _ ->
+            {false, []}
+    end.
 
 mark_inflight_items_as_retriable(Data, AsyncWorkerMRef) ->
     #{inflight_tid := InflightTID} = Data,

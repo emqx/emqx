@@ -2881,7 +2881,8 @@ t_async_reply_multi_eval(_Config) ->
                 }
             )
         end
-    ).
+    ),
+    ok.
 
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
