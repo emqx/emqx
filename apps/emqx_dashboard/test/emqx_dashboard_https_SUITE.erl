@@ -358,7 +358,7 @@ t_h2_cors(init, Config) ->
 t_h2_cors('end', Config) ->
     h2_end(Config).
 t_h2_cors(_Config) ->
-    {AuthName, AuthValue} = emqx_dashboard_SUITE:auth_header_(),
+    {AuthName, AuthValue} = emqx_common_test_http:default_user_auth_header(),
     ReqHeaders = [
         {string:lowercase(list_to_binary(AuthName)), list_to_binary(AuthValue)},
         {<<"origin">>, <<"https://example.com">>}
