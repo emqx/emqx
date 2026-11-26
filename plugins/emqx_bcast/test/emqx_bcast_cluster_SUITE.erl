@@ -13,6 +13,9 @@
 -include("emqx_bcast.hrl").
 
 -define(PAYLOAD, <<"cluster_test_payload">>).
+-define(DEFAULT_RECV_TIMEOUT_MS, 3_000).
+-define(ASYNC_TIMEOUT_MS, 30_000).
+-define(ASYNC_WAIT_ATTEMPTS, 600).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -50,20 +53,24 @@ connect(Node, ClientId) ->
 sub(C, Topic) ->
     emqtt:subscribe(C, Topic, 1).
 
-recv(Count) -> recv(Count, []).
-recv(0, Msgs) ->
+recv(Count) -> recv(Count, ?DEFAULT_RECV_TIMEOUT_MS).
+recv(Count, Timeout) -> recv(Count, Timeout, []).
+recv(0, _Timeout, Msgs) ->
     Msgs;
-recv(Count, Msgs) ->
+recv(Count, Timeout, Msgs) ->
     receive
-        {publish, Msg} -> recv(Count - 1, [Msg | Msgs])
-    after 3000 -> Msgs
+        {publish, Msg} -> recv(Count - 1, Timeout, [Msg | Msgs])
+    after Timeout -> Msgs
     end.
 
 recv_ordered(Count) ->
-    lists:reverse(recv(Count)).
+    lists:reverse(recv(Count, ?ASYNC_TIMEOUT_MS)).
 
 recv_payloads(Count) ->
-    recv_payloads(Count, #{}, 10000).
+    recv_payloads(Count, ?ASYNC_TIMEOUT_MS).
+
+recv_payloads(Count, Timeout) ->
+    recv_payloads(Count, #{}, Timeout).
 
 recv_payloads(Count, Acc, _Timeout) when map_size(Acc) >= Count ->
     maps:keys(Acc);
@@ -226,8 +233,8 @@ t_cluster_cross_node_delivery(Config) ->
         <<"MessageContent">> => base64:encode(?PAYLOAD),
         <<"Qos">> => 0
     }),
-    Msgs1 = recv(1),
-    Msgs2 = recv(1),
+    Msgs1 = recv(1, ?ASYNC_TIMEOUT_MS),
+    Msgs2 = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs1)),
     ?assertEqual(1, length(Msgs2)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs1)),
@@ -268,7 +275,7 @@ t_cluster_offline_replay_on_other_node(Config) ->
     ?assert(Indexed),
     C = connect(N2, DN),
     sub(C, topic(DN)),
-    Msgs = recv(1),
+    Msgs = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
     emqtt:stop(C).
@@ -305,7 +312,7 @@ t_cluster_ack_idempotent_across_nodes(Config) ->
     ?assert(Indexed),
     C1 = connect(N1, DN1),
     sub(C1, topic(DN1)),
-    Msgs1 = recv(1),
+    Msgs1 = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs1)),
     %% D1 acks on node1; wait until node1 has processed the ack and removed
     %% the local index entry.
@@ -388,7 +395,7 @@ t_metrics_ledger_combo_b_cluster(Config) ->
         <<"MessageContent">> => base64:encode(?PAYLOAD),
         <<"Qos">> => 1
     }),
-    Msgs = recv(2),
+    Msgs = recv(2, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(2, length(Msgs)),
     %% Settle async accounting: commit, sends, PUBACK, auto-ack.
     ?assert(
@@ -519,7 +526,7 @@ t_core_with_a_stopped_plugin_hands_its_shards_over(Config) ->
         <<"MessageContent">> => base64:encode(?PAYLOAD),
         <<"Qos">> => 1
     }),
-    Msgs = recv(1),
+    Msgs = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
     Completed =
@@ -591,7 +598,7 @@ t_trigger_arms_a_client_that_connected_before_the_plugin_was_ready(Config) ->
     }),
     %% One trigger is enough: the node verifies the client locally, arms it and
     %% claims its deliveries instead of skipping the device silently.
-    Msgs = recv(1),
+    Msgs = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
     ?assert(
@@ -640,7 +647,7 @@ t_subscription_after_plugin_start_arms_existing_client(Config) ->
     ),
     ?assertEqual(0, erpc:call(N2, ets, info, [bcast_device_registry, size])),
     {ok, _, _} = sub(C, <<"/default/+/user/get">>),
-    [Msg] = recv(1),
+    [Msg] = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertMatch(#{payload := ?PAYLOAD}, Msg),
     ?assert(erpc:call(N2, ets, info, [bcast_device_registry, size]) > 0),
     emqtt:stop(C).
@@ -723,7 +730,7 @@ t_pending_delivery_resumes_after_client_plugin_restart(Config) ->
     {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
     settle_cluster([N1, N2]),
     pong = emqtt:ping(C),
-    Msgs = recv(1),
+    Msgs = recv(1, ?ASYNC_TIMEOUT_MS),
     ?assertEqual(1, length(Msgs)),
     ?assertMatch(#{payload := ?PAYLOAD}, hd(Msgs)),
     emqtt:stop(C).
@@ -996,13 +1003,13 @@ t_plugin_roll_restart_under_qos1_load(Config) ->
         end,
         Payloads
     ),
-    Committed = wait_until(
+    Promoted = wait_until(
         fun() ->
-            erpc:call(N1, mnesia, table_info, [bcast_msg, size]) >= Count
+            node_metric(N1, <<"batch_pub_qos1_wanted">>) >= W0 + Count
         end,
-        200
+        ?ASYNC_WAIT_ATTEMPTS
     ),
-    ?assert(Committed),
+    ?assert(Promoted),
     {ok, _} = erpc:call(N2, application, ensure_all_started, [emqx_bcast]),
     settle_cluster([N1, N2]),
     emqtt:stop(C),

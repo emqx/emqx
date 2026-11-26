@@ -17,6 +17,8 @@
 -define(LDAP_PASSWORD, <<"public">>).
 -define(LDAP_USER, <<"viewer1">>).
 -define(LDAP_USER_PASSWORD, <<"viewer1">>).
+%% A directory user that no test case logs in with
+-define(LDAP_USER_NO_LOGIN, <<"viewer2">>).
 -define(LDAP_BASE_DN, <<"ou=dashboard,dc=emqx,dc=io">>).
 -define(LDAP_FILTER_WITH_UID, <<"(uid=${username})">>).
 %% there are more than one users in this group
@@ -42,6 +44,7 @@ all() ->
         t_update,
         t_get,
         t_login_with_bad,
+        t_login_with_empty_password,
         t_first_login,
         t_next_login,
         t_more_than_one_user_matched,
@@ -280,6 +283,31 @@ t_login_with_bad(_) ->
     },
     {ok, 401, Result} = request(post, Path, Req),
     ?assertMatch(#{code := <<"BAD_USERNAME_OR_PWD">>}, decode_json(Result)),
+    ok.
+
+-doc """
+An empty password for an existing directory user gets the wrong-password result,
+and no user is created.
+The CI directory answers a bind with an empty password with an error,
+so the `invalidCredentials` reason shows that no bind request was sent.
+""".
+t_login_with_empty_password({init, Config}) ->
+    Config;
+t_login_with_empty_password({'end', _Config}) ->
+    ok;
+t_login_with_empty_password(_) ->
+    Path = uri(["sso", "login", "ldap"]),
+    Req = #{
+        <<"backend">> => <<"ldap">>,
+        <<"username">> => ?LDAP_USER_NO_LOGIN,
+        <<"password">> => <<>>
+    },
+    {ok, 401, Result} = request_without_authorization(post, Path, Req),
+    ?assertMatch(
+        #{code := <<"BAD_USERNAME_OR_PWD">>, reason := #{result := <<"invalidCredentials">>}},
+        decode_json(Result)
+    ),
+    ?assertEqual([], emqx_dashboard_admin:lookup_user(ldap, ?LDAP_USER_NO_LOGIN)),
     ok.
 
 t_first_login({init, Config}) ->

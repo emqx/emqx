@@ -187,7 +187,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.46.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.7", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, "2.7.0", override: true}
+  def common_dep(:gun), do: {:gun, "2.8.0", override: true}
   # in conflict by cowboy_swagger and cowboy
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-5", override: true}
 
@@ -202,7 +202,7 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.2", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-3", override: true}
+    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-6", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
@@ -230,7 +230,7 @@ defmodule EMQXUmbrella.MixProject do
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.5", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
-  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.3", override: true}
+  def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "4.0.4", override: true}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -267,7 +267,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
 
   def common_dep(:cowlib),
-    do: {:cowlib, "2.21.0", override: true}
+    do: {:cowlib, "2.22.0", override: true}
 
   def common_dep(:snabbkaffe),
     do: {
@@ -332,7 +332,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.5-emqx.3"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.14"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.15"}
 
   def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 

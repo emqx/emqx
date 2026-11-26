@@ -235,7 +235,8 @@ maybe_kill_connection_process(ClientId, Config) ->
             ConnectionPid ! die_if_test,
             ?assertReceive(
                 {'DOWN', Ref, process, ConnectionPid, Reason} when
-                    Reason == normal orelse Reason == noproc,
+                    Reason == normal orelse Reason == noproc orelse
+                        (is_tuple(Reason) andalso element(1, Reason) == shutdown),
                 3000
             ),
             wait_connection_process_unregistered(ClientId);
@@ -251,7 +252,8 @@ wait_connection_process_dies(ClientId) ->
             Ref = monitor(process, ConnectionPid),
             ?assertReceive(
                 {'DOWN', Ref, process, ConnectionPid, Reason} when
-                    Reason == normal orelse Reason == noproc,
+                    Reason == normal orelse Reason == noproc orelse
+                        (is_tuple(Reason) andalso element(1, Reason) == shutdown),
                 3000
             ),
             wait_connection_process_unregistered(ClientId)

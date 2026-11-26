@@ -37,6 +37,10 @@ groups() ->
             t_parse_cont,
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
+            t_parse_remaining_len_five_bytes_pingreq,
+            t_parse_remaining_len_five_bytes_disconnect,
+            t_parse_remaining_len_five_bytes_publish,
+            t_parse_remaining_len_four_bytes_max,
             t_parse_malformed_utf8_string,
             t_parse_bad_v5_publish_packet,
             t_guess_first_packet_protocol,
@@ -229,6 +233,42 @@ t_parse_frame_malformed_variable_byte_integer(_) ->
     ?ASSERT_FRAME_THROW(
         malformed_variable_byte_integer,
         emqx_frame:parse(MalformedPayload, ParseState)
+    ).
+
+-doc """
+A Remaining Length is at most four bytes long. A five-byte zero Remaining
+Length on PINGREQ is rejected, whole and in chunks.
+""".
+t_parse_remaining_len_five_bytes_pingreq(_) ->
+    assert_remaining_len_too_long(<<16#C0, 16#80, 16#80, 16#80, 16#80, 0>>).
+
+-doc """
+A five-byte zero Remaining Length on DISCONNECT is rejected, whole and in
+chunks.
+""".
+t_parse_remaining_len_five_bytes_disconnect(_) ->
+    assert_remaining_len_too_long(<<16#E0, 16#80, 16#80, 16#80, 16#80, 0>>).
+
+-doc """
+A five-byte non-zero Remaining Length on PUBLISH is rejected, whole and in
+chunks. The body that follows is a valid MQTT 5 PUBLISH of 5 bytes.
+""".
+t_parse_remaining_len_five_bytes_publish(_) ->
+    assert_remaining_len_too_long(
+        <<16#30, 16#85, 16#80, 16#80, 16#80, 0, 0, 1, $t, 0, $x>>
+    ).
+
+-doc """
+The largest four-byte Remaining Length is accepted. The parser waits for the
+body, whole and in chunks.
+""".
+t_parse_remaining_len_four_bytes_max(_) ->
+    Bin = <<16#30, 16#FF, 16#FF, 16#FF, 16#7F>>,
+    lists:foreach(
+        fun(Chunks) ->
+            ?assertMatch({Need, _} when is_integer(Need), parse_chunks_until_done(Chunks))
+        end,
+        remaining_len_chunks(Bin)
     ).
 
 t_parse_malformed_utf8_string(_) ->
@@ -1344,6 +1384,39 @@ parse_to_packet(Bin, Opts) ->
     PState = emqx_frame:initial_parse_state(Opts),
     {Packet, <<>>, _} = emqx_frame:parse(Bin, PState),
     Packet.
+
+%% Bin delivered whole, one byte at a time, and split after the third byte of
+%% the Remaining Length.
+remaining_len_chunks(Bin) ->
+    <<Head:4/binary, Tail/binary>> = Bin,
+    [
+        [Bin],
+        [<<B>> || <<B>> <= Bin],
+        [Head, Tail]
+    ].
+
+assert_remaining_len_too_long(Bin) ->
+    lists:foreach(
+        fun(Chunks) ->
+            ?ASSERT_FRAME_THROW(malformed_variable_byte_integer, parse_chunks_until_done(Chunks))
+        end,
+        remaining_len_chunks(Bin)
+    ).
+
+%% Feed Chunks to a fresh parser. Return the first result that does not ask
+%% for more bytes, or the last result.
+parse_chunks_until_done(Chunks) ->
+    parse_chunks_until_done(Chunks, emqx_frame:initial_parse_state()).
+
+parse_chunks_until_done([Chunk | Chunks], ParseState) ->
+    case emqx_frame:parse(Chunk, ParseState) of
+        {some_more, NParseState} when Chunks =/= [] ->
+            parse_chunks_until_done(Chunks, NParseState);
+        {Need, NParseState} when is_integer(Need), Chunks =/= [] ->
+            parse_chunks_until_done(Chunks, NParseState);
+        Result ->
+            Result
+    end.
 
 payload(Len) -> iolist_to_binary(lists:duplicate(Len, 1)).
 
