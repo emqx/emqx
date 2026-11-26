@@ -351,7 +351,7 @@ t_evict_resuming_session(_Config) ->
     ?assertEqual(1, emqx_eviction_agent:session_count()),
     [ChanPid] = emqx_cm:lookup_channels(ClientId),
 
-    ok = meck:new(emqx_cm_takeover, [passthrough, no_link]),
+    ok = meck:new(emqx_cm_takeover, [passthrough]),
     try
         ok = meck:expect(emqx_cm_takeover, begin_, fun(_, _) -> {error, session_resuming} end),
         ok = emqx_eviction_agent:evict_sessions(1, node()),
