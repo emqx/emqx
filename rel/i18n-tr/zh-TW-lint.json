@@ -1,0 +1,582 @@
+{
+  "comment": [
+    "Terms that must not appear in the Traditional Chinese files.",
+    "Three groups: wording that is Mainland rather than Taiwanese, the",
+    "forms OpenCC produces that Taiwan does not use, and terms that are",
+    "only wrong outside the contexts listed in 'allow'.",
+    "Checked by rel/i18n-tr/lint-zh-TW.py in emqx.git and by",
+    "scripts/i18n/lint-zh-TW.mjs in emqx-dashboard5.git; keep the two",
+    "copies of this file identical.",
+    "A rule may carry 'allow' (contexts where the term is fine) and 'allowKeyPrefix' (entries where it is fine).",
+    "'simplifiedChars' are the Simplified characters this corpus actually uses, so the check needs no OpenCC at run time. Regenerate it when the Simplified source grows new ones."
+  ],
+  "rules": [
+    {
+      "term": "軟件",
+      "prefer": "軟體",
+      "group": "mainland"
+    },
+    {
+      "term": "硬件",
+      "prefer": "硬體",
+      "group": "mainland"
+    },
+    {
+      "term": "信息",
+      "prefer": "資訊",
+      "group": "mainland"
+    },
+    {
+      "term": "消息",
+      "prefer": "訊息",
+      "group": "mainland"
+    },
+    {
+      "term": "數據",
+      "prefer": "資料",
+      "group": "mainland"
+    },
+    {
+      "term": "網絡",
+      "prefer": "網路",
+      "group": "mainland"
+    },
+    {
+      "term": "服務器",
+      "prefer": "伺服器",
+      "group": "mainland"
+    },
+    {
+      "term": "端口",
+      "prefer": "連接埠",
+      "group": "mainland"
+    },
+    {
+      "term": "進程",
+      "prefer": "行程",
+      "group": "mainland"
+    },
+    {
+      "term": "線程",
+      "prefer": "執行緒",
+      "group": "mainland"
+    },
+    {
+      "term": "接口",
+      "prefer": "介面",
+      "group": "mainland"
+    },
+    {
+      "term": "字段",
+      "prefer": "欄位",
+      "group": "mainland"
+    },
+    {
+      "term": "數組",
+      "prefer": "陣列",
+      "group": "mainland"
+    },
+    {
+      "term": "函數",
+      "prefer": "函式",
+      "group": "mainland"
+    },
+    {
+      "term": "變量",
+      "prefer": "變數",
+      "group": "mainland"
+    },
+    {
+      "term": "字符串",
+      "prefer": "字串",
+      "group": "mainland"
+    },
+    {
+      "term": "緩存",
+      "prefer": "快取",
+      "group": "mainland"
+    },
+    {
+      "term": "隊列",
+      "prefer": "佇列",
+      "group": "mainland"
+    },
+    {
+      "term": "集群",
+      "prefer": "叢集",
+      "group": "mainland"
+    },
+    {
+      "term": "兼容",
+      "prefer": "相容",
+      "group": "mainland"
+    },
+    {
+      "term": "性能",
+      "prefer": "效能",
+      "group": "mainland"
+    },
+    {
+      "term": "默認",
+      "prefer": "預設",
+      "group": "mainland"
+    },
+    {
+      "term": "缺省",
+      "prefer": "預設",
+      "group": "mainland"
+    },
+    {
+      "term": "激活",
+      "prefer": "啟用",
+      "group": "mainland"
+    },
+    {
+      "term": "調用",
+      "prefer": "呼叫",
+      "group": "mainland"
+    },
+    {
+      "term": "對象",
+      "prefer": "物件",
+      "group": "mainland"
+    },
+    {
+      "term": "帶寬",
+      "prefer": "頻寬",
+      "group": "mainland"
+    },
+    {
+      "term": "質量",
+      "prefer": "品質",
+      "group": "mainland"
+    },
+    {
+      "term": "鏡像",
+      "prefer": "映像",
+      "group": "mainland"
+    },
+    {
+      "term": "倉庫",
+      "prefer": "儲存庫",
+      "group": "mainland"
+    },
+    {
+      "term": "標識",
+      "prefer": "識別",
+      "group": "mainland"
+    },
+    {
+      "term": "枚舉",
+      "prefer": "列舉",
+      "group": "mainland"
+    },
+    {
+      "term": "常量",
+      "prefer": "常數",
+      "group": "mainland"
+    },
+    {
+      "term": "註釋",
+      "prefer": "註解",
+      "group": "mainland"
+    },
+    {
+      "term": "加載",
+      "prefer": "載入",
+      "group": "mainland"
+    },
+    {
+      "term": "視圖",
+      "prefer": "檢視",
+      "group": "mainland"
+    },
+    {
+      "term": "事務",
+      "prefer": "交易",
+      "group": "mainland"
+    },
+    {
+      "term": "堆棧",
+      "prefer": "堆疊",
+      "group": "mainland"
+    },
+    {
+      "term": "遍歷",
+      "prefer": "走訪",
+      "group": "mainland"
+    },
+    {
+      "term": "屏幕",
+      "prefer": "螢幕",
+      "group": "mainland"
+    },
+    {
+      "term": "鏈接",
+      "prefer": "連結",
+      "group": "mainland"
+    },
+    {
+      "term": "內置",
+      "prefer": "內建",
+      "group": "mainland"
+    },
+    {
+      "term": "音頻",
+      "prefer": "音訊",
+      "group": "mainland"
+    },
+    {
+      "term": "鼠標",
+      "prefer": "滑鼠",
+      "group": "mainland"
+    },
+    {
+      "term": "智能",
+      "prefer": "智慧",
+      "group": "mainland"
+    },
+    {
+      "term": "打印",
+      "prefer": "列印",
+      "group": "mainland"
+    },
+    {
+      "term": "掛起",
+      "prefer": "待處理 / 暫停",
+      "group": "mainland"
+    },
+    {
+      "term": "比如",
+      "prefer": "例如",
+      "group": "mainland"
+    },
+    {
+      "term": "捕獲",
+      "prefer": "捕捉",
+      "group": "mainland"
+    },
+    {
+      "term": "超時",
+      "prefer": "逾時",
+      "group": "mainland"
+    },
+    {
+      "term": "覆蓋",
+      "prefer": "覆寫",
+      "group": "mainland"
+    },
+    {
+      "term": "獲取",
+      "prefer": "取得",
+      "group": "mainland"
+    },
+    {
+      "term": "提供商",
+      "prefer": "提供者",
+      "group": "mainland"
+    },
+    {
+      "term": "審計",
+      "prefer": "稽核",
+      "group": "mainland"
+    },
+    {
+      "term": "封禁",
+      "prefer": "封鎖",
+      "group": "mainland"
+    },
+    {
+      "term": "自定義",
+      "prefer": "自訂",
+      "group": "mainland"
+    },
+    {
+      "term": "名稱空間",
+      "prefer": "命名空間",
+      "group": "mainland"
+    },
+    {
+      "term": "許可證",
+      "prefer": "授權",
+      "group": "mainland"
+    },
+    {
+      "term": "客戶端",
+      "prefer": "用戶端",
+      "group": "mainland"
+    },
+    {
+      "term": "配置",
+      "prefer": "設定",
+      "group": "mainland"
+    },
+    {
+      "term": "當前",
+      "prefer": "目前",
+      "group": "mainland"
+    },
+    {
+      "term": "告警",
+      "prefer": "警報",
+      "group": "mainland"
+    },
+    {
+      "term": "跟蹤",
+      "prefer": "追蹤",
+      "group": "mainland"
+    },
+    {
+      "term": "示例",
+      "prefer": "範例",
+      "group": "mainland"
+    },
+    {
+      "term": "報文",
+      "prefer": "封包",
+      "group": "mainland"
+    },
+    {
+      "term": "響應",
+      "prefer": "回應",
+      "group": "mainland"
+    },
+    {
+      "term": "令牌",
+      "prefer": "權杖",
+      "group": "mainland"
+    },
+    {
+      "term": "訪問",
+      "prefer": "存取",
+      "group": "mainland"
+    },
+    {
+      "term": "證書",
+      "prefer": "憑證",
+      "group": "mainland"
+    },
+    {
+      "term": "秘鑰",
+      "prefer": "金鑰",
+      "group": "mainland"
+    },
+    {
+      "term": "賬",
+      "prefer": "帳",
+      "group": "mainland"
+    },
+    {
+      "term": "引數",
+      "prefer": "參數",
+      "group": "opencc"
+    },
+    {
+      "term": "全域性",
+      "prefer": "全域",
+      "group": "opencc"
+    },
+    {
+      "term": "分割槽",
+      "prefer": "分割區",
+      "group": "opencc"
+    },
+    {
+      "term": "例項",
+      "prefer": "實例",
+      "group": "opencc"
+    },
+    {
+      "term": "許可權",
+      "prefer": "權限",
+      "group": "opencc"
+    },
+    {
+      "term": "控制檯",
+      "prefer": "控制台",
+      "group": "opencc"
+    },
+    {
+      "term": "聯結器",
+      "prefer": "連接器",
+      "group": "opencc"
+    },
+    {
+      "term": "閘道器",
+      "prefer": "閘道",
+      "group": "opencc"
+    },
+    {
+      "term": "回撥",
+      "prefer": "回呼",
+      "group": "opencc"
+    },
+    {
+      "term": "釋出",
+      "prefer": "發布",
+      "group": "opencc"
+    },
+    {
+      "term": "識別符號",
+      "prefer": "識別碼",
+      "group": "opencc"
+    },
+    {
+      "term": "登錄檔",
+      "prefer": "註冊表",
+      "group": "opencc"
+    },
+    {
+      "term": "後臺",
+      "prefer": "後台",
+      "group": "opencc"
+    },
+    {
+      "term": "前臺",
+      "prefer": "前台",
+      "group": "opencc"
+    },
+    {
+      "term": "平臺",
+      "prefer": "平台",
+      "group": "opencc"
+    },
+    {
+      "term": "髮",
+      "prefer": "發 / 傳",
+      "group": "opencc"
+    },
+    {
+      "term": "集群后",
+      "prefer": "叢集後",
+      "group": "opencc"
+    },
+    {
+      "term": "采集",
+      "prefer": "採集",
+      "group": "opencc"
+    },
+    {
+      "term": "使能",
+      "prefer": "啟用",
+      "group": "opencc"
+    },
+    {
+      "term": "訊息伺服器",
+      "prefer": "broker",
+      "group": "opencc"
+    },
+    {
+      "term": "最大時間",
+      "prefer": "最長時間",
+      "group": "opencc"
+    },
+    {
+      "term": "最大時長",
+      "prefer": "最長時長",
+      "group": "opencc"
+    },
+    {
+      "term": "最大間隔",
+      "prefer": "最長間隔",
+      "group": "opencc"
+    },
+    {
+      "term": "代理協定",
+      "prefer": "Proxy 協定",
+      "group": "opencc"
+    },
+    {
+      "term": "PROXY 協定",
+      "prefer": "Proxy 協定",
+      "group": "opencc"
+    },
+    {
+      "term": "Proxy protocol",
+      "prefer": "Proxy 協定",
+      "group": "opencc"
+    },
+    {
+      "term": "協議",
+      "prefer": "協定",
+      "allow": [
+        "授權協議",
+        "許可協議",
+        "服務協議",
+        "使用者協議"
+      ],
+      "note": "an agreement keeps 協議; a network protocol is 協定",
+      "group": "guarded"
+    },
+    {
+      "term": "通過",
+      "prefer": "透過",
+      "allow": [
+        "未通過",
+        "通過次數",
+        "通過的",
+        "通過後",
+        "通過，"
+      ],
+      "note": "via is 透過; the pass sense keeps 通過",
+      "group": "guarded"
+    },
+    {
+      "term": "型別",
+      "prefer": "類型",
+      "allow": [
+        "Boolean 型別",
+        "String 型別",
+        "STRING 型別",
+        "Integer 型別",
+        "Float 型別",
+        "Array 型別",
+        "Map 型別",
+        "資料型別",
+        "欄位型別"
+      ],
+      "note": "a programming data type keeps 型別; a category is 類型",
+      "group": "guarded"
+    },
+    {
+      "term": "Provider",
+      "prefer": "提供者",
+      "allow": [
+        "Workload Identity Provider",
+        "Service Provider"
+      ],
+      "note": "proper nouns keep the English",
+      "group": "guarded"
+    },
+    {
+      "term": "Profile",
+      "prefer": "設定檔",
+      "group": "guarded"
+    },
+    {
+      "term": "Broker",
+      "prefer": "broker",
+      "allow": [
+        "EMQX Broker"
+      ],
+      "note": "a broker is lower case; EMQX Broker is the product name",
+      "group": "guarded"
+    },
+    {
+      "term": "供應商",
+      "prefer": "提供者",
+      "group": "guarded",
+      "allowKeyPrefix": [
+        "emqx_ai_completion",
+        "AI."
+      ],
+      "note": "an external commercial service is a 供應商, the way an ISP is; an ACL provider or an identity provider is a 提供者"
+    },
+    {
+      "term": "身份",
+      "prefer": "身分",
+      "group": "mainland"
+    }
+  ],
+  "simplifiedChars": "与专业丢两严个临为举么义书乱于云产仅从仓们价众优会传体余侦侧偿储关内册写冲决况准减几凭击划则刚创删别务动匀区协单占却历压参双发变叠号后听启员响唤嘱围图场坏块墙声处备复够头实审宽对寻导将尔尝尽层属帐带帧帮幂并广库应废开异弃强归当录径态总恶战户扑托执扩扫抛护报担拟拥择挂换据携摄数断无旧时显暂术机杀权杠条来构标栈树样档桥桩检毕汇没测浏涨渐溃滚满滤滥灵点热牺状独环现电盐监盖盘码础确离种积称稳竞筛签简类约级纪纯纳线组细织终经绑结绕给络绝统继续维缀缓编缩网联脏脑脱腾节范荐获虑虚虽补装见观规视览触计订认让议记许论设访证评识诉诊词试话询该详语误说请诸读调谓谨负责败账质费资赋赖跃踪转轮软轻载较辑输边达迁过运还这进远违连迟适选递逻遗遥邮邻采释鉴针钟钥钩链销锁错锚键长门闭问闲间阅阈队阶际险随隐静页项顺须颁预领频题额风飞驱驻验骤齐"
+}
