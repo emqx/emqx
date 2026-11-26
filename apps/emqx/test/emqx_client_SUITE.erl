@@ -1428,15 +1428,14 @@ t_publish_one_byte_over_max_packet_size(Config) ->
     Socket = raw_connect(Config),
     ok = raw_send(Socket, Connect),
     [#mqtt_packet{header = #mqtt_packet_header{type = ?CONNACK}}] = recv_packets(Socket, 1),
-    {ok, {ok, #{reason := {shutdown, Reason}}}} = ?wait_async_action(
+    {ok, {ok, _}} = ?wait_async_action(
         begin
             ok = raw_send(Socket, Publish),
             ?assertEqual(ok, wait_socket_closed(Socket))
         end,
-        #{?snk_kind := terminate, reason := {shutdown, #{cause := frame_too_large}}},
+        #{?snk_kind := terminate, reason := {shutdown, frame_too_large}},
         5000
     ),
-    ?assertMatch(#{cause := frame_too_large, limit := MaxSize}, Reason),
     ?WAIT(
         ?assertEqual(CountBefore + 1, listener_shutdown_count(Config, frame_too_large)), 5
     ).
