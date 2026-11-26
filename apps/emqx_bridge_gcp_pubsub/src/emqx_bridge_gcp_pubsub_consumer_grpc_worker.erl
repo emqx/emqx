@@ -44,13 +44,17 @@
 %% calls/casts/infos/timeouts
 -record(retry_subscription, {}).
 -record(retry_pull, {}).
+-record(start_pull, {}).
+
+%% The `?handle' while the pull waits for the node to be ready.
+-define(awaiting_node_ready, awaiting_node_ready).
 
 -type state() :: ?s_update_subscription | ?s_create_subscription | ?s_pull.
 -type data() :: #{
     ?ack_deadline := 10..600,
     ?auth_ctx := emqx_bridge_gcp_pubsub_client:auth_ctx(),
     ?client_pool := _,
-    ?handle := ?undefined | handle(),
+    ?handle := ?undefined | ?awaiting_node_ready | handle(),
     ?hookpoints := [_],
     ?idx := pos_integer(),
     ?max_outstanding_messages := non_neg_integer(),
@@ -251,6 +255,13 @@ handle_event(
     Data0
 ) ->
     do_pull(Data0);
+handle_event(
+    cast,
+    #start_pull{},
+    ?s_pull,
+    #{?handle := ?awaiting_node_ready} = Data0
+) ->
+    do_pull(Data0#{?handle := ?undefined});
 handle_event(
     info,
     {'DOWN', H, _, _, Reason},
@@ -539,8 +550,20 @@ handle_enter_pull(Data0) ->
     set_health(SourceResId, ?status_connected),
     do_pull(Data1).
 
+%% The stream is opened only once the node is ready.
 -spec do_pull(data()) -> event_handler_result().
 do_pull(Data0) ->
+    Self = self(),
+    StartPull = {gen_statem, cast, [Self, #start_pull{}]},
+    case emqx_resource_ready_waiter:when_ready({?MODULE, Self}, StartPull) of
+        now ->
+            open_pull(Data0);
+        deferred ->
+            ?keep_state(Data0#{?handle := ?awaiting_node_ready})
+    end.
+
+-spec open_pull(data()) -> event_handler_result().
+open_pull(Data0) ->
     Opts0 = grpc_opts(Data0),
     Opts = Opts0#{timeout => infinity},
     Req = streaming_pull_req(Data0),
