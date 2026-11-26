@@ -154,6 +154,17 @@ def test_digest_comes_from_sidecar_not_file(packages, repo, tmp_path):
     assert record["sha256"] == pm.hashlib.sha256(b"deb").hexdigest()
 
 
+def test_docker_exports_are_excluded(packages, repo, tmp_path):
+    add_package(packages, f"{PREFIX}-docker-amd64.tar.gz", sidecar=None)
+    add_package(packages, f"{PREFIX}-docker-arm64.tar.gz")
+    broker = add_package(packages, f"{PREFIX}-el9-amd64.tar.gz")
+
+    rc, out = generate(packages, repo, tmp_path)
+    assert rc == 0
+    assert (out / (broker.name + ".json")).is_file()
+    assert not list(out.glob("*-docker-*.tar.gz.json"))
+
+
 def test_missing_sidecar_is_an_error(packages, repo, tmp_path):
     """A package without a sidecar fails the run; the others are still recorded."""
     add_package(packages, f"{PREFIX}-el9-amd64.rpm", sidecar=None)

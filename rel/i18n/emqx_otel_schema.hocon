@@ -113,7 +113,7 @@ trace_rule_engine.desc:
 trace_rule_engine.label: "Trace Rule Engine"
 
 follow_traceparent.desc:
-"""Enable/Disable, Whether to follow the traceparent passed in by the client through User-Property."""
+"""Whether EMQX uses the `traceparent` user property in incoming MQTT packets to link its end-to-end tracing to an existing trace."""
 follow_traceparent.label: "Follow Traceparent"
 
 clientid_match_rules_max.desc: """Maximum length of the whitelist for clientid matching."""
