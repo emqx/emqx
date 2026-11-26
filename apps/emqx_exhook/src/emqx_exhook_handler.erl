@@ -45,6 +45,7 @@
     stringfy/1,
     merge_responsed_bool/2,
     merge_responsed_message/2,
+    merge_responsed_topicfilters/2,
     assign_to_message/2,
     clientinfo/1,
     request_meta/0
@@ -159,7 +160,10 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
         props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    emqx_exhook:cast('client.subscribe', Req).
+    ok = emqx_exhook:cast('client.subscribe', Req),
+    call_fold_topicfilters('client.subscribe', Req, TopicFilters, fun(TopicFilter, RespTf) ->
+        rewrite_subscribe_filter(ClientInfo, TopicFilter, RespTf)
+    end).
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
     {UserProps, SystemProps} = format_props(Props),
@@ -169,7 +173,34 @@ on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
         props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    emqx_exhook:cast('client.unsubscribe', Req).
+    ok = emqx_exhook:cast('client.unsubscribe', Req),
+    call_fold_topicfilters(
+        'client.unsubscribe', Req, TopicFilters, fun rewrite_unsubscribe_filter/2
+    ).
+
+%% Asks the servers that registered `Hookpoint' with `valued_response' for
+%% rewritten topic filters.
+call_fold_topicfilters(Hookpoint, Req, TopicFilters, RewriteFun) ->
+    case emqx_exhook:call_fold_valued(Hookpoint, Req, fun merge_responsed_topicfilters/2) of
+        {StopOrOk, #{topic_filters := RespTfs}} ->
+            case rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, RewriteFun) of
+                {ok, TopicFilters} ->
+                    %% Nothing to rewrite, but a STOP_AND_RETURN still stops
+                    %% the chain, with the accumulator as it is.
+                    unchanged_topicfilters(StopOrOk, TopicFilters);
+                {ok, NTopicFilters} ->
+                    {StopOrOk, NTopicFilters};
+                {error, _Reason} ->
+                    ignore
+            end;
+        ignore ->
+            ignore
+    end.
+
+unchanged_topicfilters(stop, TopicFilters) ->
+    {stop, TopicFilters};
+unchanged_topicfilters(_Ok, _TopicFilters) ->
+    ignore.
 
 %%--------------------------------------------------------------------
 %% Session
@@ -462,6 +493,148 @@ topicfilters(Tfs) when is_list(Tfs) ->
      || {Topic, SubOpts} <- Tfs
     ].
 
+%% Apply the topic filters a valued `client.subscribe' or `client.unsubscribe'
+%% hook responded with.
+%%
+%% SUBACK and UNSUBACK carry one reason code per requested topic filter, ordered
+%% as the filters were received (MQTT-3.9.3-1, MQTT-3.11.3-1), and the channel
+%% derives them from what the hook returns. So the response must hold one filter
+%% per requested filter, and must not move a requested filter to another
+%% position. `RewriteFun' checks each rewritten filter.
+%%
+%% A response breaking any of these is rejected as a whole: applying it in part
+%% would act on a set of filters nobody asked for.
+rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, RewriteFun) when
+    length(RespTfs) =:= length(TopicFilters)
+->
+    try
+        ok = check_topicfilter_order(TopicFilters, RespTfs),
+        {ok, lists:zipwith(RewriteFun, TopicFilters, RespTfs)}
+    catch
+        throw:{Reason, Meta} ->
+            ?SLOG(error, Meta#{
+                msg => "exhook_topic_filter_rewrite_rejected",
+                hookpoint => Hookpoint,
+                reason => Reason
+            }),
+            {error, Reason}
+    end;
+rewrite_topicfilters(Hookpoint, TopicFilters, RespTfs, _RewriteFun) ->
+    ?SLOG(error, #{
+        msg => "exhook_topic_filter_rewrite_rejected",
+        hookpoint => Hookpoint,
+        reason => topic_filter_count_mismatch,
+        requested => length(TopicFilters),
+        responded => length(RespTfs)
+    }),
+    {error, topic_filter_count_mismatch}.
+
+%% A response entry that names a filter requested at another position means
+%% the server reordered the list, and the reason codes would no longer line up
+%% with the filters the client sent.
+check_topicfilter_order(TopicFilters, RespTfs) ->
+    Names = [emqx_topic:maybe_format_share(Topic) || {Topic, _SubOpts} <- TopicFilters],
+    lists:foreach(
+        fun({Name, RespTf}) ->
+            RespName = maps:get(name, RespTf, undefined),
+            case RespName =/= Name andalso lists:member(RespName, Names) of
+                true -> throw({topic_filter_order_mismatch, #{topic => RespName}});
+                false -> ok
+            end
+        end,
+        lists:zip(Names, RespTfs)
+    ).
+
+%% The hook runs after `check_sub_authzs'/`check_sub_caps' and its result goes
+%% straight to the session, so a rewritten filter is range-checked, authorized
+%% and checked against the zone's subscribe caps here.
+rewrite_subscribe_filter(ClientInfo, TopicFilter = {Topic, SubOpts}, RespTf) ->
+    NSubOpts = rewrite_subopts(SubOpts, maps:get(subopts, RespTf, undefined)),
+    case rewrite_topic(Topic, NSubOpts, maps:get(name, RespTf, undefined)) of
+        TopicFilter -> TopicFilter;
+        NTopicFilter -> recheck_topicfilter(ClientInfo, NTopicFilter)
+    end.
+
+%% The channel does not authorize an UNSUBSCRIBE, and `subopts' play no part
+%% in it, so only the name is taken from the response.
+rewrite_unsubscribe_filter({Topic, SubOpts}, RespTf) ->
+    rewrite_topic(Topic, SubOpts, maps:get(name, RespTf, undefined)).
+
+%% `topicfilters/1' flattens a shared subscription into its wire form
+%% (`$share/<group>/<filter>'). Re-parse only a name the hook actually changed,
+%% so an untouched filter keeps its original term: session subscriptions are
+%% keyed by the `#share{}' record, and a flattened binary would no longer match
+%% it on unsubscribe.
+rewrite_topic(Topic, SubOpts, Name) when is_binary(Name) ->
+    case emqx_topic:maybe_format_share(Topic) of
+        Name ->
+            {Topic, SubOpts};
+        _ ->
+            try
+                true = emqx_topic:validate(filter, Name),
+                emqx_topic:parse({Name, SubOpts})
+            catch
+                _:_ -> throw({invalid_topic_filter, #{topic => Name}})
+            end
+    end;
+rewrite_topic(_Topic, _SubOpts, Name) ->
+    throw({invalid_topic_filter, #{topic => Name}}).
+
+%% A hook that only rewrites the topic can leave `subopts' unset, in which case
+%% the client's own options stand. Whatever it does set is range-checked: these
+%% become the granted QoS in the SUBACK, and an out-of-range value is either an
+%% illegal reason code or, on MQTT 3.1.1, not serializable at all.
+rewrite_subopts(SubOpts, undefined) ->
+    SubOpts;
+rewrite_subopts(SubOpts, NSubOpts) when is_map(NSubOpts) ->
+    SubOpts#{
+        qos => subopt(qos, NSubOpts, 0, 2),
+        rh => subopt(rh, NSubOpts, 0, 2),
+        rap => subopt(rap, NSubOpts, 0, 1),
+        nl => subopt(nl, NSubOpts, 0, 1)
+    };
+rewrite_subopts(_SubOpts, NSubOpts) ->
+    throw({invalid_subopts, #{subopts => NSubOpts}}).
+
+subopt(Key, SubOpts, Min, Max) ->
+    case maps:get(Key, SubOpts, Min) of
+        Value when is_integer(Value), Value >= Min, Value =< Max ->
+            Value;
+        Value ->
+            throw({invalid_subopts, #{Key => Value}})
+    end.
+
+%% `client.subscribe' runs once the channel has authorized the filters the
+%% client asked for, so a rewritten one has never been checked. Re-run both
+%% checks here, or a hook could hand the client a subscription it could not
+%% have requested itself.
+recheck_topicfilter(ClientInfo, {Topic, SubOpts = #{qos := Qos}}) ->
+    AuthzContext = emqx_authz_context:make(ClientInfo),
+    %% As in `emqx_channel', a shared subscription is authorized on its real topic
+    case
+        emqx_access_control:authorize(
+            AuthzContext,
+            ?AUTHZ_SUBSCRIBE(Qos),
+            emqx_topic:get_shared_real_topic(Topic)
+        )
+    of
+        deny ->
+            throw({not_authorized, #{topic => emqx_topic:maybe_format_share(Topic)}});
+        allow ->
+            case emqx_mqtt_caps:check_sub(ClientInfo, Topic, SubOpts) of
+                ok ->
+                    {Topic, SubOpts};
+                {ok, MaxQoS} ->
+                    {Topic, SubOpts#{qos => MaxQoS}};
+                {error, NRC} ->
+                    throw(
+                        {emqx_reason_codes:name(NRC), #{
+                            topic => emqx_topic:maybe_format_share(Topic)
+                        }}
+                    )
+            end
+    end.
+
 subopts(SubOpts) ->
     #{
         qos => maps:get(qos, SubOpts, 0),
@@ -519,6 +692,19 @@ merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     {ret(Type), Req#{message => NMessage}};
 merge_responsed_message(_Req, Resp) ->
+    ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
+    ignore.
+
+merge_responsed_topicfilters(_Req, #{type := 'IGNORE'}) ->
+    ignore;
+merge_responsed_topicfilters(Req, #{
+    type := Type, value := {topic_filters, #{filters := TopicFilters}}
+}) when is_list(TopicFilters) ->
+    {ret(Type), Req#{topic_filters => TopicFilters}};
+%% CONTINUE without a value leaves the topic filters as they are.
+merge_responsed_topicfilters(_Req, #{type := 'CONTINUE'} = Resp) when map_size(Resp) =:= 1 ->
+    ignore;
+merge_responsed_topicfilters(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_response_value", resp => Resp}),
     ignore.
 

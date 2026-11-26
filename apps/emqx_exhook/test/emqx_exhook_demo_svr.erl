@@ -13,7 +13,10 @@
     stop/0,
     stop/1,
     take/0,
-    flush/0
+    flush/0,
+    set_valued_hooks/1,
+    set_rewrite_fun/1,
+    reset_valued_hooks/0
 ]).
 
 -behaviour(gen_server).
@@ -35,7 +38,9 @@
     on_client_authenticate/2,
     on_client_authorize/2,
     on_client_subscribe/2,
+    on_client_subscribe_valued/2,
     on_client_unsubscribe/2,
+    on_client_unsubscribe_valued/2,
     on_session_created/2,
     on_session_subscribed/2,
     on_session_unsubscribed/2,
@@ -51,6 +56,13 @@
 ]).
 
 -define(PORT, 9000).
+%% The hooks each exhook server registers with `valued_response', keyed by the
+%% server name the broker sends as the `channel' metadata. Empty by default,
+%% since most cases here expect the plain RPCs.
+-define(VALUED_HOOKS_KEY, {?MODULE, valued_hooks}).
+%% What `OnClientSubscribeValued' and `OnClientUnsubscribeValued' answer with:
+%% a fun over the requested topic filters, or `undefined' to respond `IGNORE'.
+-define(REWRITE_FUN_KEY, {?MODULE, rewrite_fun}).
 -define(NAME, ?MODULE).
 -define(DEFAULT_CLUSTER_NAME, <<"emqxcl">>).
 -define(OTHER_CLUSTER_NAME_BIN, <<"test_emqx_cluster">>).
@@ -68,6 +80,22 @@ start(Name, Port) ->
 
 stop() ->
     stop(?NAME).
+
+%% `ValuedHooks' maps an exhook server name to the hook names it registers with
+%% `valued_response', e.g. `#{<<"default">> => [<<"client.subscribe">>]}'.
+set_valued_hooks(ValuedHooks) when is_map(ValuedHooks) ->
+    persistent_term:put(?VALUED_HOOKS_KEY, ValuedHooks).
+
+%% `Fun' takes the requested topic filters and returns the ones to respond with,
+%% so a case can hand back a list of a different length, an out-of-range qos, or
+%% the filters unchanged.
+set_rewrite_fun(Fun) when is_function(Fun, 1) ->
+    persistent_term:put(?REWRITE_FUN_KEY, Fun).
+
+reset_valued_hooks() ->
+    _ = persistent_term:erase(?VALUED_HOOKS_KEY),
+    _ = persistent_term:erase(?REWRITE_FUN_KEY),
+    ok.
 
 stop(Name) ->
     case whereis(to_atom_name(Name)) of
@@ -180,12 +208,27 @@ on_provider_loaded(#{meta := #{cluster_name := Name}} = Req, Md) ->
             #{name => <<"message.acked">>},
             #{name => <<"message.dropped">>}
         ],
-    case Name of
-        ?DEFAULT_CLUSTER_NAME ->
-            {ok, #{hooks => HooksClient ++ HooksSession ++ HooksMessage}, Md};
-        ?OTHER_CLUSTER_NAME_BIN ->
-            {ok, #{hooks => HooksClient}, Md}
-    end.
+    Hooks =
+        case Name of
+            ?DEFAULT_CLUSTER_NAME -> HooksClient ++ HooksSession ++ HooksMessage;
+            ?OTHER_CLUSTER_NAME_BIN -> HooksClient
+        end,
+    {ok, #{hooks => with_valued_response(Hooks, Md)}, Md}.
+
+with_valued_response(Hooks, Md) ->
+    ValuedHooks = maps:get(
+        maps:get(<<"channel">>, Md, undefined),
+        persistent_term:get(?VALUED_HOOKS_KEY, #{}),
+        []
+    ),
+    [
+        case lists:member(HookName, ValuedHooks) of
+            true -> Hook#{valued_response => true};
+            false -> Hook
+        end
+     || Hook = #{name := HookName} <- Hooks
+    ].
+
 -spec on_provider_unloaded(emqx_exhook_pb:provider_unloaded_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.
@@ -300,6 +343,13 @@ on_client_subscribe(Req, Md) ->
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
 
+-spec on_client_subscribe_valued(emqx_exhook_pb:client_subscribe_request(), grpc:metadata()) ->
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+on_client_subscribe_valued(#{topic_filters := TopicFilters} = Req, Md) ->
+    in(?FUNCTION_NAME, Req),
+    {ok, rewrite_response(TopicFilters), Md}.
+
 -spec on_client_unsubscribe(emqx_exhook_pb:client_unsubscribe_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.
@@ -307,6 +357,26 @@ on_client_unsubscribe(Req, Md) ->
     in(?FUNCTION_NAME, Req),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
     {ok, #{}, Md}.
+
+-spec on_client_unsubscribe_valued(
+    emqx_exhook_pb:client_unsubscribe_request(), grpc:metadata()
+) ->
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
+    | {error, grpc_cowboy_h:error_response()}.
+on_client_unsubscribe_valued(#{topic_filters := TopicFilters} = Req, Md) ->
+    in(?FUNCTION_NAME, Req),
+    {ok, rewrite_response(TopicFilters), Md}.
+
+rewrite_response(TopicFilters) ->
+    case persistent_term:get(?REWRITE_FUN_KEY, undefined) of
+        undefined ->
+            #{type => 'IGNORE'};
+        Fun ->
+            #{
+                type => 'STOP_AND_RETURN',
+                value => {topic_filters, #{filters => Fun(TopicFilters)}}
+            }
+    end.
 
 -spec on_session_created(emqx_exhook_pb:session_created_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
