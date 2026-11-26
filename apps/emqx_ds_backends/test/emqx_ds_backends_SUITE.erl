@@ -94,9 +94,10 @@ t_02_smoke_iterate(Config) ->
 %% were written in order.
 t_03_dirty_append_ordering(Config) ->
     DB = ?FUNCTION_NAME,
-    DBOpts = emqx_utils_maps:deep_merge(opts(Config), #{
-        transaction => #{idle_flush_interval => 1000, flush_interval => 1000}
-    }),
+    DBOpts = emqx_utils_maps:deep_merge(
+        opts(Config),
+        #{transactions => #{idle_flush_interval => 1000, flush_interval => 1000}}
+    ),
     ?assertMatch(ok, emqx_ds_open_db(DB, DBOpts)),
     %% Add a few batches async-ly:
     Topic = [<<"t">>],
@@ -2413,8 +2414,16 @@ t_30_quotas(Config) ->
 %% region are still aborted.
 t_31_tx_mark_dirty(Config) ->
     DB = ?FUNCTION_NAME,
-    Opts = opts(Config),
-    TXOpts = #{shard => {auto, <<"me">>}, generation => 1, timeout => infinity},
+    ConflictWindow = 1_000,
+    Opts = emqx_utils_maps:deep_merge(
+        opts(Config),
+        #{transactions => #{conflict_window => ConflictWindow}}
+    ),
+    TXOpts = #{
+        shard => {auto, <<"me">>},
+        generation => 1,
+        timeout => infinity
+    },
     %% Record that should not be present in the DB:
     Canary = [{[<<"canary">>], 0, <<>>}],
     CheckCanary = fun() ->
@@ -2460,6 +2469,17 @@ t_31_tx_mark_dirty(Config) ->
             #{old := Old, current := Current} -> maps:from_list(Old ++ Current);
             undefined -> #{}
         end
+    end,
+    DummyTrans = fun() ->
+        ?assertMatch(
+            {atomic, _, _},
+            emqx_ds:trans(
+                TXOpts#{db => DB},
+                fun() ->
+                    emqx_ds:tx_read([])
+                end
+            )
+        )
     end,
     ?check_trace(
         begin
@@ -2529,7 +2549,18 @@ t_31_tx_mark_dirty(Config) ->
             ?assertMatch(
                 [{[<<"l">>, <<"t">>, <<42>>], 0, <<42>>}],
                 emqx_ds:dirty_read(DB, [<<"l">>, <<"t">>, <<42>>])
-            )
+            ),
+            %% 5. Verify that periodic rotation eventually removes the
+            %% added conflicts. Note: currently rotation is triggered
+            %% during flushing of the OTX buffers, and it doesn't
+            %% occur if the OTX worker is idle. As a workaround, we
+            %% trigger rotation by some dummy transactions.
+            ct:sleep(ConflictWindow + 10),
+            DummyTrans(),
+            ct:sleep(ConflictWindow + 10),
+            DummyTrans(),
+            ?assertEqual(#{}, Entries(w)),
+            ?assertEqual(#{}, Entries(d))
         end,
         []
     ).

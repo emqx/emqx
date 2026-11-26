@@ -142,6 +142,40 @@ test_user_auth(#{
         ?GLOBAL
     ).
 
+-doc """
+An empty password gets the wrong-password result from the LDAP connector,
+and no bind request goes to the directory.
+The CI directory answers a bind with an empty password with an error,
+and `eldap` refuses an empty character list with an error,
+so the `invalidCredentials` result shows that no bind request was sent.
+""".
+t_authenticate_empty_password(_Config) ->
+    {ok, _} = emqx:update_config(
+        ?PATH,
+        {create_authenticator, ?GLOBAL, raw_ldap_auth_config()}
+    ),
+    {ok, [#{provider := emqx_authn_ldap, state := #{resource_id := ResourceId}}]} =
+        emqx_authn_chains:list_authenticators(?GLOBAL),
+    DN = <<"uid=mqttuser0001,ou=testdevice,dc=emqx,dc=io">>,
+    lists:foreach(
+        fun(Password) ->
+            ?assertEqual(
+                {ok, #{result => 'invalidCredentials'}},
+                emqx_resource:simple_sync_query(ResourceId, {bind, DN, Password})
+            )
+        end,
+        [<<>>, ""]
+    ),
+    ?assertEqual(
+        {error, bad_username_or_password},
+        emqx_access_control:authenticate(#{
+            username => <<"mqttuser0001">>,
+            password => <<>>,
+            listener => 'tcp:default',
+            protocol => mqtt
+        })
+    ).
+
 t_destroy(Config) ->
     AuthConfig = raw_ldap_auth_config(),
 
