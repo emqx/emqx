@@ -562,8 +562,10 @@ index_table_result(Counts, Result) ->
 failed_results(Failed) ->
     [{Index, 0, Result} || {Index, Result} <- Failed].
 
+-ifdef(TEST).
 aggregate_message_results(BatchSize, TableResults, Failed) ->
     aggregate_indexed_results(BatchSize, TableResults ++ failed_results(Failed)).
+-endif.
 
 aggregate_indexed_results(BatchSize, IndexedResults) ->
     Grouped = maps:groups_from_list(
