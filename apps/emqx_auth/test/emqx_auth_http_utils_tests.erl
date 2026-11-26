@@ -113,7 +113,13 @@ generate_request_rejects_static_dot_segment_test_() ->
         <<"/a/%2E./b">>,
         <<"/a/%2e/b">>,
         <<"/a/%2E/b">>,
-        <<"../a">>
+        <<"../a">>,
+        <<".">>,
+        <<"..">>,
+        <<"/a/..">>,
+        <<"/a/%2e">>,
+        <<"/a/.%2E">>,
+        <<"/a/b/./">>
     ],
     Accepted = [
         <<"">>,
@@ -124,7 +130,14 @@ generate_request_rejects_static_dot_segment_test_() ->
         <<"/a/.../c">>,
         <<"/a/%2e%2e%2e/c">>,
         <<"/a/%2ex/c">>,
-        <<"/a/%252e/c">>
+        <<"/a/%252e/c">>,
+        <<"/a/x.">>,
+        <<"/a/.x">>,
+        <<"/a/x..">>,
+        <<"/a/%2">>,
+        <<"/a/%2e%2">>,
+        <<"/a/%2f..">>,
+        <<"/a/b.c/">>
     ],
     [
         ?_assertEqual(?DOT_SEGMENT_ERROR, generate_path(get, P, #{}))
