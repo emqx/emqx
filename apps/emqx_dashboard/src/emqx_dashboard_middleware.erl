@@ -17,6 +17,6 @@ add_cors_flag(Req, Env) ->
         false ->
             {ok, Req, Env};
         true ->
-            Req2 = cowboy_req:set_resp_header(<<"Access-Control-Allow-Origin">>, <<"*">>, Req),
+            Req2 = cowboy_req:set_resp_header(<<"access-control-allow-origin">>, <<"*">>, Req),
             {ok, Req2, Env}
     end.

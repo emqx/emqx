@@ -17,6 +17,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
+            emqx_plugins,
             emqx_connector,
             emqx_bridge,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -383,6 +384,38 @@ t_config_update_unknown_field(_Config) ->
         }},
         update_configs_with_binary("dashboard { nofield { bind = novalue } }")
     ).
+
+-doc """
+`PUT /configs` refuses a change of `plugins.install_dir` in both modes, and accepts the
+value in use.
+""".
+t_config_update_plugins_install_dir(_Config) ->
+    InUse = emqx_plugins_fs:install_dir(),
+    Hocon = fun(Dir) -> iolist_to_binary(["plugins { install_dir = \"", Dir, "\" }"]) end,
+    OtherDir = filename:join(InUse, "other"),
+    lists:foreach(
+        fun(Mode) ->
+            {400, #{<<"errors">> := Reason}} = put_configs_text(Mode, Hocon(OtherDir)),
+            ?assertMatch(
+                {_, _}, binary:match(Reason, <<"install_dir_cannot_be_changed_at_runtime">>)
+            ),
+            ?assertEqual(InUse, emqx_plugins_fs:install_dir()),
+            ?assertMatch({200, _}, put_configs_text(Mode, Hocon(InUse)))
+        end,
+        [merge, replace]
+    ),
+    ?assertEqual(InUse, emqx_plugins_fs:install_dir()).
+
+%% `PUT /configs?mode=Mode' with a text body. Returns `{Status, Body}'.
+put_configs_text(Mode, Bin) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        url => emqx_mgmt_api_test_util:api_path(["configs"]),
+        method => put,
+        query_params => #{mode => atom_to_binary(Mode)},
+        auth_header => [{"accept", "text/plain"}, emqx_mgmt_api_test_util:auth_header_()],
+        'content-type' => "text/plain",
+        body => {raw, Bin}
+    }).
 
 -doc """
 A merge of `log` that omits `log.file` succeeds and keeps the file handlers.

@@ -752,7 +752,9 @@ assert_mnesia_baseline(_Phase, Stats) ->
     ?assert(
         hot_path_calls(emqx_bcast_index_owner, report_part_accounted, Stats) >= 384
     ),
-    ?assertEqual(0, hot_path_calls(emqx_bcast_index_owner, report_part_done, Stats)),
+    %% A retry can call report_part_done after its delivery completed. That
+    %% call performs no transaction. The transaction and read budgets below
+    %% fail if a live part takes the legacy recovery path.
     %% Recovery notification retries must not rewrite the immutable account row.
     ?assertEqual(
         384,

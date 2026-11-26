@@ -414,7 +414,7 @@ bad_token_message(HandlerInfo) ->
 return_unauthorized(Code, Message) ->
     {401,
         #{
-            <<"WWW-Authenticate">> =>
+            <<"www-authenticate">> =>
                 <<"Basic Realm=\"emqx-dashboard\"">>
         },
         #{code => Code, message => Message}}.
