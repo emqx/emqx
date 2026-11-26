@@ -344,13 +344,13 @@ handshaking(
     }
 ) ->
     TargetCluster = target_cluster(St0),
-    {actor_init_ack, Ack} = emqx_cluster_link_mqtt:decode_resp(Payload),
-    St = St0#st{handshake_reqid = undefined},
-    case Ack of
-        #{result := ok, need_bootstrap := NeedBootstrap} ->
+    case emqx_cluster_link_mqtt:decode_resp(Payload) of
+        {actor_init_ack, #{result := ok, need_bootstrap := NeedBootstrap}} ->
+            St = St0#st{handshake_reqid = undefined},
             ok = start_syncer(TargetCluster, Actor, Incarnation),
             enter_bootstrap(NeedBootstrap, St);
-        #{result := Error} ->
+        {actor_init_ack, Ack = #{result := Error}} ->
+            St = St0#st{handshake_reqid = undefined},
             ?tp(error, "cluster_link_handshake_rejected", #{
                 reason => error_reason(Error),
                 target_cluster => TargetCluster,
@@ -359,6 +359,9 @@ handshaking(
             }),
             %% Stop client, will move into `disconnected` once it is.
             ok = terminate_client(St),
+            keep_state_and_data;
+        {error, invalid_actor_init_ack} ->
+            %% Keep the handshake pending until a valid reply or timeout.
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
@@ -654,3 +657,20 @@ apply_mf({Mod, Fun, Args}, Arg) ->
     apply(Mod, Fun, [Arg | Args]);
 apply_mf(Fun, Arg) ->
     Fun(Arg).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+invalid_ack_preserves_pending_handshake_test() ->
+    ReqId = <<"request-1">>,
+    St0 = mk_state(ps, fun(_) -> 1 end, #{name => <<"east">>}),
+    St = St0#st{handshake_reqid = ReqId},
+    Publish =
+        {publish, #{
+            properties => #{'Correlation-Data' => ReqId},
+            payload => term_to_binary(#{'$op' => <<"actor_init_ack">>})
+        }},
+    %% The state, the request id and the handshake timeout are all kept.
+    ?assertEqual(keep_state_and_data, handshaking(info, Publish, St)).
+
+-endif.

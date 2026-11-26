@@ -1171,7 +1171,7 @@ fields_trace_payload_encode.label:
 mqtt_response_information.desc:
 """MQTT v5 Response Information (Optional).
 Specifies a string returned to clients in the `CONNACK` packet if requested.
-The server passes this value as-is and does automatically add it to Access Control (ACL) rules.
+The server passes this value as-is and does not automatically add it to Access Control (ACL) rules.
 It is intended solely to help publishers and subscribers establish their own topic contract
  (e.g., a topic prefix). Leave blank to disable."""
 
