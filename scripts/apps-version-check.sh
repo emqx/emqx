@@ -10,8 +10,14 @@ log_red() {
   echo -e "${RED}${1}${NC}"
 }
 
-# match any official release tag 'e*' and 'v*'
-latest_release="$(env PREV_TAG_MATCH_PATTERN='*' ./scripts/find-prev-rel-tag.sh)"
+# Compare with a release from this minor line, including after a forward sync.
+release_line=$(sed -nE 's/^-define\(EMQX_RELEASE_EE, "([0-9]+\.[0-9]+)\.[^"]+"\)\./\1/p' \
+    apps/emqx/include/emqx_release.hrl)
+if [[ ! "$release_line" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "Cannot determine the release line from apps/emqx/include/emqx_release.hrl" >&2
+    exit 1
+fi
+latest_release="$(env PREV_TAG_MATCH_PATTERN="[ev]${release_line}.*" ./scripts/find-prev-rel-tag.sh)"
 echo "Version check compare base: $latest_release"
 
 bad_app_count=0
