@@ -1358,19 +1358,14 @@ not_nacked_by_hook({deliver, _Topic, Msg}) ->
 %%--------------------------------------------------------------------
 
 %% Packet too large on an already-established connection.
+%% Close the connection only. The session stays until it expires.
 handle_frame_error(
-    Reason = #{cause := frame_too_large},
-    Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
+    #{cause := frame_too_large},
+    Channel = #channel{conn_state = ConnState}
 ) when
     ?IS_CONNECTED_OR_REAUTHENTICATING(ConnState)
 ->
-    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
-    case proto_ver(Reason, ConnInfo) of
-        ?MQTT_PROTO_V5 ->
-            handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
-        _ ->
-            shutdown(ShutdownCount, Channel)
-    end;
+    handle_out(disconnect, {?RC_PACKET_TOO_LARGE, frame_too_large}, Channel);
 %% A CONNECT larger than `max_connect_packet_size'. Counted on its own, so an
 %% operator can tell clients hitting a configured limit from clients sending
 %% garbage.

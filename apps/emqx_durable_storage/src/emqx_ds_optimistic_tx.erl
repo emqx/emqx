@@ -1341,9 +1341,10 @@ maybe_rotate(D = #d{rotate_interval = RI, last_rotate_ts = LastRotTS}) ->
 -spec rotate(d()) -> d().
 rotate(D = #d{gens = Gens0}) ->
     Gens = maps:map(
-        fun(_, GS = #gen_data{dirty_w = Dirty}) ->
+        fun(_, GS = #gen_data{dirty_w = DirtyW, dirty_d = DirtyD}) ->
             GS#gen_data{
-                dirty_w = emqx_ds_tx_conflict_trie:rotate(Dirty)
+                dirty_w = emqx_ds_tx_conflict_trie:rotate(DirtyW),
+                dirty_d = emqx_ds_tx_conflict_trie:rotate(DirtyD)
             }
         end,
         Gens0
