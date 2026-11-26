@@ -65,7 +65,8 @@ persistent_session_testcases() ->
         t_list_clients_v2_exact_filters,
         t_list_clients_v2_regular_filters,
         t_list_clients_v2_bad_query_string_parameters,
-        t_list_clients_v2_remote_cursor
+        t_list_clients_v2_remote_cursor,
+        t_list_clients_v2_remote_cursor_owner_down
     ].
 persistence_disabled_cluster_testcases() ->
     [
@@ -2350,6 +2351,31 @@ t_list_clients_v2_remote_cursor(Config) ->
     Id = erpc:call(N2, emqx_mgmt_cursor, store, [clients_v2, CursorTerm]),
     ?assertEqual({ok, CursorTerm}, erpc:call(N1, emqx_mgmt_cursor, lookup, [clients_v2, Id])),
     ?assertMatch({ok, {{_, 200, _}, _, _}}, list_v2_request(#{limit => "1", cursor => Id}, Config)),
+    ok.
+
+-doc """
+A cursor is bad while the cursor process of the node that issued it is not running, and stays
+bad after that process starts again.
+""".
+t_list_clients_v2_remote_cursor_owner_down(Config) ->
+    [N1, N2] = ?config(cluster_nodes, Config),
+    CursorTerm = [1, 1, #{1 => 1, 2 => undefined}],
+    Id = erpc:call(N2, emqx_mgmt_cursor, store, [clients_v2, CursorTerm]),
+    ?assertEqual({ok, CursorTerm}, erpc:call(N1, emqx_mgmt_cursor, lookup, [clients_v2, Id])),
+    ok = erpc:call(N2, supervisor, terminate_child, [emqx_mgmt_sup, emqx_mgmt_cursor]),
+    try
+        ?assertEqual(
+            {error, bad_cursor},
+            erpc:call(N1, emqx_mgmt_cursor, lookup, [clients_v2, Id])
+        ),
+        ?assertMatch(
+            {error, {{_, 400, _}, _, #{<<"message">> := <<"bad cursor">>}}},
+            list_v2_request(#{limit => "1", cursor => Id}, Config)
+        )
+    after
+        {ok, _} = erpc:call(N2, supervisor, restart_child, [emqx_mgmt_sup, emqx_mgmt_cursor])
+    end,
+    ?assertEqual({error, bad_cursor}, erpc:call(N1, emqx_mgmt_cursor, lookup, [clients_v2, Id])),
     ok.
 
 -doc "`GET /clients_v2` accepts only a cursor ID that a node issued.".

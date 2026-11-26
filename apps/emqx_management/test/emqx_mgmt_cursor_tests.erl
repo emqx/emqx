@@ -15,8 +15,15 @@ cursor_test_() ->
         fun expired/0,
         fun limit_drops_oldest/0,
         fun limit_drops_expired_first/0,
-        fun bad_id/0
+        fun bad_id/0,
+        fun call_timeout/0
     ]}.
+
+not_running_test() ->
+    Pid = setup(),
+    Id = emqx_mgmt_cursor:store(dom, x),
+    ok = gen_server:stop(Pid),
+    ?assertEqual({error, bad_cursor}, emqx_mgmt_cursor:lookup(dom, Id)).
 
 setup() ->
     {ok, Pid} = emqx_mgmt_cursor:start_link(),
@@ -26,6 +33,7 @@ setup() ->
 cleanup(Pid) ->
     application:unset_env(emqx_management, cursor_max_open),
     application:unset_env(emqx_management, cursor_ttl),
+    application:unset_env(emqx_management, cursor_call_timeout),
     gen_server:stop(Pid).
 
 reusable() ->
@@ -80,4 +88,15 @@ bad_id() ->
             undefined
         ]
     ],
+    ?assertEqual({ok, x}, emqx_mgmt_cursor:lookup(dom, Id)).
+
+call_timeout() ->
+    Id = emqx_mgmt_cursor:store(dom, x),
+    application:set_env(emqx_management, cursor_call_timeout, 10),
+    ok = sys:suspend(emqx_mgmt_cursor),
+    try
+        ?assertEqual({error, bad_cursor}, emqx_mgmt_cursor:lookup(dom, Id))
+    after
+        ok = sys:resume(emqx_mgmt_cursor)
+    end,
     ?assertEqual({ok, x}, emqx_mgmt_cursor:lookup(dom, Id)).

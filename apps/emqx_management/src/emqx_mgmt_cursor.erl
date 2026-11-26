@@ -28,6 +28,8 @@ cursor drops the oldest one of that domain.
 -define(RAND_BYTES, 16).
 -define(DEFAULT_MAX_OPEN, 1000).
 -define(DEFAULT_TTL, timer:minutes(10)).
+%% Shorter than the RPC timeout, so that the issuing node answers a remote lookup itself.
+-define(DEFAULT_CALL_TIMEOUT, timer:seconds(3)).
 -define(SWEEP_INTERVAL, timer:seconds(30)).
 
 -type domain() :: atom().
@@ -41,7 +43,7 @@ start_link() ->
 -doc "Store a cursor state and return its ID.".
 -spec store(domain(), term()) -> id().
 store(Domain, State) when is_atom(Domain) ->
-    gen_server:call(?MODULE, {store, Domain, State}).
+    gen_server:call(?MODULE, {store, Domain, State}, call_timeout()).
 
 -doc "Look up the cursor state stored under the ID, on whichever node issued it.".
 -spec lookup(domain(), binary()) -> {ok, term()} | {error, bad_cursor}.
@@ -59,7 +61,15 @@ lookup(_Domain, _Id) ->
 
 -spec lookup_local(domain(), id()) -> {ok, term()} | {error, bad_cursor}.
 lookup_local(Domain, Id) ->
-    gen_server:call(?MODULE, {lookup, Domain, Id}).
+    try
+        gen_server:call(?MODULE, {lookup, Domain, Id}, call_timeout())
+    catch
+        %% The cursors are lost together with the process.
+        exit:{noproc, _} ->
+            {error, bad_cursor};
+        exit:{timeout, _} ->
+            {error, bad_cursor}
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -182,6 +192,9 @@ max_open() ->
 
 ttl() ->
     application:get_env(emqx_management, cursor_ttl, ?DEFAULT_TTL).
+
+call_timeout() ->
+    application:get_env(emqx_management, cursor_call_timeout, ?DEFAULT_CALL_TIMEOUT).
 
 now_ms() ->
     erlang:monotonic_time(millisecond).
