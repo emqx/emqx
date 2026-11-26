@@ -10,8 +10,8 @@ downloads them from S3 (.github/workflows/release.yaml), and builds one record
 for each package:
 
   - Only top-level files named <profile>-<version>-*.{deb,rpm,tar.gz,zip} are
-    recorded. Snap packages go to the Snap Store and are skipped. Sub-directories
-    such as packages/plugins are not read.
+    recorded. Docker image exports and Snap packages are skipped.
+    Sub-directories such as packages/plugins are not read.
   - The digest is read from the <file>.sha256 sidecar that the build wrote next
     to the package. The package itself is never hashed: a record must carry the
     digest computed at build time, not the digest of whatever the bucket holds
@@ -149,6 +149,8 @@ def find_packages(packages_dir, profile, version, problems):
         if not path.is_file():
             continue
         if name.endswith(SKIPPED_EXTS):
+            continue
+        if name.startswith(f"{prefix}docker-") and name.endswith(".tar.gz"):
             continue
         if name.startswith(prefix) and name.endswith(PACKAGE_EXTS):
             found.append(path)

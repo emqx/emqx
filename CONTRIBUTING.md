@@ -143,6 +143,30 @@ File name pattern: `changes/(ce|ee)/(feat|perf|fix)-<PR-id>.en.md`, where:
 - `PR-id`: Github pull request id. Since pull request id cannot be known before the PR is actually created, it's common to add change log entry in a separate commit.
 - `en`: ISO 639-1 language code indicating the language the change log entry is written in. Right now we are only accepting entries in English.
 
+### Changes that do not apply to every downstream release line
+
+A change merged into `dev-58` syncs forward into `dev-59` and then into `dev-510`. Its changelog
+file goes with it. Some changes do not apply to every line in that path. For example, a fix for a
+bug that exists only in 5.8 has no effect on 5.9 or 5.10.
+
+When a change does not apply to every release line in the sync path, name the release lines that
+it applies to in a Markdown comment in the changelog file. Put the comment after the description,
+because `scripts/rel/format-changelog.sh` adds the pull request link to the first line:
+
+```markdown
+Fixed a crash when ...
+
+<!-- Release lines: 5.8 only. The bug is not in 5.9 or 5.10. -->
+```
+
+The release manager uses the comment to resolve the file:
+
+- The sync pull request from `dev-58` into `dev-59` can delete the file before it lands in `dev-59`.
+- When the file reaches a line that the change does not apply to, the release manager skips it in
+  the release notes of that line, for example 5.9.x.
+- `scripts/rel/format-changelog.sh` copies the comment into its output. The release manager
+  removes the comment from the formatted release notes.
+
 ## Release Version
 
 Every pull request template has a `Release version:` field. It lists **every** version that will
