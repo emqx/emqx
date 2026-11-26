@@ -77,6 +77,31 @@ t_protocol_error_logging(_Config) ->
         end
     ).
 
+-doc "A client publishing an invalid route operation is disconnected for every QoS.".
+t_invalid_route_op_disconnects_client(_Config) ->
+    Invalid = #{'$op' => <<"route">>, 10 => <<"actor">>, 11 => 1, 12 => [invalid]},
+    lists:foreach(
+        fun(QoS) ->
+            ClientId = <<"invalid-route-op-", (integer_to_binary(QoS))/binary>>,
+            {ok, Client} = emqtt:start_link([
+                {clientid, ClientId}, {proto_ver, v5}, {reconnect, 0}
+            ]),
+            true = unlink(Client),
+            Ref = monitor(process, Client),
+            {ok, _} = emqtt:connect(Client),
+            _ =
+                catch emqtt:publish(
+                    Client, ?ROUTE_TOPIC(<<"remote">>), term_to_binary(Invalid), QoS
+                ),
+            ?assertReceive(
+                {'DOWN', Ref, process, Client,
+                    {shutdown, {disconnected, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, _}}},
+                5_000
+            )
+        end,
+        [0, 1, 2]
+    ).
+
 %% If an exception occurs while handling a route op message, we disconnect the upstream
 %% actor client so it restarts.
 t_disconnect_on_errors('init', Config) ->
