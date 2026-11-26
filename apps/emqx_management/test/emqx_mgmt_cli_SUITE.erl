@@ -992,7 +992,7 @@ t_leave_rejected_ds_nonempty(Config) ->
     %% Should not be possible to leave, because there are shard replicas.
     ct:pal("N2 attempts to leave", []),
     ?assertEqual(
-        {error, [nonempty_ds_site]},
+        {error, nonempty_ds_site},
         ?ON(N2, emqx_mgmt_cli:cluster(["leave"]))
     ),
 
@@ -1027,7 +1027,7 @@ t_leave_rejected_ds_nonempty(Config) ->
     %% Should not be possible to leave, even if transitions are still in-progress.
     ct:pal("N1 attempts to leave", []),
     ?assertEqual(
-        {error, [nonempty_ds_site]},
+        {error, nonempty_ds_site},
         ?ON(N1, emqx_mgmt_cli:cluster(["leave"]))
     ).
 
