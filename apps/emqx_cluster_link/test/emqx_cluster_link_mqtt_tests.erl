@@ -265,7 +265,17 @@ route_op_types_test_() ->
         ?_assertEqual({heartbeat, ActorInfo}, decode_op(Heartbeat#{99 => <<"extension">>})),
         ?_assertEqual({route_updates, ActorInfo, [{add, Add}, {delete, Add}]}, decode_op(Route)),
         ?_assertEqual({route_updates, ActorInfo, []}, decode_op(Route#{?ROUTES := []})),
-        ?_assertEqual({error, {unknown_payload, redacted}}, decode_op(Unknown)),
+        ?_assertEqual({error, {unknown_operation, <<"other">>}}, decode_op(Unknown)),
+        ?_assertEqual(
+            {error, {unknown_operation, binary:copy(<<"x">>, 128)}},
+            decode_op(Unknown#{'$op' := binary:copy(<<"x">>, 128)})
+        ),
+        ?_assertEqual({error, {unknown_payload, redacted}}, decode_op(maps:remove('$op', Unknown))),
+        ?_assertEqual({error, {unknown_payload, redacted}}, decode_op(Unknown#{'$op' := 42})),
+        ?_assertEqual(
+            {error, {unknown_payload, redacted}},
+            decode_op(Unknown#{'$op' := binary:copy(<<"x">>, 129)})
+        ),
         [
             ?_assertEqual(Invalid, decode_op(Op#{?INCARNATION := BadIncarnation}))
          || Op <- [Init, Heartbeat, Route], BadIncarnation <- [<<"1">>, 1.0]

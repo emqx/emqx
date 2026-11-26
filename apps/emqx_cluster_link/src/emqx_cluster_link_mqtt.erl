@@ -79,6 +79,7 @@
 -define(PROTO_VER, 1).
 
 -define(F_OPERATION, '$op').
+-define(MAX_LOGGED_OPERATION_BYTES, 128).
 -define(OP_ROUTE, <<"route">>).
 -define(OP_HEARTBEAT, <<"heartbeat">>).
 -define(OP_ACTOR_INIT, <<"actor_init">>).
@@ -664,6 +665,10 @@ decode_route_op1(#{?F_OPERATION := Op}) when
     Op =:= ?OP_ACTOR_INIT; Op =:= ?OP_ROUTE; Op =:= ?OP_HEARTBEAT
 ->
     {error, invalid_route_op};
+decode_route_op1(#{?F_OPERATION := Operation}) when
+    is_binary(Operation), byte_size(Operation) =< ?MAX_LOGGED_OPERATION_BYTES
+->
+    {error, {unknown_operation, Operation}};
 decode_route_op1(_Payload) ->
     {error, {unknown_payload, redacted}}.
 

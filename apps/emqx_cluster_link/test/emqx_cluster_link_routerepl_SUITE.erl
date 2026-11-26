@@ -47,6 +47,36 @@ end_per_testcase(TCName, Config) ->
 
 %%
 
+t_protocol_error_logging('init', Config) ->
+    Config;
+t_protocol_error_logging('end', _Config) ->
+    snabbkaffe:stop().
+
+t_protocol_error_logging(_Config) ->
+    Invalid = #{'$op' => <<"route">>, 10 => <<"actor">>, 11 => 1, 12 => [invalid]},
+    Unknown = #{'$op' => <<"future_operation">>, payload => <<"private-data">>},
+    ?check_trace(
+        begin
+            lists:foreach(
+                fun(Operation) ->
+                    Msg = emqx_message:make(
+                        undefined, 0, ?ROUTE_TOPIC(<<"remote">>), term_to_binary(Operation)
+                    ),
+                    {stop, OutMsg} = emqx_cluster_link:on_message_publish(Msg),
+                    ?assertEqual(true, emqx_message:get_header(should_disconnect, OutMsg))
+                end,
+                [Invalid, Unknown]
+            )
+        end,
+        fun(Trace) ->
+            [InvalidEvent, UnknownEvent] = ?of_kind("cluster_link_routerepl_protocol_error", Trace),
+            ?assertMatch(#{reason := invalid_route_op}, InvalidEvent),
+            ?assertNot(maps:is_key(stacktrace, InvalidEvent)),
+            ?assertMatch(#{operation := <<"future_operation">>}, UnknownEvent),
+            ?assertNot(maps:is_key(payload, UnknownEvent))
+        end
+    ).
+
 %% If an exception occurs while handling a route op message, we disconnect the upstream
 %% actor client so it restarts.
 t_disconnect_on_errors('init', Config) ->

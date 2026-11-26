@@ -171,7 +171,19 @@ handle_route_op_msg(
             {heartbeat, #{actor := Actor}} ->
                 ok = actor_heartbeat(ClusterName, Actor);
             {error, invalid_route_op} ->
-                error(invalid_route_op);
+                ?tp(error, "cluster_link_routerepl_protocol_error", #{
+                    reason => invalid_route_op,
+                    local_cluster => emqx_cluster_link_config:cluster(),
+                    from_cluster => ClusterName
+                }),
+                error;
+            {error, {unknown_operation, Operation}} ->
+                ?tp(warning, "cluster_link_routerepl_protocol_error", #{
+                    operation => Operation,
+                    local_cluster => emqx_cluster_link_config:cluster(),
+                    from_cluster => ClusterName
+                }),
+                error;
             {error, {unknown_payload, ParsedPayload}} ->
                 ?tp(warning, "cluster_link_routerepl_protocol_error", #{
                     payload => ParsedPayload,
