@@ -63,6 +63,7 @@ fields(kinesis_action) ->
             hoconsc:ref(?MODULE, action_parameters),
             #{
                 required => true,
+                validator => fun validate_stream/1,
                 desc => ?DESC("action_parameters")
             }
         ),
@@ -142,8 +143,18 @@ fields(producer) ->
             sc(
                 binary(),
                 #{
-                    required => true,
+                    required => false,
                     desc => ?DESC("stream_name")
+                }
+            )},
+        {stream_arn,
+            sc(
+                binary(),
+                #{
+                    required => false,
+                    example => <<"arn:aws:kinesis:us-east-1:123456789012:stream/my_stream">>,
+                    validator => fun validate_stream_arn/1,
+                    desc => ?DESC("stream_arn")
                 }
             )},
         {partition_key,
@@ -251,6 +262,32 @@ validate_credentials(Config) ->
         _ ->
             %% Map level validation
             ok
+    end.
+
+%% The action identifies the stream either by its name, in the account of the connector
+%% credentials, or by its ARN.
+validate_stream(Parameters) ->
+    case {is_set(get_field(stream_name, Parameters)), is_set(get_field(stream_arn, Parameters))} of
+        {true, false} -> ok;
+        {false, true} -> ok;
+        {true, true} -> {error, <<"stream_name and stream_arn cannot be set together">>};
+        {false, false} -> {error, <<"one of stream_name and stream_arn must be set">>}
+    end.
+
+%% <https://docs.aws.amazon.com/kinesis/latest/APIReference/API_PutRecords.html>
+validate_stream_arn(undefined) ->
+    ok;
+validate_stream_arn(<<>>) ->
+    ok;
+validate_stream_arn(StreamARN) ->
+    Pattern = "^arn:aws[a-z-]*:kinesis:[a-z0-9-]+:[0-9]{12}:stream/[a-zA-Z0-9_.-]{1,128}$",
+    case re:run(StreamARN, Pattern, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error,
+                <<"must be a Kinesis stream ARN, such as ",
+                    "arn:aws:kinesis:us-east-1:123456789012:stream/my_stream">>}
     end.
 
 get_field(Key, Config) ->

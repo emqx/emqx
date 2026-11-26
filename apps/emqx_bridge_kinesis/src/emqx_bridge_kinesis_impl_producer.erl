@@ -202,7 +202,7 @@ do_connector_health_check(WorkerPid, ConnResId, ConnState) ->
     end.
 
 do_channel_health_check(WorkerPid, ChanResId, ChanState, ConnResId) ->
-    #{stream_name := StreamName} = ChanState,
+    #{stream := Stream} = ChanState,
     StatusBefore =
         case emqx_resource_cache:get_runtime(ChanResId) of
             {ok, #rt{channel_status = StatusBefore0}} ->
@@ -215,7 +215,7 @@ do_channel_health_check(WorkerPid, ChanResId, ChanState, ConnResId) ->
     true = StatusBefore /= no_channel,
     maybe
         ok ?= try_consume_action_limiter(ConnResId, ChanResId, ChanState),
-        ok ?= do_channel_health_check1(WorkerPid, StreamName),
+        ok ?= do_channel_health_check1(WorkerPid, Stream),
         {halt, {ok, ?status_connected}}
     else
         timeout ->
@@ -256,8 +256,8 @@ do_channel_health_check(WorkerPid, ChanResId, ChanState, ConnResId) ->
             {error, Reason}
     end.
 
-do_channel_health_check1(WorkerPid, StreamName) ->
-    case emqx_bridge_kinesis_connector_client:connection_status(WorkerPid, StreamName) of
+do_channel_health_check1(WorkerPid, Stream) ->
+    case emqx_bridge_kinesis_connector_client:connection_status(WorkerPid, Stream) of
         {ok, ?status_connected} ->
             ok;
         {error, unhealthy_target} ->
@@ -283,10 +283,7 @@ on_add_channel(
 create_channel_state(
     #{parameters := Parameters} = ChannelConfig
 ) ->
-    #{
-        stream_name := StreamName,
-        partition_key := PartitionKey
-    } = Parameters,
+    #{partition_key := PartitionKey} = Parameters,
     HealthCheckTimeout = emqx_utils_maps:deep_get(
         [resource_opts, health_check_timeout],
         ChannelConfig,
@@ -295,7 +292,7 @@ create_channel_state(
     {ok, #{
         health_check_timeout => HealthCheckTimeout,
         templates => parse_template(Parameters),
-        stream_name => StreamName,
+        stream => stream(Parameters),
         partition_key => PartitionKey
     }}.
 
@@ -439,7 +436,7 @@ do_send_requests_sync(
 ) ->
     #{
         templates := Templates,
-        stream_name := StreamName
+        stream := Stream
     } = maps:get(ChannelId, InstalledChannels),
     Records = render_records(Requests, Templates),
     StructuredRecords = [
@@ -449,7 +446,7 @@ do_send_requests_sync(
     emqx_trace:rendered_action_template(ChannelId, StructuredRecords),
     Result = ecpool:pick_and_do(
         PoolName,
-        {emqx_bridge_kinesis_connector_client, query, [Records, StreamName]},
+        {emqx_bridge_kinesis_connector_client, query, [Records, Stream]},
         no_handover
     ),
     handle_result(Result, Requests, InstanceId).
@@ -503,6 +500,12 @@ on_format_query_result({ok, Result}) ->
     #{result => ok, info => Result};
 on_format_query_result(Result) ->
     Result.
+
+%% The schema validator ensures that exactly one of them is set.
+stream(#{stream_arn := StreamARN}) when is_binary(StreamARN), StreamARN =/= <<>> ->
+    {stream_arn, StreamARN};
+stream(#{stream_name := StreamName}) ->
+    StreamName.
 
 parse_template(Config) ->
     #{payload_template := PayloadTemplate, partition_key := PartitionKeyTemplate} = Config,

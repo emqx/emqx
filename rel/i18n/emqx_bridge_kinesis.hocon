@@ -57,10 +57,21 @@ endpoint.label:
 """Amazon Kinesis Endpoint"""
 
 stream_name.desc:
-"""The Amazon Kinesis Stream to publish messages to."""
+"""The name of the Amazon Kinesis stream to publish messages to.
+Kinesis looks up the name in the AWS account of the connector credentials.
+Set either this field or <code>stream_arn</code>."""
 
 stream_name.label:
 """Amazon Kinesis Stream"""
+
+stream_arn.desc:
+"""The ARN of the Amazon Kinesis stream to publish messages to, for example <code>arn:aws:kinesis:us-east-1:123456789012:stream/my_stream</code>.
+Use it for a stream in another AWS account. The owner of the stream must grant access to the connector credentials with a resource-based policy on the stream.
+The action health check calls <code>DescribeStreamSummary</code> on the stream, so the policy must allow it together with <code>PutRecord</code> and <code>PutRecords</code>.
+Set either this field or <code>stream_name</code>."""
+
+stream_arn.label:
+"""Amazon Kinesis Stream ARN"""
 
 partition_key.desc:
 """The Amazon Kinesis Partition Key associated to published message. Placeholders in format of ${var} are supported."""
