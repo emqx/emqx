@@ -238,9 +238,11 @@ delete(Who) when is_map(Who) ->
 delete(Who) ->
     mria:dirty_delete(table(Who), Who).
 
--spec info(size) -> non_neg_integer().
+-spec info(size | tarpitted) -> non_neg_integer().
 info(size) ->
-    mnesia:table_info(?BANNED_INDIVIDUAL_TAB, size) + mnesia:table_info(?BANNED_RULE_TAB, size).
+    mnesia:table_info(?BANNED_INDIVIDUAL_TAB, size) + mnesia:table_info(?BANNED_RULE_TAB, size);
+info(tarpitted) ->
+    emqx_banned_tarpit:count().
 
 -spec clear() -> ok.
 clear() ->

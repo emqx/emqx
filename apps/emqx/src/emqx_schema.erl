@@ -25,6 +25,7 @@
 -define(MAX_INT_TIMEOUT_MS, 4294967295).
 %% floor(?MAX_INT_TIMEOUT_MS / 1000).
 -define(MAX_INT_TIMEOUT_S, 4294967).
+-define(BANNED_TARPIT_MAX_DELAY, 300_000).
 -define(DEFAULT_WINDOW_TIME, <<"1m">>).
 
 -type duration() :: integer().
@@ -87,6 +88,7 @@
     validate_heap_size/1,
     validate_max_packet_size/1,
     validate_ws_max_frame_size/1,
+    validate_banned_tarpit_delay/1,
     validate_non_negative_bytesize/1,
     convert_max_packet_size/2,
     user_lookup_fun_tr/2,
@@ -2162,6 +2164,31 @@ fields("banned") ->
                     desc => ?DESC("banned_bootstrap_file"),
                     require => false
                 }
+            )},
+        {tarpit,
+            sc(
+                ref("banned_tarpit"),
+                #{desc => ?DESC("banned_tarpit")}
+            )}
+    ];
+fields("banned_tarpit") ->
+    [
+        {delay,
+            sc(
+                timeout_duration_ms(),
+                #{
+                    default => <<"0s">>,
+                    desc => ?DESC("banned_tarpit_delay"),
+                    validator => fun ?MODULE:validate_banned_tarpit_delay/1
+                }
+            )},
+        {max,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 1000,
+                    desc => ?DESC("banned_tarpit_max")
+                }
             )}
     ];
 fields("managed_certs") ->
@@ -2551,6 +2578,8 @@ desc("client_attrs_init") ->
     ?DESC(client_attrs_init);
 desc("banned") ->
     "Banned .";
+desc("banned_tarpit") ->
+    ?DESC("banned_tarpit");
 desc(durable_shared_subs) ->
     ?DESC(durable_shared_subs);
 desc("managed_certs") ->
@@ -3383,6 +3412,12 @@ validate_max_packet_size(Siz) when is_integer(Siz) ->
     ok;
 validate_max_packet_size(_SizStr) ->
     {error, invalid_packet_size}.
+
+-doc "Limit `banned.tarpit.delay`, which holds a connection process for its whole length.".
+validate_banned_tarpit_delay(Delay) when Delay =< ?BANNED_TARPIT_MAX_DELAY ->
+    ok;
+validate_banned_tarpit_delay(_Delay) ->
+    {error, #{cause => banned_tarpit_delay_too_long, maximum => <<"5m">>}}.
 
 -doc """
 Validate a WebSocket `max_frame_size`. An explicit value must not exceed the

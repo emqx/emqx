@@ -539,12 +539,16 @@ take_conn_info_fields(Fields, ClientInfo, ConnInfo) ->
 %% Handle incoming packet
 %%--------------------------------------------------------------------
 
+%% `{tarpit, ...}' is returned only for the CONNECT of a banned client: the
+%% connection sends nothing, stops reading, and shuts down with `Reason'
+%% after `Delay' milliseconds.
 -spec handle_in(emqx_types:packet(), channel()) ->
     {ok, channel()}
     | {ok, replies(), channel()}
     | {continue, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
-    | {shutdown, Reason :: term(), replies(), channel()}.
+    | {shutdown, Reason :: term(), replies(), channel()}
+    | {tarpit, Reason :: atom(), Delay :: pos_integer(), channel()}.
 %% The socket is closed. Drop packets that were read before the close,
 %% for example packets that follow a DISCONNECT in the same read.
 %% The process stays alive to keep the session until it expires or
@@ -775,6 +779,8 @@ process_connect(?CONNECT_PACKET(ConnPkt) = Packet, Channel0) ->
                 {error, ReasonCode, Channel} ->
                     handle_out(connack, ReasonCode, Channel)
             end;
+        {error, {tarpit, Delay}, NChannel} ->
+            handle_out(tarpit, Delay, NChannel);
         {error, ReasonCode, NChannel} ->
             handle_out(connack, ReasonCode, NChannel)
     end.
@@ -1606,7 +1612,8 @@ frame_error_kind(_Reason, Default) -> Default.
     {ok, channel()}
     | {ok, replies(), channel()}
     | {shutdown, Reason :: term(), channel()}
-    | {shutdown, Reason :: term(), replies(), channel()}.
+    | {shutdown, Reason :: term(), replies(), channel()}
+    | {tarpit, Reason :: atom(), Delay :: pos_integer(), channel()}.
 handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = ConnInfo}) ->
     AckProps = emqx_utils:run_fold(
         [
@@ -1655,6 +1662,13 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
     %% Per MQTT v3: If the Will Flag is set to 1 this indicates that,
     %% if the Connect request is accepted, a Will Message MUST be stored…
     shutdown(Reason, AckPacket, Channel#channel{will_msg = undefined});
+%% A banned client in the tarpit gets no CONNACK. The `client.connack' hook
+%% still runs, so that rules and audit see the rejection.
+handle_out(tarpit, Delay, Channel = #channel{conninfo = ConnInfo}) ->
+    Reason = emqx_reason_codes:name(?RC_BANNED),
+    _ = run_client_connack_hooks(Channel, ConnInfo, Reason, emqx_mqtt_props:new()),
+    ?TRACE("MQTT", "banned_client_tarpitted", #{delay => Delay}),
+    {tarpit, Reason, Delay, Channel#channel{will_msg = undefined}};
 %% Optimize?
 handle_out(publish, [], Channel) ->
     {ok, Channel};
@@ -2851,14 +2865,30 @@ get_tenant_namespace(ClientInfo) ->
 %%--------------------------------------------------------------------
 %% Check banned
 
-check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
+check_banned(_ConnPkt, #channel{clientinfo = ClientInfo, conninfo = ConnInfo}) ->
     case emqx_banned:check(ClientInfo) of
         true ->
             ok = emqx_metrics:inc_global('client.banned'),
-            {error, ?RC_BANNED};
+            case is_tarpit_supported(ConnInfo) andalso emqx_banned_tarpit:enter() of
+                {ok, Delay} ->
+                    {error, {tarpit, Delay}};
+                false ->
+                    {error, ?RC_BANNED}
+            end;
         false ->
             ok
     end.
+
+%% The connection modules that handle a `{tarpit, ...}' return. The QUIC
+%% control stream also runs in `emqx_connection', and keeps the CONNACK.
+is_tarpit_supported(#{socktype := quic}) ->
+    false;
+is_tarpit_supported(#{conn_mod := Mod}) ->
+    Mod =:= emqx_connection orelse
+        Mod =:= emqx_socket_connection orelse
+        Mod =:= emqx_ws_connection;
+is_tarpit_supported(_ConnInfo) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% Flapping

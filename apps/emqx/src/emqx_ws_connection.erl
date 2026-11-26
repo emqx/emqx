@@ -52,7 +52,9 @@
     %% Sockname of the ws connection
     sockname :: emqx_types:peername(),
     %% Sock state
-    sockstate :: running | shutdown,
+    %% `tarpit` denotes a banned client that is held until the tarpit timer
+    %% fires; cowboy does not read from the socket any more.
+    sockstate :: running | shutdown | tarpit,
     %% MQTT Piggyback
     mqtt_piggyback :: single | multiple,
     %% Parse State (undefined before initialization)
@@ -375,6 +377,9 @@ get_peer_info(Type, Listener, Req, Opts) ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), Host}
     end.
 
+websocket_handle(_Frame, State = #state{sockstate = tarpit}) ->
+    %% Frames that cowboy read before the socket became passive.
+    {ok, State, hibernate};
 websocket_handle(Frame, State = #state{hibernated = true}) ->
     websocket_handle(Frame, wakeup(State));
 websocket_handle(Frame, State) ->
@@ -393,6 +398,8 @@ handle_ws_frame({Frame, _}, State) ->
     ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
+websocket_info(Info, State = #state{sockstate = tarpit}) ->
+    handle_tarpit_info(Info, State);
 websocket_info(Info, State = #state{hibernated = true}) ->
     websocket_info(Info, wakeup(State));
 %% A timer message is not activity. A connection that only wakes up for its own
@@ -421,6 +428,27 @@ handle_ws_info({stop, Reason}, State) ->
     {[{shutdown, Reason}], State};
 handle_ws_info(Info, State) ->
     handle_info(Info, State).
+
+%% A banned client in the tarpit. Messages other than the tarpit timer and
+%% calls are dropped. A peer close is seen only when the tarpit timer fires.
+handle_tarpit_info({timeout, _TRef, {tarpit, Reason}}, State) ->
+    close_tarpit(Reason, State);
+handle_tarpit_info({call, From, Req}, State) ->
+    handle_call(From, Req, State);
+handle_tarpit_info(_Info, State) ->
+    {ok, State, hibernate}.
+
+%% Cowboy sends a WebSocket close frame each time it stops a handler, also
+%% for the `{shutdown, Reason}' command. The client must get no byte, so the
+%% process exits with an exit signal to itself, which takes effect before
+%% `exit/2' returns and cannot be caught. The socket closes with its owner.
+close_tarpit(Reason, State = #state{channel = Channel}) ->
+    Shutdown = {shutdown, Reason},
+    _ = emqx_channel:terminate(Shutdown, Channel),
+    ?TRACE("SOCKET", "websocket_terminated", #{reason => Shutdown}),
+    true = exit(self(), Shutdown),
+    %% Not reached.
+    {[{shutdown, Reason}], State}.
 
 websocket_close({_, ReasonCode, _Payload}, State) when is_integer(ReasonCode) ->
     websocket_close(ReasonCode, State);
@@ -701,7 +729,12 @@ handle_incoming(Packets = [?CONNECT_PACKET(ConnPkt) | _], State) ->
         State
     ),
     NState = cancel_idle_timer(State#state{parse_state = ParseState, serialize = Serialize}),
-    do_handle_incoming(Packets, NState);
+    case do_handle_incoming(Packets, NState) of
+        {Commands, FState = #state{sockstate = tarpit}} ->
+            {Commands, FState, hibernate};
+        Result ->
+            Result
+    end;
 handle_incoming(Packets, State) ->
     do_handle_incoming(Packets, State).
 
@@ -742,7 +775,9 @@ with_channel(Fun, Args, {FrameAcc, State = #state{channel = Channel, sockstate =
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
             Frames = handle_outgoing(Packet, NState),
-            order_shutdown(Reason, [Frames | FrameAcc], NState)
+            order_shutdown(Reason, [Frames | FrameAcc], NState);
+        {tarpit, Reason, Delay, NChannel} ->
+            enter_tarpit(Reason, Delay, FrameAcc, State#state{channel = NChannel})
     end;
 with_channel(_Fun, _Args, {FrameAcc, State = #state{sockstate = _NotRunning}}) ->
     {FrameAcc, State}.
@@ -770,6 +805,14 @@ handle_replies([], FrameAcc, State) ->
     {FrameAcc, State};
 handle_replies(Event, FrameAcc, State) ->
     handle_replies([Event], FrameAcc, State).
+
+%% Make the socket passive and send nothing. Cowboy's own `idle_timeout'
+%% would close the connection while no data arrives, so the tarpit timer
+%% takes its place.
+enter_tarpit(Reason, Delay, FrameAcc, State) ->
+    _ = emqx_utils:start_timer(Delay, {tarpit, Reason}),
+    Commands = [{active, false}, {set_options, #{idle_timeout => infinity}}],
+    {[Commands | FrameAcc], State#state{sockstate = tarpit}}.
 
 order_shutdown(Reason, FrameAcc, State) ->
     {[{shutdown, Reason} | FrameAcc], State#state{sockstate = shutdown}}.

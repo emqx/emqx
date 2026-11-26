@@ -95,7 +95,9 @@
     %% TCP/TLS Socket
     socket :: socket:socket(),
     %% Sock State
-    sockstate :: idle | closed | congested(),
+    %% `tarpit` denotes a banned client that is held until the tarpit timer
+    %% fires; the socket is not read any more.
+    sockstate :: idle | closed | congested() | tarpit,
     %% Packet parser / serializer (undefined before initialization)
     parser :: undefined | parser(),
     serialize :: undefined | emqx_frame:serialize_opts(),
@@ -451,6 +453,8 @@ handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
+        {ok, NewState = #state{sockstate = tarpit}} ->
+            hibernate(Parent, NewState);
         {ok, NewState} ->
             #state{conf = #conf{minor_gc_after = Timeout}} = NewState,
             drain_loop(Parent, NewState, Timeout);
@@ -478,6 +482,8 @@ handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv_drain(Msg, Parent, State, Timeout) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
+        {ok, NewState = #state{sockstate = tarpit}} ->
+            hibernate(Parent, NewState);
         {ok, NewState} ->
             ?MODULE:drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
@@ -632,6 +638,8 @@ handle_msg({'$gen_call', From, Req}, State) ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
     end;
+handle_msg(Msg, State = #state{sockstate = tarpit}) ->
+    handle_tarpit_msg(Msg, State);
 handle_msg({'$gen_cast', Req}, State) ->
     NewState = handle_cast(Req, State),
     {ok, NewState};
@@ -743,6 +751,17 @@ handle_msg(Shutdown = {shutdown, _Reason}, State) ->
     stop(Shutdown, State);
 handle_msg(Msg, State) ->
     handle_info(Msg, State).
+
+%% A banned client in the tarpit. A select notification is dropped without a
+%% recv, so no further select is armed. Data and packets left over from the
+%% CONNECT batch are dropped too: the client gets nothing before the close.
+%% A peer close is seen only when the tarpit timer fires.
+handle_tarpit_msg({timeout, _TRef, {tarpit, Reason}}, State) ->
+    shutdown(Reason, State);
+handle_tarpit_msg(Shutdown = {shutdown, _Reason}, State) ->
+    stop(Shutdown, State);
+handle_tarpit_msg(_Msg, _State) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -1192,7 +1211,11 @@ handle_incoming_packets([Packet | Rest], State, Channel, Outgoing) ->
                 _ ->
                     Batch = mk_batch(Outgoing, ensure_list(OutPacket)),
                     with_channel_result({shutdown, Reason, Batch, NChannel}, State)
-            end
+            end;
+        {tarpit, _Reason, _Delay, _NChannel} = Tarpit ->
+            %% Only a CONNECT enters the tarpit, and CONNECT is handled on
+            %% its own (see `handle_msg/2'), so `Outgoing' is empty here.
+            with_channel_result(Tarpit, State)
     end.
 
 handle_unbatchable(Replies, Rest, State, Channel, Outgoing) ->
@@ -1254,8 +1277,18 @@ with_channel_result(Result, State) ->
                 {ok, {sock_error, _}, NState2} ->
                     %% Ignore send errors during shutdown to avoid crashing.
                     shutdown(Reason, NState2)
-            end
+            end;
+        {tarpit, Reason, Delay, NChannel} ->
+            enter_tarpit(Reason, Delay, State#state{channel = NChannel})
     end.
+
+%% Keep only the tarpit timer and send nothing. Reads stop because the
+%% tarpit state drops select notifications. The process hibernates in
+%% `handle_recv/3'.
+enter_tarpit(Reason, Delay, State) ->
+    _ = start_timer(Delay, {tarpit, Reason}),
+    NState = cancel_stats_timer(State),
+    {ok, NState#state{sockstate = tarpit, stats_timer = disabled}}.
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
