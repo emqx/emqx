@@ -354,13 +354,17 @@ do_open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnI
             {true, Session, ReplayContext} ->
                 {ok, #{session => Session, present => true, replay => ReplayContext}};
             {false, Session} ->
-                {ok, #{session => Session, present => false}}
+                {ok, #{session => Session, present => false}};
+            {error, session_resuming} = Error ->
+                Error
         end
     end).
 
 %% @doc Try to takeover a session from existing channel.
 -spec takeover_session_begin(emqx_types:clientid()) ->
-    {ok, emqx_cm_takeover:channelref(), emqx_cm_takeover:state()} | none.
+    {ok, emqx_cm_takeover:channelref(), emqx_cm_takeover:state()}
+    | none
+    | {error, session_resuming}.
 takeover_session_begin(ClientId) ->
     case pick_channel(ClientId) of
         ChanPid when is_pid(ChanPid) ->
@@ -455,6 +459,11 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% If failed to kick (e.g. timeout) force a kill.
 %% Keeping the stale pid around, or returning error or raise an exception
 %% benefits nobody.
+%%
+%% The exception is `{takeover, 'begin'}': a channel that has not finished
+%% resuming its session refuses to hand it over and keeps running. Its reply
+%% comes back as `{ok, {error, session_resuming}}', and
+%% `emqx_cm_takeover:begin_local/2' handles it.
 -spec request_stepdown(Action, module(), pid(), timeout()) ->
     ok
     | {ok, emqx_session:t() | _ReplayContext}

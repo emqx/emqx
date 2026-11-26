@@ -299,7 +299,9 @@ destroy(_Session) ->
 %%--------------------------------------------------------------------
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
+    {_IsPresent :: true, session(), replayctx()}
+    | false
+    | {error, session_resuming}.
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg) ->
     case emqx_cm:takeover_session_begin(ClientId) of
         {ok, ChannelRef, ExportedSession} ->
@@ -307,7 +309,9 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg) ->
             Session = resume(ClientInfo, Session0),
             {true, Session, ChannelRef};
         none ->
-            false
+            false;
+        {error, session_resuming} = Error ->
+            Error
     end.
 
 resize_inflight(#{receive_maximum := ReceiveMax}, Session = #session{inflight = Inflight}) ->

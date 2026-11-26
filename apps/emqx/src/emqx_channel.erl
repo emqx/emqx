@@ -805,6 +805,9 @@ post_process_connect(
         {error, client_id_unavailable} ->
             ReasonString = <<"THROTTLED">>,
             handle_out(connack, {?RC_SERVER_BUSY, ReasonString}, Channel);
+        {error, session_resuming} ->
+            ReasonString = <<"SESSION_RESUMING">>,
+            handle_out(connack, {?RC_SERVER_BUSY, ReasonString}, Channel);
         {error, Reason} ->
             ?SLOG(error, #{msg => "failed_to_open_session", reason => Reason}),
             handle_out(connack, ?RC_UNSPECIFIED_ERROR, Channel)
@@ -1828,6 +1831,12 @@ handle_call(discard, Channel = #channel{conninfo = ConnInfo}) ->
         []
     );
 %% Session Takeover
+handle_call({takeover, 'begin'}, Channel = #channel{takeover = #resumption{}}) ->
+    %% This channel resumed the session, and the takeover of the previous
+    %% channel is not finished until `continue' is handled. Refuse to hand the
+    %% session over now: its pending messages would be lost. The new
+    %% connection gets CONNACK `server_busy' and can retry.
+    reply({error, session_resuming}, Channel);
 handle_call(
     {takeover, 'begin'},
     Channel = #channel{conninfo = #{expiry_interval := 0}}

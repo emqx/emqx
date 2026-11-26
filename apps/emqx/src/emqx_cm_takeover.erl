@@ -74,13 +74,19 @@
 %% -> emqx_cm_proto_v3 -> emqx_cm:takeover_session/2 ->
 %%    {living, _ConnMod :: atom(), pid(), emqx_session:session()}
 
+%% `resuming_error`: the requester accepts `{error, session_resuming}` from
+%% takeover begin. Older requesters do not set it, see `to_begin_ret/2`.
 -spec current() -> protocol().
 current() ->
-    #{vsn => ?VSN_TAKEOVER}.
+    #{vsn => ?VSN_TAKEOVER, resuming_error => true}.
 
--doc "Begin a two-phase session takeover process".
+-doc """
+Begin a two-phase session takeover process.
+Returns `{error, session_resuming}` when the channel has not finished resuming
+the session from its own previous channel yet.
+""".
 -spec begin_(emqx_types:clientid(), pid()) ->
-    {ok, channelref(), session()} | none.
+    {ok, channelref(), session()} | none | {error, session_resuming}.
 begin_(ClientId, ChanPid) when node(ChanPid) =:= node() ->
     begin_local(ClientId, ChanPid);
 begin_(ClientId, ChanPid) ->
@@ -106,7 +112,7 @@ begin_(ClientId, ChanPid) ->
 
 -doc "Direct RPC target for `emqx_cm_proto_v4:takeover_begin/3`.".
 -spec begin_rpc(emqx_types:clientid(), pid(), protocol()) ->
-    {ok, channelref(), session()} | none.
+    {ok, channelref(), session()} | none | {error, session_resuming}.
 begin_rpc(ClientId, ChanPid, RequesterProto) ->
     ?tp(emqx_cm_takeover_begin_rpc, #{
         clientid => ClientId,
@@ -142,6 +148,8 @@ begin_local(ClientId, ChanPid) when node(ChanPid) =:= node() ->
         ConnMod when is_atom(ConnMod) ->
             ChanRef = #chanref{proto = local, connmod = ConnMod, pid = ChanPid},
             case emqx_cm:request_stepdown({takeover, 'begin'}, ConnMod, ChanPid, ?T_TAKEOVER) of
+                {ok, {error, session_resuming} = Error} ->
+                    Error;
                 {ok, Session} ->
                     {ok, ChanRef, Session};
                 {error, _Reason} ->
@@ -149,9 +157,15 @@ begin_local(ClientId, ChanPid) when node(ChanPid) =:= node() ->
             end
     end.
 
+%% The released `emqx_cm_proto_v4:takeover_begin/3` spec predates the
+%% `{error, session_resuming}' reply, and released proto modules are frozen.
+-dialyzer({no_match, from_begin_ret/1}).
+
 -doc "Adapt takeover result received from remote node".
 from_begin_ret(none) ->
     none;
+from_begin_ret({error, session_resuming} = Error) ->
+    Error;
 from_begin_ret({ok, ChanRef = #chanref{proto = Proto}, Session}) ->
     {ok, ChanRef, from_session(Session, Proto)}.
 
@@ -171,7 +185,15 @@ upgrade_begin_ret({persistent, _} = Ret) ->
 to_begin_ret(RequesterProto, {ok, ChanRef, Session}) ->
     {ok, ChanRef#chanref{proto = current()}, to_session(Session, RequesterProto)};
 to_begin_ret(_RequesterProto, none) ->
-    none.
+    none;
+to_begin_ret(#{resuming_error := true}, {error, session_resuming} = Error) ->
+    Error;
+to_begin_ret(_RequesterProto, {error, session_resuming}) ->
+    %% The requester runs an older version and cannot handle this reply.
+    %% Returning `none' would make it open a fresh session while this channel
+    %% keeps the old one. Fail the RPC instead: the new connection fails and
+    %% the client reconnects.
+    error(session_resuming).
 
 downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     %% NOTE: Turn back into pre-6.3.0 `#session{}` record.
@@ -179,7 +201,10 @@ downgrade_begin_ret(ClientId, ChanInfo, {ok, ChanRef, Session}) ->
     Conf = emqx_session:get_session_conf(maps:get(clientinfo, ChanInfo)),
     {living, ConnMod, ChanPid, to_legacy_session(ClientId, ChanInfo, Session, Conf, v5)};
 downgrade_begin_ret(_ClientId, _ChanInfo, none) ->
-    none.
+    none;
+downgrade_begin_ret(_ClientId, _ChanInfo, {error, session_resuming}) ->
+    %% See `to_begin_ret/2'.
+    error(session_resuming).
 
 -spec from_session(session(), protocol()) -> session().
 from_session(Session = #{inflight := Inflight}, Proto) ->

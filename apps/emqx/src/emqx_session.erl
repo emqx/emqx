@@ -188,7 +188,7 @@
     t().
 
 -callback open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {_IsPresent :: true, t(), _ReplayContext} | false.
+    {_IsPresent :: true, t(), _ReplayContext} | false | {error, session_resuming}.
 
 -callback destroy(t() | clientinfo()) -> ok.
 
@@ -279,7 +279,9 @@ create(Mod, ClientInfo, ConnInfo, MaybeWillMsg) ->
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
+    {_IsPresent :: true, t(), _ReplayContext}
+    | {_IsPresent :: false, t()}
+    | {error, session_resuming}.
 open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
     %% NOTE
@@ -289,6 +291,8 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
         {_IsPresent = true, Session, _} = Present ->
             ok = run_hook_with_conninfo('session.resumed', ConnInfo, [ClientInfo, info(Session)]),
             Present;
+        {error, session_resuming} = Error ->
+            Error;
         false ->
             %% NOTE
             %% Nothing was found, create a new session with the `Default` implementation.
@@ -299,6 +303,8 @@ try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg) ->
     case try_open(Rest, ClientInfo, ConnInfo, MaybeWillMsg) of
         {_IsPresent = true, _, _} = Present ->
             Present;
+        {error, session_resuming} = Error ->
+            Error;
         false ->
             Mod:open(ClientInfo, ConnInfo, MaybeWillMsg)
     end;

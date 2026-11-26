@@ -128,6 +128,38 @@ t_begin_session_format(_) ->
         meck:unload(emqx_cm)
     end.
 
+-doc """
+A channel that is still resuming the session refuses the takeover. Requesters that
+accept the error get it back, older requesters get an RPC failure instead of `none`.
+""".
+t_begin_session_resuming(_) ->
+    ok = meck:new(emqx_cm, [passthrough, no_link]),
+    try
+        ok = meck:expect(emqx_cm, do_get_chann_conn_mod, fun(_, _) -> emqx_connection end),
+        ok = meck:expect(emqx_cm, do_get_chan_info, fun(_, _) -> #{} end),
+        ok = meck:expect(emqx_cm, request_stepdown, fun(_, _, _, _) ->
+            {ok, {error, session_resuming}}
+        end),
+        Error = {error, session_resuming},
+        ?assertEqual(Error, emqx_cm_takeover:begin_local(<<"fixture">>, self())),
+        ?assertEqual(
+            Error,
+            emqx_cm_takeover:begin_rpc(
+                <<"fixture">>, self(), #{vsn => 2, resuming_error => true}
+            )
+        ),
+        ?assertError(
+            session_resuming,
+            emqx_cm_takeover:begin_rpc(<<"fixture">>, self(), #{vsn => 2})
+        ),
+        ?assertError(
+            session_resuming,
+            emqx_cm_takeover:begin_rpc_legacy(<<"fixture">>, self())
+        )
+    after
+        meck:unload(emqx_cm)
+    end.
+
 -doc "Decode a 6.3.0 priority queue, preserving timestamps and restoring insertion order.".
 t_decode_630_priorities(_Config) ->
     #{session := Session, exported := Expected} = fixture_630_priorities(),

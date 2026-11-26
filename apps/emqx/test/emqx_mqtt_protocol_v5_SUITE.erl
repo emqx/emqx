@@ -9,6 +9,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -1309,6 +1310,105 @@ t_connack_client_id_unavailable(Config) ->
     ?assertNotReceive({deliver, WillTopic, #message{payload = <<"WillMsg">>}}, 100),
     emqx_broker:subscriber_down(self()),
     ok.
+
+%% Connection B takes the session of connection A over. Connection C asks B for
+%% the session after B is registered, but before B has handled `continue', that
+%% is before B has finished the takeover of A.
+%% Only a WebSocket connection handles other messages before `continue'. It
+%% refuses C with `server_busy', keeps the session, and delivers the pending
+%% message. The other transports finish the resumption first, so C takes the
+%% session over as usual.
+t_takeover_during_resumption(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Topic = <<ClientId/binary, "/t">>,
+    Opts = [
+        {proto_ver, v5},
+        {clientid, ClientId},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 60}}
+        | Config
+    ],
+    StartClient = fun() ->
+        {ok, Client} = emqtt:start_link(Opts),
+        unlink(Client),
+        Client
+    end,
+    TestPid = self(),
+    AsyncConnect = fun(Client, Tag) ->
+        spawn(fun() -> TestPid ! {connect_result, Tag, emqtt:ConnFun(Client)} end)
+    end,
+    ClientA = StartClient(),
+    {ok, _} = emqtt:ConnFun(ClientA),
+    {ok, _, [1]} = emqtt:subscribe(ClientA, Topic, qos1),
+    HookMFA = {?MODULE, hold_on_connected, [TestPid, ClientId]},
+    ok = emqx_hooks:add('client.connected', HookMFA, ?HP_HIGHEST),
+    try
+        %% B is held in the `client.connected' hook: after it is registered,
+        %% before it handles `continue'.
+        ClientB = StartClient(),
+        _ = AsyncConnect(ClientB, b),
+        ChanB =
+            receive
+                {held_on_connected, Pid} -> Pid
+            after 5000 -> ct:fail(connection_b_not_held)
+            end,
+        _ = emqx_broker:publish(emqx_message:make(<<"pub">>, ?QOS_1, Topic, <<"pending">>)),
+        ClientC = StartClient(),
+        _ = AsyncConnect(ClientC, c),
+        ?retry(20, 100, ?assert(has_takeover_begin_call(ChanB))),
+        ok = emqx_hooks:del('client.connected', {?MODULE, hold_on_connected}),
+        ChanB ! proceed,
+        ?assertReceive({connect_result, b, {ok, _}}, 5000),
+        case ConnFun of
+            ws_connect ->
+                ?assertReceive(
+                    {connect_result, c,
+                        {error,
+                            {server_busy, #{
+                                'Reason-String' := <<"SESSION_RESUMING">>
+                            }}}},
+                    5000
+                ),
+                ?assertReceive(
+                    {publish, #{client_pid := ClientB, payload := <<"pending">>}}, 5000
+                ),
+                ?assert(is_process_alive(ChanB)),
+                %% The session is resumed now: the next attempt takes it over.
+                ClientD = StartClient(),
+                {ok, _} = emqtt:ConnFun(ClientD),
+                ?assertEqual(1, client_info(session_present, ClientD)),
+                ok = emqtt:disconnect(ClientD);
+            _ ->
+                ?assertReceive({connect_result, c, {ok, _}}, 5000),
+                ?assertEqual(1, client_info(session_present, ClientC)),
+                ?assertReceive({publish, #{payload := <<"pending">>}}, 5000),
+                ok = emqtt:disconnect(ClientC)
+        end
+    after
+        emqx_hooks:del('client.connected', {?MODULE, hold_on_connected})
+    end.
+
+hold_on_connected(#{clientid := ClientId}, _ConnInfo, TestPid, ClientId) ->
+    TestPid ! {held_on_connected, self()},
+    receive
+        proceed -> ok
+    after 5000 -> ok
+    end;
+hold_on_connected(_ClientInfo, _ConnInfo, _TestPid, _ClientId) ->
+    ok.
+
+%% `emqx_connection' gets `{'$gen_call', From, Req}', `emqx_ws_connection' gets
+%% `{call, From, Req}'.
+has_takeover_begin_call(ChanPid) ->
+    {messages, Messages} = process_info(ChanPid, messages),
+    lists:any(
+        fun
+            ({_, _From, {takeover, 'begin'}}) -> true;
+            (_) -> false
+        end,
+        Messages
+    ).
 
 %%--------------------------------------------------------------------
 %% Publish
