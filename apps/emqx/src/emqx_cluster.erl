@@ -46,7 +46,12 @@ name() ->
 join(Node, _) when Node =:= node() ->
     ignore;
 join(Node, Intent) ->
-    classy:join_node(Node, Intent).
+    case classy:join_node(Node, Intent) of
+        {error, {erpc, noconnection}} ->
+            {error, {node_down, Node}};
+        Result ->
+            Result
+    end.
 
 -doc """
 Special intent `force_kick` bypasses some checks.
