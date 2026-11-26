@@ -55,6 +55,8 @@ descr(emqx_rl_mria_ready) ->
     "Local replicas of Mria tables are ready";
 descr(emqx_rl_boot) ->
     "Business apps are started";
+descr(emqx_rl_cluster_rpc) ->
+    "Cluster RPC workers from emqx_conf application are started";
 descr(emqx_rl_joinable) ->
     "EMQX broker is ready for clustering";
 descr(emqx_rl_ready) ->
@@ -69,6 +71,7 @@ vertices() ->
         emqx_rl_mria_declare,
         emqx_rl_mria_ready,
         emqx_rl_boot,
+        emqx_rl_cluster_rpc,
         emqx_rl_joinable,
         emqx_rl_ready
     ].
@@ -106,6 +109,7 @@ edges() ->
     [
         {emqx_rl_mria_declare, emqx_rl_mria_ready, []},
         {emqx_rl_mria_ready, emqx_rl_boot, []},
+        {emqx_rl_boot, emqx_rl_cluster_rpc, []},
         {emqx_rl_boot, emqx_rl_ready, []},
         {emqx_rl_boot, emqx_rl_joinable, []}
     ].

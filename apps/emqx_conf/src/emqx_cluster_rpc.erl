@@ -362,18 +362,9 @@ init([Node, RetryMs]) ->
 
 %% @private
 handle_continue({?CATCH_UP, init}, State) ->
-    %% emqx app must be started before
-    %% trying to catch up the rpc commit logs
-    Result = emqx_machine:wait_cluster_ready(10_000),
-    case Result of
-        ok ->
-            {noreply, State, catch_up(State)};
-        {error, timeout} ->
-            ?SLOG(error, #{msg => "cluster_rpc_wait_timeout"}),
-            {stop, normal, undefined};
-        {error, stopping} ->
-            {stop, normal, undefined}
-    end;
+    %% This process is started by the on_run_level hook after the EMQX
+    %% apps. Safe to proceed with the replay:
+    {noreply, State, catch_up(State)};
 handle_continue(?CATCH_UP, State) ->
     {noreply, State, catch_up(State)}.
 

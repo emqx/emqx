@@ -9,6 +9,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_machine_rl.hrl").
 
 -define(NODE1, emqx_cluster_rpc).
 -define(NODE2, emqx_cluster_rpc2).
@@ -24,6 +25,7 @@ all() ->
         t_del_stale_mfa,
         t_skip_failed_commit,
         t_fast_forward_commit,
+        t_on_run_level,
         t_commit_concurrency,
         t_apply_result_not_logged,
         t_catch_up_status_handle_next_commit,
@@ -394,6 +396,22 @@ t_fast_forward_commit(_Config) ->
     ),
     ok.
 
+t_on_run_level(_Conf) ->
+    ?assert(is_pid(whereis(emqx_conf_rpc_sup))),
+    ?assert(is_pid(whereis(emqx_cluster_rpc))),
+    ?assert(is_pid(cleaner_pid())),
+    %% Drop run level lower than required for cluster RPC:
+    ok = classy_boot:set_barrier(test, ?emqx_rl_cluster_rpc - 1, []),
+    %% The processes stop:
+    ?assertNot(is_pid(whereis(emqx_conf_rpc_sup))),
+    ?assertNot(is_pid(whereis(emqx_cluster_rpc))),
+    %% Remove barrier, processes should restart:
+    ok = classy_boot:rm_barrier(test),
+    ct:sleep(1000),
+    ?assert(is_pid(whereis(emqx_conf_rpc_sup))),
+    ?assert(is_pid(whereis(emqx_cluster_rpc))),
+    ?assert(is_pid(cleaner_pid())).
+
 t_cleaner_unexpected_msg(_Config) ->
     %% The cleaner is started by emqx_conf_sup and is not registered
     %% under a name, so ask the supervisor for its pid.
@@ -406,7 +424,7 @@ t_cleaner_unexpected_msg(_Config) ->
 
 cleaner_pid() ->
     {emqx_cluster_rpc_cleaner, Pid, _Type, _Mods} = lists:keyfind(
-        emqx_cluster_rpc_cleaner, 1, supervisor:which_children(emqx_conf_sup)
+        emqx_cluster_rpc_cleaner, 1, supervisor:which_children(emqx_conf_rpc_sup)
     ),
     Pid.
 

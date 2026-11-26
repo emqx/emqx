@@ -57,9 +57,11 @@ start(_StartType, _StartArgs) ->
     ok = warn_if_no_trusted_certs(),
     {ok, Sup} = emqx_conf_sup:start_link(),
     emqx_conf_cli:load(),
-    {ok, Sup}.
+    Hook = classy:on_run_level(fun emqx_conf_sup:on_run_level/2, 0),
+    {ok, Sup, Hook}.
 
-stop(_State) ->
+stop(Hook) ->
+    classy_hook:unhook(Hook),
     emqx_config:clear_all_invalid_namespaced_configs(),
     emqx_conf_cli:unload(),
     ok.
