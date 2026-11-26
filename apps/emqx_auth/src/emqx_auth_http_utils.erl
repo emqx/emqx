@@ -95,7 +95,7 @@ generate_request(
     Path = emqx_auth_template:render_urlencoded_str(BasePathTemplate, Values),
     Query = emqx_auth_template:render_deep_for_url(BaseQueryTemplate, Values),
     Headers = emqx_auth_template:render_deep_for_raw(HeadersTemplate, Values),
-    case validate_headers(Headers) of
+    case validate_request(Path, Headers) of
         ok ->
             case Method of
                 get ->
@@ -115,6 +115,28 @@ generate_request(
             end;
         {error, _} = Error ->
             Error
+    end.
+
+validate_request(Path, Headers) ->
+    maybe
+        ok ?= validate_path(Path),
+        validate_headers(Headers)
+    end.
+
+%% Reject a path that has a `.` or `..` segment, also in its percent-encoded form.
+%% An HTTP server or a proxy removes such segments (RFC 3986, section 5.2.4)
+%% before it routes the request.
+validate_path(Path) ->
+    case lists:any(fun is_dot_segment/1, binary:split(Path, <<"/">>, [global])) of
+        true -> {error, {invalid_url_path, dot_segment}};
+        false -> ok
+    end.
+
+is_dot_segment(Segment) ->
+    case binary:replace(Segment, [<<"%2e">>, <<"%2E">>], <<".">>, [global]) of
+        <<".">> -> true;
+        <<"..">> -> true;
+        _ -> false
     end.
 
 %% Defense-in-depth: reject HTTP header names/values that contain bytes
