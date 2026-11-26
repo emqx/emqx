@@ -1050,7 +1050,8 @@ parse_variable_byte_integer(_) ->
 parse_topic_filters(subscribe, Bin) ->
     [
         {Topic, #{rh => Rh, rap => Rap, nl => Nl, qos => QoS}}
-     || <<Len:16/big, Topic:Len/binary, _:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin
+     || <<Len:16/big, Topic:Len/binary, Reserved:2, Rh:2, Rap:1, Nl:1, QoS:2>> <= Bin,
+        validate_subopts_reserved(Reserved)
     ];
 parse_topic_filters(unsubscribe, Bin) ->
     [Topic || <<Len:16/big, Topic:Len/binary>> <= Bin].
@@ -1711,6 +1712,10 @@ validate_packet_id(_) -> ok.
 validate_subqos([3 | _]) -> ?PARSE_ERR(bad_subqos);
 validate_subqos([_ | T]) -> validate_subqos(T);
 validate_subqos([]) -> ok.
+
+%% MQTT-v5.0-[MQTT-3.8.3-5]: bits 6 and 7 of the Subscription Options byte are reserved
+validate_subopts_reserved(0) -> true;
+validate_subopts_reserved(_) -> ?PARSE_ERR(reserved_subopts).
 
 %% from spec: the server MAY send disconnect with reason code 0x84
 %% we chose to close socket because the client is likely not talking MQTT anyway

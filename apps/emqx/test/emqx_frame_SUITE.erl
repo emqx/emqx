@@ -1239,6 +1239,22 @@ t_serialize_parse_subscribe(_) ->
     ?ASSERT_FRAME_THROW(bad_packet_id, parse_serialize(?SUBSCRIBE_PACKET(0, TopicFilters))),
     ?ASSERT_FRAME_THROW(
         bad_subqos, parse_serialize(?SUBSCRIBE_PACKET(1, [{<<"t">>, #{qos => 3}}]))
+    ),
+    %% reserved bits 6 and 7 of the Subscription Options byte (MQTT-3.8.3-5)
+    lists:foreach(
+        fun(Opts) ->
+            ?ASSERT_FRAME_THROW(
+                reserved_subopts,
+                parse_to_packet(<<16#82, 6, 0, 1, 0, 1, $t, Opts>>, #{strict_mode => true})
+            )
+        end,
+        [16#40, 16#80, 16#C0]
+    ),
+    %% bits 2 to 5 are reserved in MQTT 3.1.1 too, but have always been accepted:
+    %% with bits 6 and 7 clear, nonzero Retain Handling, RAP and NL still parse
+    ?assertMatch(
+        ?SUBSCRIBE_PACKET(1, [{<<"t">>, #{rh := 2, rap := 1, nl := 1, qos := 2}}]),
+        parse_to_packet(<<16#82, 6, 0, 1, 0, 1, $t, 16#2E>>, #{strict_mode => true})
     ).
 
 t_serialize_parse_subscribe_v5(_) ->
@@ -1247,7 +1263,24 @@ t_serialize_parse_subscribe_v5(_) ->
         {<<"TopicQos1">>, #{rh => 1, qos => ?QOS_2, rap => 0, nl => 0}}
     ],
     Packet = ?SUBSCRIBE_PACKET(3, #{'Subscription-Identifier' => 16#FFFFFFF}, TopicFilters),
-    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})).
+    ?assertEqual(Packet, parse_serialize(Packet, #{version => ?MQTT_PROTO_V5})),
+    %% reserved bits 6 and 7 of the Subscription Options byte (MQTT-3.8.3-5);
+    %% the packet has packet id 1, no properties and one filter "t"
+    V5 = #{strict_mode => true, version => ?MQTT_PROTO_V5},
+    lists:foreach(
+        fun(Opts) ->
+            ?ASSERT_FRAME_THROW(
+                reserved_subopts,
+                parse_to_packet(<<16#82, 7, 0, 1, 0, 0, 1, $t, Opts>>, V5)
+            )
+        end,
+        [16#40, 16#80, 16#C0]
+    ),
+    %% every other bit may be set: Retain Handling 2, RAP, NL, QoS 2
+    ?assertMatch(
+        ?SUBSCRIBE_PACKET(1, #{}, [{<<"t">>, #{rh := 2, rap := 1, nl := 1, qos := 2}}]),
+        parse_to_packet(<<16#82, 7, 0, 1, 0, 0, 1, $t, 16#2E>>, V5)
+    ).
 
 t_serialize_parse_suback(_) ->
     Packet = ?SUBACK_PACKET(10, [?QOS_0, ?QOS_1, 128]),
