@@ -16,7 +16,7 @@
 
 -define(N_CLIENTS, 100).
 -define(CORE_RPC, {mria_lib, rpc_call_nothrow, 4}).
-%% The same value as in emqx_cm.
+%% The same value as in emqx_cm_worker.
 -define(MAX_BATCH_SIZE, 1000).
 
 suite() -> [{timetrap, {minutes, 3}}].
@@ -60,25 +60,24 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 -doc """
-The clean-down tasks that are queued in an `emqx_cm_pool` worker on a replicant
-remove their channels from the global registry in one batch, not one call to a
-core node for each channel.
+An `emqx_cm_pool` worker on a replicant removes the down channels that are queued
+in its mailbox from the global registry in one batch, not with one call to a core
+node for each channel.
 """.
 t_batch_unregister(Config) ->
     Core = ?config(core, Config),
     Repl = ?config(repl, Config),
     ClientIds = client_ids(<<"batch">>),
-    Workers = disconnect_with_pool_suspended(Repl, ClientIds),
+    ok = erpc:call(Repl, ?MODULE, use_one_worker, []),
+    ok = disconnect_with_pool_suspended(Repl, ClientIds),
     %% Count the calls from the replicant to a core node during the clean-down.
     _ = erpc:call(Repl, erlang, trace_pattern, [?CORE_RPC, true, [call_count]]),
     ok = wait_clean_down(Repl, Core),
     {call_count, Rpcs} = erpc:call(Repl, erlang, trace_info, [?CORE_RPC, call_count]),
     _ = erpc:call(Repl, erlang, trace_pattern, [?CORE_RPC, false, [call_count]]),
-    Batches = ?of_kind(emqx_cm_registry_unregister_channels, snabbkaffe:collect_trace()),
-    ct:pal("core RPCs: ~p, batches: ~p, pool workers: ~p", [Rpcs, length(Batches), Workers]),
+    ct:pal("core RPCs: ~p", [Rpcs]),
     ?assert(Rpcs < ?N_CLIENTS div 2, #{rpcs => Rpcs, clients => ?N_CLIENTS}),
-    ?assertEqual(?N_CLIENTS, lists:sum([C || #{count := C} <- Batches])),
-    ?assert(length(Batches) =< Workers, #{batches => length(Batches), workers => Workers}).
+    ?assertEqual([?N_CLIENTS], batch_counts()).
 
 -doc """
 A client that reconnects to another node while its old channel on the
@@ -126,35 +125,31 @@ t_batch_unregister_history(Config) ->
 
 -doc """
 `node.channel_cleanup_batch_size` limits the channels of one registry call:
-a clean-down task stops taking queued tasks at this number.
+it is the batch size of the clean-down workers.
 """.
 t_batch_size_config(Config) ->
     Core = ?config(core, Config),
     Repl = ?config(repl, Config),
     BatchSize = 10,
     ok = set_batch_size(Repl, BatchSize),
+    ok = erpc:call(Repl, ?MODULE, use_one_worker, []),
     ok = fake_channels_down_with_pool_suspended(Repl, <<"small">>, ?N_CLIENTS),
     ok = wait_clean_down(Repl, Core),
-    Counts = batch_counts(),
-    ct:pal("batches: ~w", [Counts]),
-    ?assertEqual(?N_CLIENTS, lists:sum(Counts)),
-    ?assert(lists:max(Counts) =< 2 * BatchSize, #{counts => Counts}).
+    ?assertEqual(lists:duplicate(?N_CLIENTS div BatchSize, BatchSize), batch_counts()).
 
 -doc """
 A configured batch size above the maximum, such as the default of an older
-release, is capped. One registry call holds at most two times the maximum.
+release, is capped.
 """.
 t_batch_size_cap(Config) ->
     Core = ?config(core, Config),
     Repl = ?config(repl, Config),
     N = 2 * ?MAX_BATCH_SIZE + 500,
     ok = set_batch_size(Repl, 100_000),
+    ok = erpc:call(Repl, ?MODULE, use_one_worker, []),
     ok = fake_channels_down_with_pool_suspended(Repl, <<"cap">>, N),
     ok = wait_clean_down(Repl, Core),
-    Counts = batch_counts(),
-    ct:pal("batches: ~w", [Counts]),
-    ?assertEqual(N, lists:sum(Counts)),
-    ?assert(lists:max(Counts) =< 2 * ?MAX_BATCH_SIZE, #{counts => Counts}).
+    ?assertEqual([?MAX_BATCH_SIZE, ?MAX_BATCH_SIZE, 500], batch_counts()).
 
 -doc """
 When the registry call fails, the clean-down still removes the local rows of
@@ -166,7 +161,7 @@ t_unregister_failure(Config) ->
     Repl = ?config(repl, Config),
     ok = erpc:call(Repl, meck, new, [emqx_cm_registry, [passthrough, no_link, no_history]]),
     ok = erpc:call(Repl, meck, expect, [
-        emqx_cm_registry, unregister_channels, 1, {error, simulated}
+        emqx_cm_registry, unregister_channels, 1, meck:raise(error, simulated)
     ]),
     ok = fake_channels_down_with_pool_suspended(Repl, <<"fail">>, ?N_CLIENTS),
     ok = resume_pool(Repl),
@@ -191,6 +186,51 @@ t_subscriber_clean_down_failure(Config) ->
     ok = wait_clean_down(Repl, Core),
     ?assertEqual(0, erpc:call(Repl, ets, info, [?CHAN_CONN_TAB, size])).
 
+-doc """
+A worker that starts again monitors its channels again. It cleans up after the
+channels whose `DOWN` messages were lost with the old process, and after the
+channels that exit later.
+""".
+t_worker_restart(Config) ->
+    Core = ?config(core, Config),
+    Repl = ?config(repl, Config),
+    Pids = erpc:call(Repl, ?MODULE, start_fake_channels, [<<"restart">>, ?N_CLIENTS]),
+    ok = erpc:call(Repl, emqx_cm_worker, sync, []),
+    {Id, Worker, Mine} = erpc:call(Repl, ?MODULE, busiest_worker, [Pids]),
+    {Lost, _} = lists:split(length(Mine) div 2, Mine),
+    ?assert(length(Lost) > 0, #{mine => length(Mine)}),
+    %% The worker exits with the `DOWN` messages of some of its channels queued.
+    ok = erpc:call(Repl, sys, suspend, [Worker]),
+    ok = erpc:call(Repl, ?MODULE, kill_all, [Lost]),
+    ok = erpc:call(Repl, ?MODULE, wait_down, [Lost]),
+    ?retry(100, 50, ?assert(length(Lost) =< queue_len(Repl, Worker))),
+    true = erpc:call(Repl, erlang, exit, [Worker, kill]),
+    ?retry(
+        100,
+        50,
+        ?assertMatch(
+            {_, NewWorker} when is_pid(NewWorker) andalso NewWorker =/= Worker,
+            lists:keyfind(
+                {?CM_POOL, Id}, 1, erpc:call(Repl, gproc_pool, active_workers, [?CM_POOL])
+            )
+        )
+    ),
+    %% The new process cleans up after them.
+    ?retry(
+        100,
+        50,
+        ?assertEqual(
+            ?N_CLIENTS - length(Lost), erpc:call(Repl, ets, info, [?CHAN_CONN_TAB, size])
+        )
+    ),
+    ?assertEqual(
+        [], [P || P <- Lost, erpc:call(Repl, ets, member, [?CHAN_CONN_TAB, P])]
+    ),
+    %% It also monitors the channels that are still alive.
+    ok = erpc:call(Repl, ?MODULE, kill_all, [Pids -- Lost]),
+    ok = wait_clean_down(Repl, Core),
+    ?assertEqual(0, erpc:call(Repl, ets, info, [?CHAN_CONN_TAB, size])).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -198,38 +238,48 @@ t_subscriber_clean_down_failure(Config) ->
 client_ids(Prefix) ->
     [<<Prefix/binary, "-", (integer_to_binary(I))/binary>> || I <- lists:seq(1, ?N_CLIENTS)].
 
-%% Connect the clients to the replicant, suspend the clean-down workers, and
-%% disconnect the clients. Return when every clean-down task is queued.
+%% Connect the clients to the replicant, suspend the workers, and disconnect
+%% the clients. Return when the workers have the `DOWN` message of every channel.
 disconnect_with_pool_suspended(Repl, ClientIds) ->
     Port = emqx_cth_cluster:get_tcp_mqtt_port(Repl),
     Clients = [connect(Id, Port) || Id <- ClientIds],
     N = length(ClientIds),
     ?retry(100, 50, ?assertEqual(N, erpc:call(Repl, ets, info, [?CHAN_LIVE_TAB, size]))),
     ChanPids = [Pid || {_, Pid} <- erpc:call(Repl, ets, tab2list, [?CHAN_TAB])],
-    Workers = pool_workers(Repl),
-    ok = lists:foreach(fun(W) -> ok = erpc:call(Repl, sys, suspend, [W]) end, Workers),
+    ok = suspend_pool(Repl),
     lists:foreach(fun emqtt:stop/1, Clients),
-    ok = wait_clean_down_queued(Repl, ChanPids),
-    length(Workers).
+    ok = wait_clean_down_queued(Repl, ChanPids).
 
-%% Return when emqx_cm has queued the clean-down task of every pid. A channel
-%% process removes its own row from the live table before it exits, so that
-%% table does not tell when emqx_cm got the DOWN message. Wait for the processes
-%% to exit instead: their DOWN messages are then in the mailbox of emqx_cm, in
-%% front of the system message of sys:get_state/1.
+%% Return when the suspended workers have the `DOWN` message of every pid in
+%% their mailboxes. They have no other message: suspend_pool/1 lets them handle
+%% what was queued before.
 wait_clean_down_queued(Repl, Pids) ->
     ok = erpc:call(Repl, ?MODULE, wait_down, [Pids]),
-    _ = erpc:call(Repl, sys, get_state, [emqx_cm]),
-    ?assertEqual(0, erpc:call(Repl, ets, info, [?CHAN_LIVE_TAB, size])),
-    ?assertEqual(length(Pids), erpc:call(Repl, ets, info, [?CHAN_TAB, size])),
+    N = length(Pids),
+    ?retry(
+        100,
+        50,
+        ?assert(N =< lists:sum([queue_len(Repl, W) || W <- pool_workers(Repl)]))
+    ),
+    ?assertEqual(N, erpc:call(Repl, ets, info, [?CHAN_TAB, size])),
     ok.
 
-%% Register N processes as channels on the replicant, suspend the clean-down
-%% workers, and kill the processes. Return when every clean-down task is queued.
+%% Suspend the workers after they have set the monitors of the channels that
+%% are registered now.
+suspend_pool(Node) ->
+    ok = erpc:call(Node, emqx_cm_worker, sync, []),
+    lists:foreach(fun(W) -> ok = erpc:call(Node, sys, suspend, [W]) end, pool_workers(Node)).
+
+queue_len(Node, Pid) ->
+    {message_queue_len, Len} = erpc:call(Node, erlang, process_info, [Pid, message_queue_len]),
+    Len.
+
+%% Register N processes as channels on the replicant, suspend the workers, and
+%% kill the processes. Return when the workers have the `DOWN` message of every
+%% channel.
 fake_channels_down_with_pool_suspended(Repl, Prefix, N) ->
     Pids = erpc:call(Repl, ?MODULE, start_fake_channels, [Prefix, N]),
-    ?retry(100, 50, ?assertEqual(N, erpc:call(Repl, ets, info, [?CHAN_LIVE_TAB, size]))),
-    ok = lists:foreach(fun(W) -> ok = erpc:call(Repl, sys, suspend, [W]) end, pool_workers(Repl)),
+    ok = suspend_pool(Repl),
     ok = erpc:call(Repl, ?MODULE, kill_all, [Pids]),
     ok = wait_clean_down_queued(Repl, Pids).
 
@@ -257,6 +307,22 @@ start_fake_channels(Prefix, N) ->
         Pids
     ),
     Pids.
+
+%% Runs on the replicant. Make one worker monitor every new channel, so that
+%% the test knows how many `DOWN` messages that worker has queued.
+use_one_worker() ->
+    ok = meck:new(emqx_cm_worker, [passthrough, no_link, no_history]),
+    ok = meck:expect(emqx_cm_worker, monitor_channel, fun(Pid) ->
+        emqx_cm_worker:monitor_channel(1, Pid)
+    end).
+
+%% Runs on the replicant. Return the worker that monitors the most of the
+%% channels, and those channels.
+busiest_worker(Pids) ->
+    ById = maps:groups_from_list(fun emqx_cm_worker:worker_id/1, Pids),
+    [{_, Id, Mine} | _] = lists:reverse(lists:sort([{length(Ps), I, Ps} || I := Ps <- ById])),
+    {_, Worker} = lists:keyfind({?CM_POOL, Id}, 1, gproc_pool:active_workers(?CM_POOL)),
+    {Id, Worker, Mine}.
 
 %% Runs on the replicant.
 kill_all(Pids) ->
@@ -287,8 +353,23 @@ batch_counts() ->
         )
     ].
 
+%% Set the batch size, and restart the clean-down workers when it changes: a
+%% worker reads the batch size when it starts.
 set_batch_size(Node, Size) ->
-    ok = erpc:call(Node, emqx_config, put, [[node, channel_cleanup_batch_size], Size]).
+    Path = [node, channel_cleanup_batch_size],
+    %% The nodes of this suite do not load the schema of the `node` root.
+    case erpc:call(Node, emqx_config, get, [Path, ?MAX_BATCH_SIZE]) of
+        Size ->
+            ok;
+        _ ->
+            ok = erpc:call(Node, emqx_config, put, [Path, Size]),
+            ok = erpc:call(Node, supervisor, terminate_child, [emqx_cm_sup, emqx_cm_pool_sup]),
+            ?retry(100, 50, ?assertEqual([], pool_workers(Node))),
+            {ok, _} = erpc:call(Node, supervisor, restart_child, [emqx_cm_sup, emqx_cm_pool_sup]),
+            NWorkers = erpc:call(Node, emqx_vm, schedulers, []),
+            ?retry(100, 50, ?assertEqual(NWorkers, length(pool_workers(Node)))),
+            ok
+    end.
 
 connect(ClientId, Port) ->
     {ok, C} = emqtt:start_link([{clientid, ClientId}, {port, Port}]),

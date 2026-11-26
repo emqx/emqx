@@ -385,8 +385,7 @@ t_open_session_race_condition(_) ->
                 {'DOWN', _, process, Winner, _} -> ok
             end,
             %% sync
-            ignored = gen_server:call(?CM, ignore, infinity),
-            ok = emqx_pool:flush_async_tasks(?CM_POOL),
+            ok = emqx_cm_worker:sync(),
             ?assertEqual([], emqx_cm:lookup_channels(ClientId))
     end.
 
@@ -508,8 +507,7 @@ test_stepdown_session(Action, Reason) ->
             ?assertEqual(Reason, ?WAIT({'DOWN', _, process, Pid2, R}, 2_000, R))
     end,
     % sync
-    ignored = gen_server:call(?CM, ignore, infinity),
-    ok = emqx_pool:flush_async_tasks(?CM_POOL),
+    ok = emqx_cm_worker:sync(),
     ?assertEqual([], emqx_cm:lookup_channels(ClientId)).
 
 t_discard_session_race(_) ->
@@ -666,14 +664,14 @@ t_clientid_registration_throttled(_) ->
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
     ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    %% Suspend emqx_cm so it cannot process the {registered, DeadPid} monitor +
+    %% Suspend the emqx_cm workers so they cannot monitor DeadPid and handle the
     %% subsequent DOWN that would asynchronously clean up the dead pid's
     %% conn-mod row. Otherwise that cleanup can race ahead of the throttle check
     %% below, which then sees no stale row and lets the session open.
-    ok = sys:suspend(emqx_cm),
+    ok = suspend_cm_workers(),
     ok = emqx_cm:register_channel(ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}),
     ?assertEqual({error, client_id_unavailable}, open_session(true, ClientInfo, ConnInfo)),
-    ok = sys:resume(emqx_cm),
+    ok = resume_cm_workers(),
     ok = emqx_cm:do_unregister_channel({ClientId, DeadPid}).
 
 %% Stale registry rows can survive a partition + autoheal (the unregister
@@ -732,12 +730,12 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
     ChanInfo = ?ChanInfo,
     #{conninfo := ConnInfo} = ChanInfo,
     ?assertReceive({'DOWN', MRef, process, DeadPid, _}),
-    %% Suspend emqx_cm so the {registered, DeadPid} cast from
-    %% register_channel sits in its mailbox: the monitor is not set up,
+    %% Suspend the emqx_cm workers so the monitor request from
+    %% register_channel sits in a mailbox: the monitor is not set up,
     %% no DOWN fires, the cm-pool cleanup cannot race us, the chan-conn
     %% row stays, and the throttle has the conditions it is meant to
     %% detect.
-    ok = sys:suspend(emqx_cm),
+    ok = suspend_cm_workers(),
     try
         ok = emqx_cm:register_channel(
             ClientId, DeadPid, ChanInfo#{conn_mod => emqx_connection}
@@ -747,7 +745,7 @@ t_open_session_throttled_on_inflight_local_cleanup(_) ->
             open_session(true, ClientInfo, ConnInfo)
         )
     after
-        ok = sys:resume(emqx_cm),
+        ok = resume_cm_workers(),
         %% Idempotent cleanup in case cm pool didn't get there first.
         ok = emqx_cm:do_unregister_channel({ClientId, DeadPid})
     end.
@@ -777,6 +775,15 @@ t_open_session_reaps_local_tombstone(_) ->
     %% Stale tombstone is gone; open_session does not register the new pid
     %% (that happens later in the channel's connect handler).
     ?assertEqual([], emqx_cm_registry:lookup_all_channels(ClientId)).
+
+suspend_cm_workers() ->
+    lists:foreach(fun(W) -> ok = sys:suspend(W) end, cm_workers()).
+
+resume_cm_workers() ->
+    lists:foreach(fun(W) -> ok = sys:resume(W) end, cm_workers()).
+
+cm_workers() ->
+    [Pid || {_, Pid} <- gproc_pool:active_workers(?CM_POOL)].
 
 spawn_dummy_chann(Mod, Count) ->
     #{conninfo := ConnInfo0} = ?ChanInfo,

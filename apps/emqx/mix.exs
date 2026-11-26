@@ -67,6 +67,7 @@ defmodule EMQX.MixProject do
         {:emqx_ds_backends, in_umbrella: true},
         {:emqx_durable_timer, in_umbrella: true},
         :gproc,
+        :gen_batch_server,
         :gen_rpc,
         :ekka,
         :esockd,

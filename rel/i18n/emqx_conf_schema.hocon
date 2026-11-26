@@ -1010,14 +1010,11 @@ node_generic_pool_size.label:
 """Node Generic Pool Size"""
 
 node_channel_cleanup_batch_size.desc:
-"""The maximum number of channel events (registrations and disconnects) that the channel manager
-handles in one batch. One task cleans up the disconnected channels of a batch. The tasks run in a
-pool that has one worker for each Erlang scheduler (CPU core).
-A worker also takes the tasks that are queued behind its current task, until it has this number of
-channels, and removes all of them from the global channel registry with one call. On a replicant
-node, this is one call to a core node.
-The maximum is 1000. A larger value has the same effect as 1000.
-This value does not change the pool size."""
+"""The maximum number of disconnected channels that the node removes from the global channel
+registry in one batch. On a replicant node, one batch is one call to a core node, so a smaller
+value lowers the clean-up throughput.
+The default is also the maximum: a larger value has the same effect as 1000.
+A change takes effect after the node restarts."""
 
 node_channel_cleanup_batch_size.label:
 """Node Channel Cleanup Batch Size"""

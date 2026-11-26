@@ -36,7 +36,9 @@ init([]) ->
     Banned = child_spec(emqx_banned, 1000, worker),
     Flapping = child_spec(emqx_flapping, 1000, worker),
     Locker = child_spec(emqx_cm_locker, 5000, worker),
-    CmPool = emqx_pool_sup:spec(emqx_cm_pool_sup, [?CM_POOL, random, {emqx_pool, start_link, []}]),
+    CmPool = emqx_pool_sup:spec(emqx_cm_pool_sup, [
+        ?CM_POOL, hash, emqx_cm_worker:pool_size(), {emqx_cm_worker, start_link, []}
+    ]),
     Registry = child_spec(emqx_cm_registry, 5000, worker),
     RegistryKeeper = child_spec(emqx_cm_registry_keeper, 5000, worker),
     Manager = child_spec(emqx_cm, 5000, worker),
@@ -46,10 +48,12 @@ init([]) ->
             Banned,
             Flapping,
             Locker,
-            CmPool,
             Registry,
             RegistryKeeper,
+            %% The manager owns the channel tables, which the pool workers read
+            %% when they start. So it starts before the pool and stops after it.
             Manager,
+            CmPool,
             DSSessionSup
         ],
     {ok, {SupFlags, Children}}.
