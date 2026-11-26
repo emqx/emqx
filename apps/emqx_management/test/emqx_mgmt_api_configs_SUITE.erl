@@ -17,6 +17,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_management,
+            emqx_plugins,
             emqx_connector,
             emqx_bridge,
             emqx_mgmt_api_test_util:emqx_dashboard()
