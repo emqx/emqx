@@ -2025,6 +2025,8 @@ extract_connector_id_from_bridge_v2_id(Id) ->
     case binary:split(Id, <<":">>, [global]) of
         [<<"action">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
             <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
+        [<<"source">>, _Type, _Name, <<"connector">>, ConnectorType, ConnecorName] ->
+            <<"connector:", ConnectorType/binary, ":", ConnecorName/binary>>;
         _X ->
             error({error, iolist_to_binary(io_lib:format("Invalid action ID: ~p", [Id]))})
     end.
