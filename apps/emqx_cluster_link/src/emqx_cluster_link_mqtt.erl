@@ -641,7 +641,7 @@ decode_route_op1(#{
     ?F_TARGET_CLUSTER := TargetCluster,
     ?F_ACTOR := Actor,
     ?F_INCARNATION := Incr
-}) ->
+}) when is_integer(ProtoVer), is_binary(TargetCluster), is_binary(Actor), is_integer(Incr) ->
     Info = #{
         target_cluster => TargetCluster,
         proto_ver => ProtoVer
@@ -652,20 +652,38 @@ decode_route_op1(#{
     ?F_ACTOR := Actor,
     ?F_INCARNATION := Incr,
     ?F_ROUTES := RouteOps
-}) ->
-    RouteOps1 = lists:map(fun(Op) -> decode_field(route, Op) end, RouteOps),
-    {route_updates, #{actor => Actor, incarnation => Incr}, RouteOps1};
+}) when is_binary(Actor), is_integer(Incr) ->
+    decode_routes(RouteOps, #{actor => Actor, incarnation => Incr}, []);
 decode_route_op1(#{
     ?F_OPERATION := ?OP_HEARTBEAT,
     ?F_ACTOR := Actor,
     ?F_INCARNATION := Incr
-}) ->
+}) when is_binary(Actor), is_integer(Incr) ->
     {heartbeat, #{actor => Actor, incarnation => Incr}};
-decode_route_op1(Payload) ->
-    {error, {unknown_payload, Payload}}.
+decode_route_op1(#{?F_OPERATION := Op}) when
+    Op =:= ?OP_ACTOR_INIT; Op =:= ?OP_ROUTE; Op =:= ?OP_HEARTBEAT
+->
+    {error, invalid_route_op};
+decode_route_op1(_Payload) ->
+    {error, {unknown_payload, redacted}}.
+
+decode_routes([{Topic, ID} = Route | Rest], ActorInfo, Acc) when is_binary(Topic), is_binary(ID) ->
+    decode_routes(Rest, ActorInfo, [{add, Route} | Acc]);
+decode_routes([{?ROUTE_DELETE, Topic, ID} | Rest], ActorInfo, Acc) when
+    is_binary(Topic), is_binary(ID)
+->
+    decode_routes(Rest, ActorInfo, [{delete, {Topic, ID}} | Acc]);
+decode_routes([], ActorInfo, Acc) ->
+    {route_updates, ActorInfo, lists:reverse(Acc)};
+decode_routes(_, _ActorInfo, _Acc) ->
+    {error, invalid_route_op}.
 
 decode_resp(Payload) ->
-    decode_resp1(decode_payload(Payload)).
+    try decode_payload(Payload) of
+        Response -> decode_resp1(Response)
+    catch
+        error:badarg -> {error, invalid_actor_init_ack}
+    end.
 
 decode_resp1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT_ACK,
@@ -673,10 +691,27 @@ decode_resp1(#{
     ?F_PROTO_VER := ProtoVer,
     ?F_RESULT := InitResult,
     ?F_NEED_BOOTSTRAP := NeedBootstrap
-}) ->
-    {actor_init_ack, #{
-        actor => Actor, result => InitResult, proto_ver => ProtoVer, need_bootstrap => NeedBootstrap
-    }}.
+}) when is_binary(Actor), is_integer(ProtoVer) ->
+    case valid_init_result(InitResult, NeedBootstrap) of
+        true ->
+            {actor_init_ack, #{
+                actor => Actor,
+                result => InitResult,
+                proto_ver => ProtoVer,
+                need_bootstrap => NeedBootstrap
+            }};
+        false ->
+            {error, invalid_actor_init_ack}
+    end;
+decode_resp1(_) ->
+    {error, invalid_actor_init_ack}.
+
+valid_init_result(ok, NeedBootstrap) ->
+    is_boolean(NeedBootstrap);
+valid_init_result({error, _}, NeedBootstrap) ->
+    NeedBootstrap =:= undefined orelse NeedBootstrap =:= false;
+valid_init_result(_, _) ->
+    false.
 
 decode_forwarded_msg(Payload) ->
     case decode_payload(Payload) of
@@ -694,11 +729,6 @@ encode_field(route, {add, Route = {_Topic, _ID}}) ->
     Route;
 encode_field(route, {delete, {Topic, ID}}) ->
     {?ROUTE_DELETE, Topic, ID}.
-
-decode_field(route, {?ROUTE_DELETE, Topic, ID}) ->
-    {delete, {Topic, ID}};
-decode_field(route, Route = {_Topic, _ID}) ->
-    {add, Route}.
 
 encode_payload(Payload) ->
     %% NOTE

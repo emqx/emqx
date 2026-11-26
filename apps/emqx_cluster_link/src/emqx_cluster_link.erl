@@ -170,6 +170,8 @@ handle_route_op_msg(
                 ok = update_routes(ClusterName, Actor, RouteOps);
             {heartbeat, #{actor := Actor}} ->
                 ok = actor_heartbeat(ClusterName, Actor);
+            {error, invalid_route_op} ->
+                error(invalid_route_op);
             {error, {unknown_payload, ParsedPayload}} ->
                 ?tp(warning, "cluster_link_routerepl_protocol_error", #{
                     payload => ParsedPayload,
