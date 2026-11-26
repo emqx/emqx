@@ -1210,8 +1210,8 @@ handle_sock_error(Reason, State) ->
 
 %% The first activation of a whole-frame transport.
 %%
-%% The listener accepts with `packet_size' set to the CONNECT limit
-%% (`emqx_listeners:choose_packet_opts/1'), which bounds what the transport
+%% The listener accepts with `packet_size' set from the CONNECT limit
+%% (`emqx_listeners:choose_packet_opts/1', `emqx_frame:transport_packet_size/1'), which bounds what the transport
 %% buffers for a client that has not connected yet. It is set again here
 %% because `ssl' does not carry `packet_size' over from the TCP socket when it
 %% upgrades the connection (`ssl:emulated_options/4' merges the socket's
@@ -1234,21 +1234,24 @@ activate_socket_for_connect(
             true -> 1;
             false -> active_n(State)
         end,
-    case Transport:setopts(Socket, [{packet_size, Limit}, {active, Active}]) of
+    PacketSize = emqx_frame:transport_packet_size(Limit),
+    case Transport:setopts(Socket, [{packet_size, PacketSize}, {active, Active}]) of
         ok -> {ok, State#state{sockstate = running}};
         Error -> Error
     end;
 activate_socket_for_connect(State) ->
     activate_socket(State).
 
-%% CONNECT has been received: raise `packet_size' to `max_packet_size' so
-%% the packets that follow are not held to the CONNECT limit.
+%% CONNECT has been received: raise `packet_size' to match `max_packet_size'
+%% so the packets that follow are not held to the CONNECT limit.
 raise_packet_size_limit(#state{
     parser = {frame, _}, transport = Transport, socket = Socket, zone = Zone
 }) ->
     case connect_packet_size_limits(Zone) of
         {Limit, MaxSize} when Limit < MaxSize ->
-            _ = Transport:setopts(Socket, [{packet_size, MaxSize}]),
+            _ = Transport:setopts(Socket, [
+                {packet_size, emqx_frame:transport_packet_size(MaxSize)}
+            ]),
             ok;
         _ ->
             ok
@@ -1275,11 +1278,11 @@ reports the same packet, so the shutdown counter and the reply to the client do
 not depend on the transport, and the client's bytes stay out of the log and the
 exit reason.
 
-Before CONNECT, `packet_size' is `max_connect_packet_size', and the error is
+Before CONNECT, `packet_size' follows `max_connect_packet_size', and the error is
 `connect_packet_too_large'. Only the error tag is kept: whether the refused
 frame really was a CONNECT is not knowable here, and neither is it in the
-stream parser's case. After CONNECT, `packet_size' is `max_packet_size', and
-the error is `frame_too_large'.
+stream parser's case. After CONNECT, `packet_size' follows `max_packet_size',
+and the error is `frame_too_large'.
 
 After DISCONNECT the error is left to the socket error path, which closes the
 connection.
