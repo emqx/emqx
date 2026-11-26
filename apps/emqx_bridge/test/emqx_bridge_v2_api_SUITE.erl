@@ -1248,6 +1248,62 @@ do_start_bridge(TestType, Config) ->
     {ok, 404, _} = request(post, {operation, TestType, start, <<"webhook:cptn_hook">>}, Config),
     ok.
 
+%% Checks that `emqx_bridge_v2:get_resource_ids/3' and the bridge v7 readiness RPC
+%% work for both actions and sources.
+t_wait_for_ready_v7(matrix) ->
+    [
+        [single, actions],
+        [single, sources],
+        [cluster, actions],
+        [cluster, sources]
+    ];
+t_wait_for_ready_v7(Config) ->
+    [_SingleOrCluster, Kind | _] = group_path(Config),
+    Name = ?BRIDGE_NAME,
+    #{
+        api_root_key := APIRootKey,
+        type := TypeBin,
+        default_connector_name := ConnectorName,
+        create_config_fn := CreateConfigFn
+    } = get_common_values(Kind, Name),
+    ?assertMatch(
+        {ok, 201, #{<<"status">> := <<"connected">>}},
+        request_json(post, uri([APIRootKey]), CreateConfigFn(#{name => Name}), Config)
+    ),
+    Node = ?config(node, Config),
+    Nodes =
+        case ?config(cluster_nodes, Config) of
+            undefined -> [Node];
+            ClusterNodes -> ClusterNodes
+        end,
+    Type = binary_to_atom(TypeBin),
+    ConnectorType = ?ON(Node, emqx_bridge_v2:connector_type(Type)),
+    ExpectedConnResId = emqx_connector_resource:resource_id(ConnectorType, ConnectorName),
+    ExpectedChannelResId =
+        iolist_to_binary([
+            maps:get(Kind, #{actions => <<"action">>, sources => <<"source">>}),
+            ":",
+            TypeBin,
+            ":",
+            Name,
+            ":",
+            ExpectedConnResId
+        ]),
+    ?assertEqual(
+        {ok, {ExpectedConnResId, ExpectedChannelResId}},
+        ?ON(Node, emqx_bridge_v2:get_resource_ids(Kind, Type, Name))
+    ),
+    Results = ?ON(
+        Node,
+        emqx_bridge_proto_v7:v2_wait_for_ready_v7(Nodes, Kind, Type, Name, 5_000)
+    ),
+    ?assertEqual(length(Nodes), length(Results)),
+    lists:foreach(
+        fun(Res) -> ?assertMatch({ok, #{status := connected}}, Res) end,
+        Results
+    ),
+    ok.
+
 t_bridges_probe(matrix) ->
     [
         [single, actions]
