@@ -320,30 +320,20 @@ assert_multiline_partial_batch_results(Results) ->
     {error, {unrecoverable_error, #{successful_rows := Rows}}} = PartialResult,
     ?assert(Rows > 0).
 
-assert_mixed_batch_failure_recoverable(Results) ->
-    ?assertEqual(2, length(Results)),
-    lists:foreach(
-        fun
-            (
-                {error,
-                    {recoverable_error, #{
-                        reason := mixed_batch_failure,
-                        batch_results := OriginalResults
-                    }}}
-            ) ->
-                ?assertEqual(2, length(OriginalResults)),
-                ?assert(
-                    lists:any(
-                        fun
-                            ({error, {unrecoverable_error, _}}) -> true;
-                            (_) -> false
-                        end,
-                        OriginalResults
-                    )
-                );
-            (Result) ->
-                ct:fail({unexpected_batch_result, Result})
-        end,
+assert_mixed_batch_failure_non_retryable(Results) ->
+    ?assertEqual(
+        [
+            {error,
+                {unrecoverable_error, #{
+                    reason => batch_contains_unrecoverable,
+                    original_error => ecpool_empty,
+                    batch_results => [
+                        {error, {recoverable_error, ecpool_empty}},
+                        {error, {unrecoverable_error, points_trans_failed}}
+                    ]
+                }}},
+            {error, {unrecoverable_error, points_trans_failed}}
+        ],
         Results
     ).
 
@@ -1306,8 +1296,8 @@ t_async_insert_submission_pool_errors(_TCConfig) ->
         insert_async,
         fun(_Client, _Table, _Points, _ReplyFnAndArgs) -> {error, ecpool_empty} end,
         fun() ->
-            ?assertMatch(
-                {ok, _},
+            ?assertEqual(
+                ok,
                 emqx_bridge_greptimedb_rs_impl:on_query_async(
                     <<"connector:test">>, Query, SingleReply, State
                 )
@@ -1316,8 +1306,8 @@ t_async_insert_submission_pool_errors(_TCConfig) ->
                 {error, {recoverable_error, ecpool_empty}},
                 receive_reply(single_reply)
             ),
-            ?assertMatch(
-                {ok, _},
+            ?assertEqual(
+                ok,
                 emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
                     <<"connector:test">>, Batch, BatchReply, State
                 )
@@ -1513,7 +1503,7 @@ t_sync_insert_preserves_retryability_without_success(_TCConfig) ->
             Results = emqx_bridge_greptimedb_rs_impl:on_batch_query(
                 <<"connector:test">>, Batch, State
             ),
-            assert_mixed_batch_failure_recoverable(Results)
+            assert_mixed_batch_failure_non_retryable(Results)
         end
     ).
 
@@ -1533,13 +1523,13 @@ t_async_insert_preserves_retryability_without_success(_TCConfig) ->
         insert_async,
         fun(_Client, _Table, _Points, _ReplyFnAndArgs0) -> {error, ecpool_empty} end,
         fun() ->
-            ?assertMatch(
-                {ok, _},
+            ?assertEqual(
+                ok,
                 emqx_bridge_greptimedb_rs_impl:on_batch_query_async(
                     <<"connector:test">>, Batch, ReplyFnAndArgs, State
                 )
             ),
-            assert_mixed_batch_failure_recoverable(receive_reply(final_reply))
+            assert_mixed_batch_failure_non_retryable(receive_reply(final_reply))
         end
     ).
 
