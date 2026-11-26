@@ -56,6 +56,30 @@ endpoint.desc:
 endpoint.label:
 """Amazon Kinesis Endpoint"""
 
+assume_role_arn.desc:
+"""The ARN of an IAM role to assume, for example a role in the AWS account that owns the stream.
+When set, the connector calls STS <code>AssumeRole</code> with its own credentials, and signs the Kinesis requests with the temporary credentials of the role.
+The connector gets new temporary credentials before they expire.
+When not set, the connector signs the Kinesis requests with its own credentials."""
+
+assume_role_arn.label:
+"""Assume Role ARN"""
+
+assume_role_external_id.desc:
+"""The external ID to send in the <code>AssumeRole</code> request.
+Set it when the trust policy of the role requires an external ID."""
+
+assume_role_external_id.label:
+"""Assume Role External ID"""
+
+sts_endpoint.desc:
+"""The URL of the AWS STS endpoint that the connector calls to assume the role.
+When not set, the connector uses the regional STS endpoint of the region in the Kinesis endpoint, for example <code>https://sts.us-east-1.amazonaws.com</code> for <code>https://kinesis.us-east-1.amazonaws.com</code>.
+Set it when the connector must use a VPC endpoint or a custom endpoint for STS."""
+
+sts_endpoint.label:
+"""STS Endpoint"""
+
 stream_name.desc:
 """The Amazon Kinesis Stream to publish messages to."""
 
