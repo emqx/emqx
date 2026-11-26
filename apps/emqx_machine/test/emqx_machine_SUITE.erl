@@ -103,7 +103,10 @@ t_shutdown_reboot(Config) ->
     try
         erpc:call(Node, fun() ->
             true = emqx:is_running(node()),
+            Gproc = whereis(gproc),
+            ?assert(is_pid(Gproc)),
             emqx_machine_boot:stop_apps(),
+            ?assertEqual(Gproc, whereis(gproc)),
             false = emqx:is_running(node()),
             %% This is to emulate the presence of `emqx.conf' or `cluster.hocon' files,
             %% which are not present in the peer.

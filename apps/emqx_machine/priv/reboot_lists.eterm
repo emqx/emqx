@@ -31,7 +31,8 @@
             tools,
             observer,
             {system_monitor, load},
-            jq
+            jq,
+            gproc
         ],
     %% must always be of type `load'
     common_business_apps =>
