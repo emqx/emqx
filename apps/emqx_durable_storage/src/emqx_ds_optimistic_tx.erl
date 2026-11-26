@@ -477,7 +477,7 @@ must never call it.
 -spec dump_conflicts(emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), w | d) ->
     list() | undefined.
 dump_conflicts(DB, Shard, Generation, Kind) when
-    is_integer(Generation), Kind =:= d orelse Kind =:= w
+    is_integer(Generation) andalso (Kind =:= d orelse Kind =:= w)
 ->
     call(
         ?via(DB, Shard),
