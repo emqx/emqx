@@ -51,10 +51,10 @@
     "measurement,t= a f=a,f1=b ${timestamp}",
     "measurement,t= a f=a,f1 =b ${timestamp}",
     "measurement, t = a f = a,f1 = b ${timestamp}",
-    "measurement,t=a f=a,f1=b \n ${timestamp}",
-    "measurement,t=a \n f=a,f1=b \n ${timestamp}",
+    "measurement,t=a f=a,f1=b \n ${t}${s}",
+    "measurement,t=a \n f=a,f1=b \n ${t}${s}",
     "measurement,t=a \n f=a,f1=b \n ",
-    "\n measurement,t=a \n f=a,f1=b \n ${timestamp}",
+    "\n measurement,t=a \n f=a,f1=b \n ${t}${s}",
     "\n measurement,t=a \n f=a,f1=b \n",
     %% not escaped backslash in a quoted field value is invalid
     "measurement,tag=1 field=\"val\\1\""
@@ -116,6 +116,404 @@ parse(Hocon) ->
 
 check_connector(Conf) when is_map(Conf) ->
     hocon_tconf:check_plain(emqx_connector_schema, Conf, #{required => false}).
+
+check_action(InnerConfigMap) ->
+    Conf = #{
+        <<"actions">> => #{
+            <<"influxdb">> => #{
+                <<"test_action">> => InnerConfigMap
+            }
+        }
+    },
+    hocon_tconf:check_plain(emqx_bridge_v2_schema, Conf, #{
+        required => false,
+        atom_key => false,
+        make_serializable => false
+    }).
+
+structured_action_config() ->
+    #{
+        <<"connector">> => <<"influxdb_connector">>,
+        <<"parameters">> => #{
+            <<"write">> => [
+                #{
+                    <<"measurement">> => <<"${topic}">>,
+                    <<"fields">> => [
+                        #{
+                            <<"key">> => <<"temperature">>,
+                            <<"type">> => <<"float">>,
+                            <<"value">> => <<"${payload.temperature}">>
+                        }
+                    ],
+                    <<"timestamp">> => #{
+                        <<"value">> => <<"${payload.ts}">>,
+                        <<"source_precision">> => <<"ms">>
+                    }
+                }
+            ]
+        }
+    }.
+
+structured_action_schema_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [
+                                #{
+                                    <<"timestamp">> := #{
+                                        <<"source_precision">> := ms
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(structured_action_config())
+    ).
+
+action_requires_write_config_test() ->
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{}
+        })
+    ).
+
+legacy_write_syntax_api_compatibility_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write_syntax">> := [_]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"m field=1">>
+            }
+        })
+    ).
+
+raw_line_write_syntax_schema_test() ->
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write_syntax">> := [#{line := "${payload.line}"}]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{
+                <<"write_syntax">> => <<"${payload.line}">>
+            }
+        })
+    ).
+
+write_config_forms_are_mutually_exclusive_test() ->
+    Conf = structured_action_config(),
+    Parameters0 = maps:get(<<"parameters">>, Conf),
+    Parameters = Parameters0#{<<"write_syntax">> => <<"m field=1">>},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(Conf#{<<"parameters">> => Parameters})
+    ).
+
+mixed_structured_template_is_rejected_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"measurement">> => <<"mqtt-${topic}">>}]
+                }
+            }
+        )
+    ),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{<<"fields">> => [Field0#{<<"value">> => <<"${payload.value}i">>}]}
+                    ]
+                }
+            }
+        )
+    ),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{
+                            <<"timestamp">> => Timestamp0#{<<"value">> => <<"${payload.ts}000">>}
+                        }
+                    ]
+                }
+            }
+        )
+    ).
+
+source_precision_enum_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    Timestamp = Timestamp0#{<<"source_precision">> => <<"minutes">>},
+    Point = Point0#{<<"timestamp">> => Timestamp},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point]
+                }
+            }
+        )
+    ).
+
+auto_field_type_schema_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    Field = Field0#{<<"type">> => <<"auto">>},
+    Point = Point0#{<<"fields">> => [Field]},
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [
+                                #{
+                                    <<"fields">> := [#{<<"type">> := auto}]
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point]
+                }
+            }
+        )
+    ).
+
+timestamp_false_schema_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    ?assertMatch(
+        #{
+            <<"actions">> := #{
+                <<"influxdb">> := #{
+                    <<"test_action">> := #{
+                        <<"parameters">> := #{
+                            <<"write">> := [#{<<"timestamp">> := false}]
+                        }
+                    }
+                }
+            }
+        },
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"timestamp">> => false}]
+                }
+            }
+        )
+    ).
+
+write_points_must_not_be_empty_test() ->
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{<<"write">> => []}
+        })
+    ).
+
+write_fields_must_not_be_empty_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"fields">> => []}]
+                }
+            }
+        )
+    ).
+
+duplicate_static_field_keys_are_rejected_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [Point0#{<<"fields">> => [Field0, Field0]}]
+                }
+            }
+        )
+    ).
+
+duplicate_static_field_keys_preserve_schema_error_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    [Field0] = maps:get(<<"fields">>, Point0),
+    DuplicatePoint = Point0#{<<"fields">> => [Field0, Field0]},
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [DuplicatePoint, Point0]
+                }
+            }
+        )
+    ).
+
+source_precision_is_required_test() ->
+    Conf = structured_action_config(),
+    [Point0] = maps:get(<<"write">>, maps:get(<<"parameters">>, Conf)),
+    Timestamp0 = maps:get(<<"timestamp">>, Point0),
+    ?assertThrow(
+        {emqx_bridge_v2_schema, _},
+        check_action(
+            Conf#{
+                <<"parameters">> => #{
+                    <<"write">> => [
+                        Point0#{<<"timestamp">> => maps:remove(<<"source_precision">>, Timestamp0)}
+                    ]
+                }
+            }
+        )
+    ).
+
+legacy_mixed_integer_suffix_requires_integer_value_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, _Points) ->
+                error(unexpected_write)
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        Lines = emqx_bridge_influxdb:to_influx_lines(
+            <<"m value=${payload.value}i">>
+        ),
+        ChannelConfig = #{
+            parameters => #{
+                write_syntax => Lines
+            }
+        },
+        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
+            test_instance, State0, test_channel, ChannelConfig
+        ),
+        ?assertMatch(
+            {error, {unrecoverable_error, _}},
+            emqx_bridge_influxdb_connector:on_query(
+                test_instance,
+                {test_channel, #{payload => #{value => <<"1">>}}},
+                State
+            )
+        )
+    after
+        ok = meck:unload(influxdb)
+    end.
+
+legacy_tag_suffix_is_treated_as_string_test() ->
+    ok = meck:new(influxdb, [passthrough, no_link]),
+    try
+        Self = self(),
+        ok = meck:expect(influxdb, update_precision, fun(Client, _Precision) -> Client end),
+        ok = meck:expect(
+            influxdb,
+            write,
+            fun(_Client, Points) ->
+                Self ! {legacy_tag_points, Points},
+                ok
+            end
+        ),
+        Client = #{
+            protocol => http,
+            opts => [{version, v2}, {precision, ms}],
+            path => "/api/v2/write"
+        },
+        State0 = #{client => Client, channels => #{}},
+        Lines = emqx_bridge_influxdb:to_influx_lines(
+            <<"m,device=${payload.tag}i value=1i ${timestamp}">>
+        ),
+        ChannelConfig = #{
+            parameters => #{
+                write_syntax => Lines
+            }
+        },
+        {ok, State} = emqx_bridge_influxdb_connector:on_add_channel(
+            test_instance, State0, test_channel, ChannelConfig
+        ),
+        ?assertEqual(
+            ok,
+            emqx_bridge_influxdb_connector:on_query(
+                test_instance,
+                {test_channel, #{
+                    payload => #{tag => <<"abc">>},
+                    timestamp => 1700000000123
+                }},
+                State
+            )
+        ),
+        receive
+            {legacy_tag_points, Points} ->
+                ?assertMatch(
+                    [#{tags := #{<<"device">> := <<"abci">>}}],
+                    Points
+                )
+        after 1_000 ->
+            error(legacy_tag_points_timeout)
+        end
+    after
+        ok = meck:unload(influxdb)
+    end.
 
 -define(VALID_LINE_PARSED_PAIRS, [
     {"m1,tag=tag1 field=field1 ${timestamp1}", #{
@@ -420,15 +818,12 @@ valid_write_syntax_escaped_chars_with_extra_spaces_test_() ->
 %% https://github.com/emqx/emqx/issues/19814
 missing_write_syntax_test() ->
     ?assertThrow(
-        {_, [#{reason := required_field, path := "parameters.write_syntax"}]},
-        check_action_parameters(#{<<"precision">> => <<"ms">>})
+        {emqx_bridge_v2_schema, _},
+        check_action(#{
+            <<"connector">> => <<"influxdb_connector">>,
+            <<"parameters">> => #{<<"precision">> => <<"ms">>}
+        })
     ).
-
-check_action_parameters(Conf) ->
-    Schema = #{
-        roots => [{parameters, hoconsc:mk(hoconsc:ref(emqx_bridge_influxdb, action_parameters))}]
-    },
-    hocon_tconf:check_plain(Schema, #{<<"parameters">> => Conf}, #{required => false}).
 
 unicode_write_syntax_test_() ->
     Tag = unicode:characters_to_list(<<"标签"/utf8>>),
@@ -444,6 +839,67 @@ unicode_write_syntax_test_() ->
             [Expected],
             to_influx_lines(<<"m,tag=标签 f=\"固定中文\""/utf8>>)
         )
+    ].
+
+raw_line_write_syntax_test_() ->
+    [
+        {"a single placeholder line is a raw line template",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines_with_raw(<<"${payload.line}">>)
+            )},
+        {"raw line template with trailing newline",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines_with_raw(<<"${payload.line}\n">>)
+            )},
+        {"multiple raw line templates",
+            ?_assertEqual(
+                [#{line => "${payload.l1}"}, #{line => "${payload.l2}"}],
+                to_influx_lines_with_raw(<<"${payload.l1}\n${payload.l2}">>)
+            )},
+        {"raw line template mixed with structured lines",
+            ?_assertEqual(
+                [
+                    #{line => "${payload.line}"},
+                    #{
+                        measurement => "m",
+                        tags => [{"tag", "1"}],
+                        fields => [{"f", "2"}],
+                        timestamp => undefined
+                    }
+                ],
+                to_influx_lines_with_raw(<<"${payload.line}\nm,tag=1 f=2">>)
+            )},
+        {"escaped chars in a placeholder are unescaped",
+            ?_assertEqual(
+                [#{line => "${payload.line 1}"}],
+                to_influx_lines_with_raw(<<"${payload.line\\ 1}">>)
+            )},
+        {"a line with two placeholders is not a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines_with_raw(<<"${payload.a}${payload.b}">>)
+            )},
+        {"an empty placeholder is not a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines_with_raw(<<"${}">>)
+            )}
+    ].
+
+raw_line_conversion_is_influxdb_specific_test_() ->
+    [
+        {"the shared structural converter rejects a raw line template",
+            ?_assertMatch(
+                {error, _},
+                to_influx_lines(<<"${payload.line}">>)
+            )},
+        {"the InfluxDB converter enables raw line templates",
+            ?_assertEqual(
+                [#{line => "${payload.line}"}],
+                to_influx_lines_with_raw(<<"${payload.line}">>)
+            )}
     ].
 
 influxdb_api_v1_connector_ping_with_auth_test_() ->
@@ -700,6 +1156,16 @@ to_influx_lines(RawLines) ->
         %% mute error logs from this call
         emqx_logger:set_primary_log_level(none),
         emqx_bridge_influxdb:to_influx_lines(RawLines)
+    after
+        emqx_logger:set_primary_log_level(OldLevel)
+    end.
+
+to_influx_lines_with_raw(RawLines) ->
+    OldLevel = emqx_logger:get_primary_log_level(),
+    try
+        %% mute error logs from this call
+        emqx_logger:set_primary_log_level(none),
+        emqx_bridge_influxdb:to_influx_lines_with_raw(RawLines)
     after
         emqx_logger:set_primary_log_level(OldLevel)
     end.
