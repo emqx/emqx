@@ -62,6 +62,10 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)),
     emqx_config:delete_override_conf_files().
 
+end_per_testcase(_TestCase, Config) ->
+    emqx_common_test_helpers:call_janitor(),
+    Config.
+
 %%--------------------------------------------------------------------
 %% Cases
 %%--------------------------------------------------------------------
@@ -128,7 +132,24 @@ t_send_request_missing_field(_) ->
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_client() ->
-    spawn(fun coap_client/0).
+    start_client(fun coap_client/0).
+
+start_client(ClientFun) ->
+    ClientPid = spawn(ClientFun),
+    ok = emqx_common_test_helpers:on_exit(fun() -> cleanup_client(ClientPid) end),
+    ClientPid.
+
+cleanup_client(ClientPid) ->
+    exit(ClientPid, kill),
+    _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+    ok = emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            [] =:= emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        end,
+        5000
+    ).
 
 coap_client() ->
     {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),

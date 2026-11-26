@@ -97,6 +97,7 @@ mod_cfg(#{connection_required := true}) ->
     #{
         udp => maps:merge(?DEFAULT_MOD_CFG, #{
             connection_mod => esockd_udp_proxy,
+            defer_udp_proxy_takeover => true,
             esockd_proxy_opts => #{
                 connection_mod => emqx_coap_proxy_conn
             }

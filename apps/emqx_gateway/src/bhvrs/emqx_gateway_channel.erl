@@ -40,6 +40,7 @@
 -type reply() ::
     {outgoing, emqx_gateway_frame:frame()}
     | {outgoing, [emqx_gateway_frame:frame()]}
+    | {udp_proxy, commit | reject}
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
