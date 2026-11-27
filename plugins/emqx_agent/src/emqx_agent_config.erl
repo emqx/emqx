@@ -73,6 +73,9 @@ same external shape that was submitted by users.
 -define(PIPELINES, <<"pipelines">>).
 -define(PIPELINE_ID, <<"pipeline_id">>).
 -define(DEFAULT_PIPELINE_KEY_EXPRESSION, <<"message.topic">>).
+-define(HEADERS, <<"headers">>).
+-define(HEADER_NAME, <<"name">>).
+-define(HEADER_VALUE, <<"value">>).
 
 -type tool_type() :: binary().
 -type tool_id() :: binary().
@@ -362,7 +365,11 @@ update_config_entry(Section, Pred, Entry) ->
         end
     end).
 
-restore_config_entry(Entry, OldEntry) ->
+%% Both the submitted and the stored headers are normalized first, so that
+%% masked headers are restored by their normalized names.
+restore_config_entry(Entry0, OldEntry0) ->
+    Entry = normalize_headers(Entry0),
+    OldEntry = normalize_headers(OldEntry0),
     case unwrap_union(Entry) of
         Entry ->
             emqx_agent_redact:deobfuscate(Entry, OldEntry);
@@ -371,7 +378,38 @@ restore_config_entry(Entry, OldEntry) ->
             #{Record => emqx_agent_redact:deobfuscate(Body, OldEntry)}
     end.
 
-normalize_config_for_storage(Config) ->
+%% In every header list, lowercase the header names and keep only the last
+%% header with each name.
+normalize_headers(Map) when is_map(Map) ->
+    maps:map(
+        fun
+            (?HEADERS, Headers) when is_list(Headers) -> normalize_header_list(Headers);
+            (_K, V) -> normalize_headers(V)
+        end,
+        Map
+    );
+normalize_headers(List) when is_list(List) ->
+    [normalize_headers(X) || X <- List];
+normalize_headers(Term) ->
+    Term.
+
+normalize_header_list(Headers) ->
+    {Normalized, _Seen} = lists:foldr(fun keep_last_header/2, {[], #{}}, Headers),
+    Normalized.
+
+keep_last_header(#{?HEADER_NAME := Name0} = Header, {Acc, Seen}) when
+    is_binary(Name0), map_size(Header) == 2, is_map_key(?HEADER_VALUE, Header)
+->
+    Name = string:lowercase(Name0),
+    case Seen of
+        #{Name := _} -> {Acc, Seen};
+        #{} -> {[Header#{?HEADER_NAME := Name} | Acc], Seen#{Name => true}}
+    end;
+keep_last_header(Other, {Acc, Seen}) ->
+    {[Other | Acc], Seen}.
+
+normalize_config_for_storage(Config0) ->
+    Config = normalize_headers(Config0),
     %% NOTE
     %% This is frontend issue workaround.
     %% It renders missing values as `null` instead of defaults, and

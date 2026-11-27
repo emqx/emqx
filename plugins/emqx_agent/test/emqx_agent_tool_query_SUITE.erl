@@ -185,7 +185,7 @@ t_query_tools_get_not_found(_Config) ->
 t_query_tools_redacts_headers(_Config) ->
     Type = <<"http">>,
     Id = <<"http-headers">>,
-    Name = <<"Authorization">>,
+    Name = <<"authorization">>,
     ok = emqx_agent_service:tool_create(#{
         <<"type">> => Type,
         <<"id">> => Id,

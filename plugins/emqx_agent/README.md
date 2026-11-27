@@ -114,6 +114,12 @@ The same pattern applies to other tool types: a `message__publish` instance fixe
 | `kv__del` | Delete one key-value entry from a last-value EMQX stream. |
 | `kv__clear` | Clear all key-value entries from a last-value EMQX stream. |
 
+### HTTP Tool Headers
+
+The Agent API masks the values of sensitive `http` tool headers, such as `Authorization` and `Cookie`, as `******`. When a tool is saved with masked values, the stored values are kept.
+
+When a tool is saved, its header names are converted to lowercase, and only the last header with each name is kept. HTTP header names are case-insensitive, and a header that allows several values takes them as one comma-separated value.
+
 ### Image Handling
 
 The `http` and `message__request` tools can extract images from tool responses so multimodal data can be passed to the LLM safely. OpenAI-compatible APIs do not accept images embedded directly in tool response messages, so Agent replaces extracted images in the payload with `Image <id>` placeholders and returns the image data as separate attachments.
