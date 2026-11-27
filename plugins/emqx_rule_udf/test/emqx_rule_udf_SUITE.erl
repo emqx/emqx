@@ -17,7 +17,10 @@
 -define(SERVER_PORT, "8080").
 -define(SERVER_TOKEN, <<"ct-token">>).
 
--define(UPPER_SRC, <<"def handle(s):\n    return s.upper()\n">>).
+-define(UPPER_SRC, <<"""
+def handle(s):
+    return s.upper()
+""">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -77,6 +80,7 @@ end_per_testcase(_TestCase, Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "The plugin health check and `GET server` report a reachable function server.".
 t_health_check_reports_server_reachable(Config) ->
     ?assertMatch(
         {ok, #{health_status := #{status := ok}}},
@@ -92,6 +96,7 @@ t_health_check_reports_server_reachable(Config) ->
         api(get, ["server"])
     ).
 
+-doc "A saved program is listed, and a test run returns its result.".
 t_save_and_call(_Config) ->
     Name = <<"str.upper">>,
     ?assertMatch(
@@ -101,6 +106,7 @@ t_save_and_call(_Config) ->
     ?assertMatch({200, #{<<"programs">> := [#{<<"name">> := Name}]}}, api(get, ["programs"])),
     ?assertEqual({200, #{<<"result">> => <<"HELLO">>}}, call(Name, [<<"hello">>])).
 
+-doc "Saving a program writes its file; deleting it removes the file.".
 t_saved_program_is_written_to_data_dir(_Config) ->
     Name = <<"file-copy.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -109,30 +115,48 @@ t_saved_program_is_written_to_data_dir(_Config) ->
     {200, _} = api(delete, ["programs", Name]),
     ?assertEqual({error, enoent}, file:read_file(Path)).
 
+-doc "Rule SQL calls a saved program with `udf(...)` and gets its result.".
 t_rule_sql_calls_program(_Config) ->
-    Src = <<"def handle(p):\n    return {\"temp_f\": round(p[\"temp_c\"] * 9 / 5 + 32, 1)}\n">>,
+    Src = <<"""
+    def handle(p):
+        return {"temp_f": round(p["temp_c"] * 9 / 5 + 32, 1)}
+    """>>,
     {200, _} = save(<<"temp-convert.py">>, Src),
-    SQL = <<"SELECT udf('temp-convert.py', json_decode(payload)) AS out FROM \"t/#\"">>,
-    Context = #{topic => <<"t/1">>, payload => <<"{\"temp_c\": 30}">>},
+    SQL = <<"""
+    SELECT udf('temp-convert.py', json_decode(payload)) AS out FROM "t/#"
+    """>>,
+    Context = #{topic => <<"t/1">>, payload => <<"""
+    {"temp_c": 30}
+    """>>},
     ?assertMatch(
         {ok, #{<<"out">> := #{<<"temp_f">> := 86.0}}},
         emqx_rule_sqltester:test(#{sql => SQL, context => Context})
     ).
 
+-doc "Rule SQL fails when `udf(...)` names a program that does not exist.".
 t_rule_sql_fails_for_unknown_program(_Config) ->
-    SQL = <<"SELECT udf('no-such-program', payload) AS out FROM \"t/#\"">>,
+    SQL = <<"""
+    SELECT udf('no-such-program', payload) AS out FROM "t/#"
+    """>>,
     Context = #{topic => <<"t/1">>, payload => <<"x">>},
     ?assertMatch({error, _}, emqx_rule_sqltester:test(#{sql => SQL, context => Context})).
 
+-doc "A source that the server rejects is not saved, and the reply carries the problems.".
 t_disallowed_import_is_rejected_and_not_saved(_Config) ->
     Name = <<"bad-import.py">>,
-    Src = <<"import os\n\ndef handle(x):\n    return os.getcwd()\n">>,
+    Src = <<"""
+    import os
+
+    def handle(x):
+        return os.getcwd()
+    """>>,
     ?assertMatch(
         {422, #{<<"code">> := <<"INVALID_SOURCE">>, <<"problems">> := [_ | _]}},
         save(Name, Src)
     ),
     ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
 
+-doc "Saving a program without a runtime fails, and nothing is saved.".
 t_missing_runtime_is_rejected(_Config) ->
     Name = <<"no-runtime.py">>,
     ?assertMatch(
@@ -141,6 +165,7 @@ t_missing_runtime_is_rejected(_Config) ->
     ),
     ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
 
+-doc "A runtime that the server does not offer is rejected, and nothing is saved.".
 t_unsupported_runtime_is_rejected_and_not_saved(_Config) ->
     %% The plugin passes any runtime through; the function server decides.
     Name = <<"lua-prog">>,
@@ -151,27 +176,38 @@ t_unsupported_runtime_is_rejected_and_not_saved(_Config) ->
     ),
     ?assertMatch({404, #{<<"code">> := <<"PROGRAM_NOT_FOUND">>}}, api(get, ["programs", Name])).
 
+-doc "A program name that breaks the name rule is rejected.".
 t_bad_name_is_rejected(_Config) ->
     ?assertMatch({400, #{<<"code">> := <<"BAD_NAME">>}}, save(<<".hidden">>, ?UPPER_SRC)).
 
+-doc "A program cannot read a host file: the call fails in the sandbox.".
 t_sandbox_blocks_host_files(_Config) ->
     %% No import statement, so the server lint accepts it. The sandbox has no
     %% host file system, so the call fails.
     Name = <<"read-passwd.py">>,
-    Src = <<"def handle(_x):\n    return open('/etc/passwd').read()\n">>,
+    Src = <<"""
+    def handle(_x):
+        return open('/etc/passwd').read()
+    """>>,
     {200, _} = save(Name, Src),
     {422, #{<<"code">> := <<"FUNCTION_ERROR">>, <<"message">> := Msg}} = call(Name, [1]),
     ?assertNotEqual(nomatch, binary:match(Msg, <<"FileNotFoundError">>)).
 
+-doc "An exception in a program returns `FUNCTION_ERROR`.".
 t_function_error_is_returned(_Config) ->
     Name = <<"div-zero.py">>,
-    {200, _} = save(Name, <<"def handle(x):\n    return x / 0\n">>),
+    Src = <<"""
+    def handle(x):
+        return x / 0
+    """>>,
+    {200, _} = save(Name, Src),
     ?assertMatch({422, #{<<"code">> := <<"FUNCTION_ERROR">>}}, call(Name, [1])).
 
+-doc "Saving does not load a program on the server; the first call sends it.".
 t_first_call_sends_the_program(Config) ->
     %% A source that no earlier run can have left in the server cache.
     Src = iolist_to_binary([
-        "# ", integer_to_list(erlang:system_time(nanosecond)), "\n", ?UPPER_SRC
+        "# ", integer_to_list(erlang:system_time(nanosecond)), $\n, ?UPPER_SRC
     ]),
     Name = <<"first-call.py">>,
     {200, #{<<"sha256">> := Sha256}} = save(Name, Src),
@@ -182,6 +218,7 @@ t_first_call_sends_the_program(Config) ->
     %% The call carried the program, and the server keeps it loaded.
     ?assertEqual(200, server_call(Config, CallBody)).
 
+-doc "Calls work when every request reaches a server instance that does not have the program.".
 t_call_works_when_no_instance_keeps_the_program(Config) ->
     %% Behind a load balancer, each request may reach an instance that does not
     %% have the program. The proxy simulates that: it answers every call that
@@ -197,6 +234,7 @@ t_call_works_when_no_instance_keeps_the_program(Config) ->
         cowboy:stop_listener(?MODULE)
     end.
 
+-doc "With an empty `cacertfile`, an https server is trusted through `node.trusted_certs` only.".
 t_https_trusts_node_trusted_certs(Config) ->
     %% The function server uses a private CA. The plugin trusts it only after
     %% the CA is in `node.trusted_certs'.
@@ -222,6 +260,7 @@ t_https_trusts_node_trusted_certs(Config) ->
 restore_trusted_certs({ok, Path}) -> application:set_env(emqx, trusted_certs_path, Path);
 restore_trusted_certs(undefined) -> application:unset_env(emqx, trusted_certs_path).
 
+-doc "An https server is trusted through `cacertfile`; a missing file is a config error.".
 t_https_trusts_configured_cacertfile(Config) ->
     #{cacertfile := CAFile} = TLS = gen_tls_files(?config(priv_dir, Config)),
     {ok, ProxyURL} = start_proxy(Config, #{tls => TLS}),
@@ -241,6 +280,7 @@ t_https_trusts_configured_cacertfile(Config) ->
         cowboy:stop_listener(?MODULE)
     end.
 
+-doc "An unexpected call reply is cut short in the error.".
 t_bad_response_body_is_truncated(Config) ->
     Name = <<"big-reply.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -255,6 +295,7 @@ t_bad_response_body_is_truncated(Config) ->
         cowboy:stop_listener(?MODULE)
     end.
 
+-doc "A config update completes when the old HTTP pool does not stop.".
 t_stuck_pool_does_not_block_config_update(Config) ->
     Name = <<"stuck.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -268,10 +309,12 @@ t_stuck_pool_does_not_block_config_update(Config) ->
     ?assertNot(is_process_alive(PoolSup)),
     ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])).
 
+-doc "The client process state does not hold the token in plain text.".
 t_token_is_not_kept_in_plain_text(_Config) ->
     State = io_lib:format("~p", [sys:get_state(emqx_rule_udf_client)]),
     ?assertEqual(nomatch, string:find(State, binary_to_list(?SERVER_TOKEN))).
 
+-doc "A rejected config update keeps the client working.".
 t_invalid_config_update_keeps_client(Config) ->
     Name = <<"keep.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -280,6 +323,7 @@ t_invalid_config_update_keeps_client(Config) ->
     ),
     ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])).
 
+-doc "When the new HTTP pool fails to start, the old settings and pool stay in use.".
 t_failed_pool_start_restores_old_pool(Config) ->
     Name = <<"restore.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -300,6 +344,7 @@ t_failed_pool_start_restores_old_pool(Config) ->
         meck:unload(ehttpc_sup)
     end.
 
+-doc "Saves do not start more periodic file syncs: one timer runs.".
 t_one_file_sync_timer(_Config) ->
     %% Each save syncs the files at once. It must not start another periodic sync.
     lists:foreach(
@@ -324,6 +369,7 @@ count_sync_messages(Pid, N) ->
     after 0 -> N
     end.
 
+-doc "A deleted program cannot be read or called, and a second delete returns 404.".
 t_delete_program(_Config) ->
     Name = <<"to-delete.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -332,6 +378,7 @@ t_delete_program(_Config) ->
     ?assertMatch({404, _}, call(Name, [<<"x">>])),
     ?assertMatch({404, _}, api(delete, ["programs", Name])).
 
+-doc "Only the global administrator can change or run programs; others can read them.".
 t_only_global_admin_can_change_or_run_programs(_Config) ->
     Name = <<"viewer.py">>,
     {200, _} = save(Name, ?UPPER_SRC),
@@ -359,6 +406,7 @@ t_only_global_admin_can_change_or_run_programs(_Config) ->
         [Viewer, NsAdmin]
     ).
 
+-doc "A config update is checked while the plugin is stopped.".
 t_config_update_while_stopped(Config) ->
     NameVsn = ?config(plugin_name_vsn, Config),
     ok = emqx_plugins:ensure_stopped(NameVsn),

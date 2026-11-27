@@ -83,10 +83,8 @@ validate_name(Name) when is_binary(Name) ->
         match ->
             ok;
         nomatch ->
-            {error, <<
-                "a name has 1 to 64 characters from A-Z a-z 0-9 . _ - "
-                "and must not start with '.'"
-            >>}
+            {error,
+                <<"a name has 1 to 64 characters from A-Z a-z 0-9 . _ - and must not start with '.'">>}
     end;
 validate_name(_) ->
     {error, <<"name must be a string">>}.

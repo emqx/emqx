@@ -103,7 +103,9 @@ call_program(Name, Request) ->
                 {error, Reason} -> server_error(Reason)
             end;
         _ ->
-            error_json(400, <<"BAD_REQUEST">>, <<"body must be {\"args\": [...]}">>)
+            error_json(400, <<"BAD_REQUEST">>, <<"""
+            body must be {"args": [...]}
+            """>>)
     end.
 
 %%--------------------------------------------------------------------
