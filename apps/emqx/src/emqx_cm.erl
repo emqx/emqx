@@ -128,12 +128,6 @@
     {?CHAN_REG_TAB, 'cluster_sessions.count', 'cluster_sessions.max'}
 ]).
 
-%% Max number of channel events that emqx_cm handles in one batch, and the number
-%% of channels at which a clean-down task stops taking the queued clean-down tasks.
-%% `node.channel_cleanup_batch_size` can lower it. A larger configured value, such
-%% as the default of an older release, is capped.
--define(MAX_BATCH_SIZE, 1000).
-
 -define(CHAN_INFO_SELECT_LIMIT, 100).
 
 %% Server name
@@ -188,18 +182,19 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
 ->
     Chan = {ClientId, ChanPid},
     true = ets:insert(?CHAN_CONN_TAB, #chan_conn{pid = ChanPid, mod = ConnMod, clientid = ClientId}),
-    %% cast (for process monitor) after inserting the conn table
-    ok = cast({registered, ChanPid}),
+    %% Ask for the process monitor after the insert into the conn table: a worker
+    %% that starts again finds the channels to monitor in that table.
+    ok = emqx_cm_worker:monitor_channel(ChanPid),
     true = ets:insert(?CHAN_TAB, Chan),
     ok = emqx_cm_registry:register_channel(Chan),
     ok = mark_channel_connected(ChanPid),
     ok.
 
-%% @doc Return 'true' if the process is monitored by emqx_cm.
+%% @doc Return 'true' if the process is monitored by an `emqx_cm_worker`.
 %% @end
 %% This implementation depends on the fact that
 %% the insertion to ?CHAN_CONN_TAB is always followed by
-%% a {registered, ChannPid} cast.
+%% a call to emqx_cm_worker:monitor_channel/1.
 is_monitored(ChanPid) ->
     try
         ets:member(?CHAN_CONN_TAB, ChanPid)
@@ -835,18 +830,13 @@ wrap_rpc(Result) ->
             Res
     end.
 
-%% @private
-cast(Msg) ->
-    _ = erlang:send(?CM, Msg),
-    ok.
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
+%% This process owns the channel tables and runs the stats timer. The
+%% `emqx_cm_worker` processes monitor the channels.
 init([]) ->
-    process_flag(priority, high),
-    process_flag(message_queue_data, off_heap),
     TabOpts = [public, {write_concurrency, true}],
     ok = emqx_utils_ets:new(?CHAN_TAB, [bag, {read_concurrency, true} | TabOpts]),
     ok = emqx_utils_ets:new(?CHAN_CONN_TAB, [ordered_set, {keypos, #chan_conn.pid} | TabOpts]),
@@ -863,12 +853,6 @@ handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "emqx_cm_unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({registered, Pid}, State) ->
-    ok = collect_and_handle([Pid], []),
-    {noreply, State};
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, State) ->
-    ok = collect_and_handle([], [Pid]),
-    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "emqx_cm_unexpected_info", info => Info}),
     {noreply, State}.
@@ -883,102 +867,75 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-handle_reg_pids(Pids) ->
-    lists:foreach(fun(Pid) -> _ = erlang:monitor(process, Pid) end, Pids).
+-doc """
+Clean up after channels that are down. An `emqx_cm_worker` calls it with the
+channels of one batch. It removes all of them from the global registry with one
+call. On a replicant, that call is a round trip to a core node.
+""".
+-spec clean_down([pid()]) -> ok.
+clean_down(Pids) ->
+    ok = clean_down_subscribers(Pids),
+    %% A channel marks itself when its client disconnects. This is for the
+    %% channels that exited without it.
+    ok = lists:foreach(fun mark_channel_disconnected/1, Pids),
+    Chans = lists:filtermap(fun find_local_channel/1, Pids),
+    ok = unregister_channels_global(Chans),
+    %% Delete the local rows after the registry rows. While a dead channel has
+    %% its registry row, `open_session/4` needs the `?CHAN_CONN_TAB` row to tell
+    %% that this clean-down is on its way. Without that row it takes the
+    %% registry row for a stale one, and removes it with its own registry call.
+    lists:foreach(fun unregister_channel_down/1, Chans).
 
-handle_down_pids([]) ->
-    %% do not submit a no-op async task
-    ok;
-handle_down_pids(Pids) ->
-    lists:foreach(fun mark_channel_disconnected/1, Pids),
-    ok = emqx_pool:async_submit_to_pool(?CM_POOL, fun ?MODULE:clean_down/1, [Pids]).
-
-collect_and_handle(Regs0, Down0) ->
-    {Regs, Down} = collect_msgs(Regs0, Down0, batch_size()),
-    ok = handle_reg_pids(Regs),
-    ok = handle_down_pids(Down).
-
-collect_msgs(Regs, Down, 0) ->
-    {Regs, Down};
-collect_msgs(Regs, Down, N) ->
-    receive
-        {registered, Pid} ->
-            collect_msgs([Pid | Regs], Down, N - 1);
-        {'DOWN', _MRef, process, Pid, _Reason} ->
-            collect_msgs(Regs, [Pid | Down], N - 1)
-    after 0 ->
-        {Regs, Down}
+%% The subscriber clean-up of the broker can raise, for example from the
+%% transaction that removes an exclusive subscription. A failure for one channel
+%% must not stop the batch: the other channels would keep their rows, and
+%% `open_session/4` would then reject their client IDs on this node.
+clean_down_subscribers(Pids) ->
+    case lists:filtermap(fun clean_down_subscriber/1, Pids) of
+        [] ->
+            ok;
+        [Example | _] = Errors ->
+            ?SLOG(error, #{
+                msg => "failed_to_clean_down_subscribers",
+                count => length(Errors),
+                example => Example
+            })
     end.
 
--doc """
-Clean up after channels that are down. This task runs in an `emqx_cm_pool` worker.
-It also takes the clean-down tasks that are queued behind it until there are
-`batch_size()` channels, and removes all of them from the global registry with one
-call. The last task that it takes can make the batch larger, up to two times
-`batch_size()`. On a replicant, the call is a round trip to a core node.
-""".
-clean_down(Pids) ->
-    %% emqx_cm_pool runs only this task, so the receive does not skip messages.
-    More = emqx_pool:take_async_tasks(fun ?MODULE:clean_down/1, batch_size() - length(Pids)),
-    clean_down_batch(Pids ++ More).
+clean_down_subscriber(Pid) ->
+    try emqx_broker_helper:clean_down(Pid) of
+        ok -> false
+    catch
+        Class:Reason:Stacktrace -> {true, {Class, Reason, Stacktrace}}
+    end.
 
-batch_size() ->
-    min(emqx:get_config([node, channel_cleanup_batch_size], ?MAX_BATCH_SIZE), ?MAX_BATCH_SIZE).
+find_local_channel(Pid) ->
+    case ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid, undefined) of
+        undefined ->
+            %% The channel unregistered itself before it exited.
+            false;
+        ClientId ->
+            {true, {ClientId, Pid}}
+    end.
 
-clean_down_batch(Pids) ->
-    Chans = clean_down_subscribers(Pids, [], 0, undefined),
-    case emqx_cm_registry:unregister_channels(Chans) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            %% Delete the local rows anyway. The registry keeper removes
+unregister_channels_global(Chans) ->
+    try
+        ok = emqx_cm_registry:unregister_channels(Chans)
+    catch
+        Class:Reason:Stacktrace ->
+            %% Go on and delete the local rows. The registry keeper removes
             %% the registry rows of local pids that are dead.
             ?SLOG(error, #{
                 msg => "failed_to_unregister_channels",
+                count => length(Chans),
+                exception => Class,
                 reason => Reason,
-                count => length(Chans)
+                stacktrace => Stacktrace
             })
-    end,
-    lists:foreach(fun do_clean_down/1, Chans).
+    end.
 
-%% Clean up the subscriptions of the down channels. Return the channels that are
-%% still registered on this node, in the order of `Pids`. A failure for one channel
-%% must not stop the clean-down of the other channels of the batch.
-clean_down_subscribers([], Chans, NErrors, Example) ->
-    NErrors > 0 andalso
-        ?SLOG(error, #{
-            msg => "failed_to_clean_down_subscribers",
-            count => NErrors,
-            example => Example
-        }),
-    lists:reverse(Chans);
-clean_down_subscribers([Pid | Pids], Chans0, NErrors0, Example0) when is_pid(Pid) ->
-    {NErrors, Example} =
-        try
-            ok = emqx_broker_helper:clean_down(Pid),
-            {NErrors0, Example0}
-        catch
-            Class:Reason:Stacktrace when NErrors0 =:= 0 ->
-                {1, {Class, Reason, Stacktrace}};
-            _:_ ->
-                {NErrors0 + 1, Example0}
-        end,
-    Chans =
-        try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
-            ClientId ->
-                [{ClientId, Pid} | Chans0]
-        catch
-            error:badarg ->
-                Chans0
-        end,
-    clean_down_subscribers(Pids, Chans, NErrors, Example).
-
-do_clean_down({ClientId, _ChanPid} = Chan) ->
-    try
-        unregister_channel_local(Chan)
-    catch
-        error:badarg -> ok
-    end,
+unregister_channel_down({ClientId, _ChanPid} = Chan) ->
+    ok = unregister_channel_local(Chan),
     ok = ?tp(debug, emqx_cm_clean_down, #{client_id => ClientId}).
 
 stats_fun() ->

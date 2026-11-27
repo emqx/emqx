@@ -129,24 +129,19 @@ unregister_channel({ClientId, ChanPid}) when is_binary(ClientId), is_pid(ChanPid
 Unregister global channels. On a replicant, this is one call to a core node.
 The core node calls `unregister_channel/1` for each channel, because a core node
 that runs an older release exports that function too.
+
+Raise when the call fails, for example when no core node answers.
 """.
--spec unregister_channels([{emqx_types:clientid(), pid()}]) -> ok | {error, term()}.
+-spec unregister_channels([{emqx_types:clientid(), pid()}]) -> ok.
 unregister_channels([]) ->
     ok;
 unregister_channels(Chans) ->
     case is_enabled() of
         true ->
             ?tp(debug, emqx_cm_registry_unregister_channels, #{count => length(Chans)}),
-            try
-                mria:async_dirty(?CM_SHARD, fun lists:foreach/2, [
-                    fun ?MODULE:unregister_channel/1, Chans
-                ])
-            of
-                ok -> ok;
-                Error -> {error, Error}
-            catch
-                Class:Reason -> {error, {Class, Reason}}
-            end;
+            ok = mria:async_dirty(?CM_SHARD, fun lists:foreach/2, [
+                fun ?MODULE:unregister_channel/1, Chans
+            ]);
         false ->
             ok
     end.
