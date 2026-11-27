@@ -825,9 +825,28 @@ update_plugin(put, #{bindings := #{name := NameVsn, action := Action}}) ->
     end).
 
 plugin_config(get, #{bindings := #{name := NameVsn}}) ->
-    get_plugin_config(NameVsn);
+    case get_plugin_config(NameVsn) of
+        {200, Headers, Config} ->
+            {200, Headers, emqx_plugins_redact:redact(NameVsn, Config)};
+        FailureResponse ->
+            FailureResponse
+    end;
 plugin_config(put, #{bindings := #{name := NameVsn}, body := Config}) ->
-    return_config_update_result(put_plugin_config(NameVsn, Config)).
+    return_config_update_result(
+        put_plugin_config(NameVsn, deobfuscate_plugin_config(NameVsn, Config))
+    ).
+
+%% The config read API masks credentials, so a client can send masked values
+%% back. Replace them with the stored values before the update.
+deobfuscate_plugin_config(NameVsn, Config) when is_map(Config) ->
+    case emqx_plugins:get_config(NameVsn, #{}) of
+        OldConfig when is_map(OldConfig) ->
+            emqx_plugins_redact:deobfuscate(NameVsn, Config, OldConfig);
+        _ ->
+            emqx_plugins_redact:deobfuscate(NameVsn, Config, #{})
+    end;
+deobfuscate_plugin_config(_NameVsn, Config) ->
+    Config.
 
 upload_plugin_config(post, #{
     bindings := #{name := NameVsn}, body := #{<<"config">> := #{type := _} = ConfigUpload}

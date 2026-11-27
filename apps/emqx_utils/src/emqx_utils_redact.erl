@@ -27,6 +27,12 @@
 ).
 -define(IS_VAL_NONE(V), (V == none orelse V == <<"none">> orelse V == "none")).
 -define(IS_KEY_CLIENT_JWKS_FILE(K), (K == file orelse K == <<"file">> orelse K == "file")).
+-define(HEADER_NAME_BIN, <<"name">>).
+-define(HEADER_VALUE_BIN, <<"value">>).
+-define(HEADER_NAME_ATOM, name).
+-define(HEADER_VALUE_ATOM, value).
+-define(HEADER_NAME_STR, "name").
+-define(HEADER_VALUE_STR, "value").
 
 redacted_value() -> <<?REDACT_VAL>>.
 
@@ -194,6 +200,19 @@ do_redact_headers(List) when is_list(List) ->
                     _ ->
                         Pair
                 end;
+            %% A header as a map with name and value keys.
+            (#{?HEADER_NAME_BIN := K, ?HEADER_VALUE_BIN := V} = Header) when
+                map_size(Header) == 2
+            ->
+                redact_header_record(Header, ?HEADER_VALUE_BIN, K, V);
+            (#{?HEADER_NAME_ATOM := K, ?HEADER_VALUE_ATOM := V} = Header) when
+                map_size(Header) == 2
+            ->
+                redact_header_record(Header, ?HEADER_VALUE_ATOM, K, V);
+            (#{?HEADER_NAME_STR := K, ?HEADER_VALUE_STR := V} = Header) when
+                map_size(Header) == 2
+            ->
+                redact_header_record(Header, ?HEADER_VALUE_STR, K, V);
             (Any) ->
                 Any
         end,
@@ -213,6 +232,12 @@ do_redact_headers(Map) when is_map(Map) ->
     );
 do_redact_headers(Value) ->
     Value.
+
+redact_header_record(Header, ValueKey, Name, Value) ->
+    case check_is_sensitive_header(Name) of
+        true -> Header#{ValueKey := redact_v(Value)};
+        _ -> Header
+    end.
 
 check_is_sensitive_header(Key) ->
     is_sensitive_header(normalize_header_name(Key)).
@@ -348,12 +373,16 @@ deobfuscate(NewConf, OldConf, IsSensitiveFun, FindOldValue) ->
     maps:fold(
         fun(K, V, Acc) ->
             case FindOldValue(K, OldConf) of
+                error when is_list(V), ?IS_KEY_HEADERS(K) ->
+                    Acc#{K => deobfuscate_header_list(V, [])};
                 error ->
                     case is_redacted(K, V, IsSensitiveFun) of
                         %% don't put redacted value into new config
                         true -> Acc;
                         false -> Acc#{K => V}
                     end;
+                {ok, OldV} when is_list(V), is_list(OldV), ?IS_KEY_HEADERS(K) ->
+                    Acc#{K => deobfuscate_header_list(V, OldV)};
                 {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_HEADERS(K) ->
                     Acc#{K => deobfuscate_headers(V, OldV)};
                 {ok, OldV} when is_map(V), is_map(OldV), ?IS_KEY_CLIENT_JWKS(K) ->
@@ -372,6 +401,62 @@ deobfuscate(NewConf, OldConf, IsSensitiveFun, FindOldValue) ->
         #{},
         NewConf
     ).
+
+%% Restore the masked values of a header list of maps with name and value keys.
+%% A header is looked up in the stored list by its exact name, and the last
+%% stored header with that name is used. Names that differ in case do not match:
+%% normalizing header names is up to the caller. A masked header without a
+%% stored value is dropped. Other list elements are kept.
+deobfuscate_header_list(Headers, OldHeaders) ->
+    lists:flatmap(
+        fun
+            (#{?HEADER_NAME_BIN := K, ?HEADER_VALUE_BIN := V} = Header) when
+                map_size(Header) == 2
+            ->
+                Keys = {?HEADER_NAME_BIN, ?HEADER_VALUE_BIN},
+                deobfuscate_header_record(Header, Keys, K, V, OldHeaders);
+            (#{?HEADER_NAME_ATOM := K, ?HEADER_VALUE_ATOM := V} = Header) when
+                map_size(Header) == 2
+            ->
+                Keys = {?HEADER_NAME_ATOM, ?HEADER_VALUE_ATOM},
+                deobfuscate_header_record(Header, Keys, K, V, OldHeaders);
+            (#{?HEADER_NAME_STR := K, ?HEADER_VALUE_STR := V} = Header) when
+                map_size(Header) == 2
+            ->
+                Keys = {?HEADER_NAME_STR, ?HEADER_VALUE_STR},
+                deobfuscate_header_record(Header, Keys, K, V, OldHeaders);
+            (Any) ->
+                [Any]
+        end,
+        Headers
+    ).
+
+deobfuscate_header_record(Header, {_, ValueKey} = Keys, Name, Value, OldHeaders) ->
+    case is_redact_val(Value) andalso check_is_sensitive_header(Name) of
+        true ->
+            case find_header_in_list(Keys, Name, OldHeaders) of
+                {ok, OldValue} -> [Header#{ValueKey := OldValue}];
+                error -> []
+            end;
+        false ->
+            [Header]
+    end.
+
+%% A stored header is matched only if its name and value keys have the same type
+%% as in the submitted header: binary, atom or string.
+find_header_in_list({NameKey, ValueKey}, Name, OldHeaders) ->
+    Matching = [
+        V
+     || #{NameKey := N, ValueKey := V} = H <- OldHeaders, map_size(H) == 2, N =:= Name
+    ],
+    case Matching of
+        [] -> error;
+        _ -> {ok, lists:last(Matching)}
+    end.
+
+is_redact_val(?REDACT_VAL) -> true;
+is_redact_val(<<?REDACT_VAL>>) -> true;
+is_redact_val(_) -> false.
 
 is_redacted(K, V) ->
     do_is_redacted(K, V, fun is_sensitive_key/1).
@@ -597,6 +682,134 @@ deobfuscate_test() ->
     ),
 
     ok.
+
+header_list_test_() ->
+    Mask = <<?REDACT_VAL>>,
+    Stored = #{
+        <<"headers">> => [
+            #{<<"name">> => <<"Authorization">>, <<"value">> => <<"first">>},
+            #{<<"name">> => <<"X-Label">>, <<"value">> => <<"visible">>},
+            #{<<"name">> => <<"authorization">>, <<"value">> => <<"second">>}
+        ]
+    },
+    Redacted = #{
+        <<"headers">> => [
+            #{<<"name">> => <<"Authorization">>, <<"value">> => Mask},
+            #{<<"name">> => <<"X-Label">>, <<"value">> => <<"visible">>},
+            #{<<"name">> => <<"authorization">>, <<"value">> => Mask}
+        ]
+    },
+    Single = #{
+        <<"headers">> => [#{<<"name">> => <<"Authorization">>, <<"value">> => <<"secret">>}]
+    },
+    Restore = fun(Headers, Old) -> deobfuscate(#{<<"headers">> => Headers}, Old) end,
+    [
+        ?_assertEqual(Redacted, redact(Stored)),
+        ?_assertEqual(Stored, deobfuscate(Redacted, Stored)),
+        %% Reordered headers are matched by name.
+        ?_assertEqual(
+            #{
+                <<"headers">> => [
+                    #{<<"name">> => <<"X">>, <<"value">> => <<"v">>},
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => <<"secret">>}
+                ]
+            },
+            Restore(
+                [
+                    #{<<"name">> => <<"X">>, <<"value">> => <<"v">>},
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => Mask}
+                ],
+                Single
+            )
+        ),
+        %% Names are matched case-sensitively.
+        ?_assertEqual(
+            #{<<"headers">> => []},
+            Restore([#{<<"name">> => <<"AUTHORIZATION">>, <<"value">> => Mask}], Single)
+        ),
+        ?_assertEqual(
+            #{<<"headers">> => []},
+            Restore([#{<<"name">> => <<"AUTHORIZATION">>, <<"value">> => Mask}], Stored)
+        ),
+        %% The last stored header with the same name is used.
+        ?_assertEqual(
+            #{
+                <<"headers">> => [
+                    #{<<"name">> => <<"Cookie">>, <<"value">> => <<"b">>},
+                    #{<<"name">> => <<"Cookie">>, <<"value">> => <<"b">>}
+                ]
+            },
+            Restore(
+                [
+                    #{<<"name">> => <<"Cookie">>, <<"value">> => Mask},
+                    #{<<"name">> => <<"Cookie">>, <<"value">> => Mask}
+                ],
+                #{
+                    <<"headers">> => [
+                        #{<<"name">> => <<"Cookie">>, <<"value">> => <<"a">>},
+                        #{<<"name">> => <<"Cookie">>, <<"value">> => <<"b">>}
+                    ]
+                }
+            )
+        ),
+        %% No stored header.
+        ?_assertEqual(
+            #{<<"headers">> => []},
+            Restore([#{<<"name">> => <<"Authorization">>, <<"value">> => Mask}], #{})
+        ),
+        %% A new value is kept. A mask in a non-sensitive header is a value.
+        ?_assertEqual(
+            #{
+                <<"headers">> => [
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => <<"new">>},
+                    #{<<"name">> => <<"X-Label">>, <<"value">> => Mask}
+                ]
+            },
+            Restore(
+                [
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => <<"new">>},
+                    #{<<"name">> => <<"X-Label">>, <<"value">> => Mask}
+                ],
+                Single
+            )
+        ),
+        %% Atom and string keys.
+        ?_assertEqual(
+            #{<<"headers">> => [#{name => <<"Authorization">>, value => Mask}]},
+            redact(#{<<"headers">> => [#{name => <<"Authorization">>, value => <<"s">>}]})
+        ),
+        ?_assertEqual(
+            #{headers => [#{"name" => "Authorization", "value" => ?REDACT_VAL}]},
+            redact(#{headers => [#{"name" => "Authorization", "value" => "s"}]})
+        ),
+        ?_assertEqual(
+            #{<<"headers">> => [#{name => <<"Authorization">>, value => <<"s">>}]},
+            Restore(
+                [#{name => <<"Authorization">>, value => Mask}],
+                #{<<"headers">> => [#{name => <<"Authorization">>, value => <<"s">>}]}
+            )
+        ),
+        %% A map with other keys is not a header.
+        ?_assertEqual(
+            #{
+                <<"headers">> => [
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => <<"s">>, <<"extra">> => 1}
+                ]
+            },
+            redact(#{
+                <<"headers">> => [
+                    #{<<"name">> => <<"Authorization">>, <<"value">> => <<"s">>, <<"extra">> => 1}
+                ]
+            })
+        ),
+        %% Header lists of tuples keep their behavior.
+        ?_assertEqual(
+            #{<<"headers">> => [{<<"Authorization">>, Mask}]},
+            Restore([{<<"Authorization">>, Mask}], #{
+                <<"headers">> => [{<<"Authorization">>, <<"x">>}]
+            })
+        )
+    ].
 
 noncanonical_header_name_is_not_redacted_test() ->
     HeaderConf = #{
