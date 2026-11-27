@@ -20,7 +20,8 @@ all() ->
     [
         {group, gen_tcp_listener},
         {group, socket_listener},
-        {group, ssl_listener}
+        {group, ssl_listener},
+        {group, gen_tcp_chunk_listener}
     ].
 
 groups() ->
@@ -32,15 +33,23 @@ groups() ->
             {group, others},
             {group, socket},
             {group, misbehaving},
-            {group, connect_packet_limit}
+            {group, connect_packet_limit},
+            {group, after_disconnect}
         ]},
         {socket_listener, [], [
             {group, socket},
             {group, misbehaving},
-            {group, connect_packet_limit}
+            {group, connect_packet_limit},
+            {group, after_disconnect}
         ]},
         {ssl_listener, [], [
             {group, connect_packet_limit}
+        ]},
+        {gen_tcp_chunk_listener, [], [
+            {group, after_disconnect}
+        ]},
+        {after_disconnect, [], [
+            t_disconnect_then_oversized_publish_keeps_session
         ]},
         {mqttv3, [], [
             t_basic,
@@ -157,6 +166,17 @@ init_per_group(ssl_listener, Config) ->
         {connect_refusal, {transport, invalid_packet}}
         | Config
     ];
+init_per_group(gen_tcp_chunk_listener, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx, emqx_config() ++ "\n" ++ """
+                listeners.tcp.default.tcp_backend = gen_tcp
+                listeners.tcp.default.parse_unit = chunk
+            """}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{group_apps, Apps}, {listener_type, tcp} | Config];
 init_per_group(mqttv3, Config) ->
     [{proto_ver, v3} | Config];
 init_per_group(mqttv4, Config) ->
@@ -171,6 +191,8 @@ end_per_group(gen_tcp_listener, Config) ->
 end_per_group(socket_listener, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(ssl_listener, Config) ->
+    emqx_cth_suite:stop(?config(group_apps, Config));
+end_per_group(gen_tcp_chunk_listener, Config) ->
     emqx_cth_suite:stop(?config(group_apps, Config));
 end_per_group(_GroupName, _Config) ->
     ok.
@@ -1137,6 +1159,34 @@ t_publish_larger_than_max_packet_size_keeps_session(Config) ->
         raw_close(Socket),
         emqx_cm:kick_session(ClientId)
     end.
+
+-doc """
+DISCONNECT and the fixed header of a PUBLISH larger than `mqtt.max_packet_size`
+in one TCP send. The broker handles the DISCONNECT as a normal disconnect and
+does not read the PUBLISH. The next connection with Clean Session = 0 finds the
+session.
+""".
+t_disconnect_then_oversized_publish_keeps_session(_) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Sock0 = raw_connect_v4(ClientId, _CleanStart0 = false),
+    ?assertEqual(<<32, 2, 0, 0>>, recv_raw_connack(Sock0)),
+    Disconnect = emqx_frame:serialize(?DISCONNECT_PACKET()),
+    %% A PUBLISH fixed header that announces a 268435455 byte body.
+    Oversized = <<(?PUBLISH bsl 4), 16#FF, 16#FF, 16#FF, 16#7F>>,
+    ?assertMatch(
+        {_, {ok, #{clientid := ClientId}}},
+        ?wait_async_action(
+            gen_tcp:send(Sock0, [Disconnect, Oversized]),
+            #{?snk_kind := sock_closed_normal, clientid := ClientId},
+            5000
+        )
+    ),
+    ok = recv_raw_closed(Sock0),
+    Sock = raw_connect_v4(ClientId, _CleanStart = false),
+    %% Session present
+    ?assertEqual(<<32, 2, 1, 0>>, recv_raw_connack(Sock)),
+    ok = gen_tcp:close(Sock),
+    ok = emqx_cm:kick_session(ClientId).
 
 disconnect_then_connect_in_one_send(ClientId) ->
     Sock = raw_connect_v4(ClientId, _CleanStart = false),

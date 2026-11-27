@@ -796,9 +796,7 @@ handle_data(
     State = State1#state{gc_tracker = {ActiveN, {Pubs + N, Bytes + Oct}, Out}},
     Msgs = next_incoming_msgs(Packets),
     case RequestMore of
-        false ->
-            {ok, Msgs, State};
-        true when SS =/= closed ->
+        true when SS =/= closed, More =/= disconnect ->
             request_more_data(Socket, More, Msgs, State);
         _ ->
             {ok, Msgs, State}
@@ -931,6 +929,10 @@ run_stream_parser(<<>>, Acc, N, NParseState, State) ->
     {0, N, Acc, State#state{parser = NParseState}};
 run_stream_parser(Data, Acc, N, ParseState, State) ->
     case emqx_frame:parse(Data, ParseState) of
+        {?PACKET(?DISCONNECT) = Packet, _Rest, NParseState} ->
+            %% A client must not send more packets after DISCONNECT.
+            %% Do not parse the rest of the data, and do not read more.
+            {disconnect, N + 1, [Packet | Acc], State#state{parser = NParseState}};
         {Packet, Rest, NParseState} ->
             run_stream_parser(Rest, [Packet | Acc], N + 1, NParseState, State);
         {More, NParseState} ->

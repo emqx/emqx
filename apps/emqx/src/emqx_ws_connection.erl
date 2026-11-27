@@ -591,6 +591,10 @@ parse_incoming(Data, Packets, State = #state{parse_state = ParseState, channel =
     try emqx_frame:parse(Data, ParseState) of
         {_More, NParseState} ->
             {lists:reverse(Packets), State#state{parse_state = NParseState}};
+        {?PACKET(?DISCONNECT) = Packet, _Rest, NParseState} ->
+            %% A client must not send more packets after DISCONNECT.
+            %% Do not parse the rest of the data.
+            {lists:reverse(Packets, [Packet]), State#state{parse_state = NParseState}};
         {Packet, Rest, NParseState} ->
             NState = State#state{parse_state = NParseState},
             parse_incoming(Rest, [Packet | Packets], NState)
