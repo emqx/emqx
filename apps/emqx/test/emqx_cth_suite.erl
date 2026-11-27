@@ -363,7 +363,7 @@ maybe_configure_app(_App, #{config := false}) ->
     ok;
 maybe_configure_app(_App, AppConfig = #{schema_mod := SchemaModule}) when is_atom(SchemaModule) ->
     #{config := Config} = AppConfig,
-    configure_app(SchemaModule, Config);
+    do_configure_app(SchemaModule, Config);
 maybe_configure_app(App, #{config := Config}) ->
     case app_schema(App) of
         {ok, SchemaModule} ->
