@@ -986,6 +986,274 @@ t_queued_valid_source_keeps_a_live_downlink_proxy(_) ->
         er_coap_udp_socket:close(Sock1)
     end.
 
+-doc """
+In connection mode, only a request can be checked against the client ID and
+token of a channel. ACK and reset messages are accepted only from the UDP
+source that the channel uses as its downlink: a confirmable request that the
+gateway sends to the device through the REST API stays open until the device
+itself answers.
+""".
+t_ack_reset_from_other_source_ignored(_) ->
+    {ok, VSock} = gen_udp:open(0, [binary, {active, false}]),
+    {ok, OSock} = gen_udp:open(0, [binary, {active, false}]),
+    _Token = raw_connection(VSock, <<"client1">>),
+    try
+        %% The other source names client1 in a request that is refused.
+        ?assertMatch(
+            {error, unauthorized, _},
+            raw_udp_request(
+                OSock,
+                client_uri(pubsub_uri("coap/other_source"), <<"client1">>, <<"wrong">>),
+                make_req(post, <<"refused">>)
+            )
+        ),
+        lists:foreach(
+            fun(Kind) ->
+                Payload = atom_to_binary(Kind),
+                Ref = async_api_request(<<"client1">>, Payload, <<"10s">>),
+                Req = recv_raw_message(VSock, 5000),
+                ?assertMatch(#coap_message{type = con, method = get, payload = Payload}, Req),
+                ok = send_raw_message(OSock, other_source_reply(Kind, Req)),
+                %% The exchange is still open: the API caller has no result yet.
+                receive
+                    {api_result, Ref, Early} -> error({unexpected_api_result, Kind, Early})
+                after 500 -> ok
+                end,
+                ok = send_raw_message(
+                    VSock, emqx_coap_message:piggyback({ok, content}, Payload, Req)
+                ),
+                {ok, 200, Body} = wait_api_result(Ref),
+                ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Body))
+            end,
+            [reset, ack]
+        ),
+        ?assertEqual({error, timeout}, gen_udp:recv(OSock, 0, 0))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        gen_udp:close(OSock),
+        gen_udp:close(VSock)
+    end.
+
+-doc """
+A reply to a request that is sent to a device through the REST API is accepted
+only from the UDP source that the device uses as its downlink.
+""".
+t_api_request_reply_from_other_source_ignored(_) ->
+    {ok, VSock} = gen_udp:open(0, [binary, {active, false}]),
+    {ok, OSock} = gen_udp:open(0, [binary, {active, false}]),
+    _Token = raw_connection(VSock, <<"client1">>),
+    try
+        ?assertMatch(
+            {error, unauthorized, _},
+            raw_udp_request(
+                OSock,
+                client_uri(pubsub_uri("coap/api_reply"), <<"client1">>, <<"wrong">>),
+                make_req(post, <<"refused">>)
+            )
+        ),
+        Ref = async_api_request(<<"client1">>, <<"ping">>, <<"2s">>),
+        Req = recv_raw_message(VSock, 5000),
+        ?assertMatch(#coap_message{type = con, method = get}, Req),
+        %% A piggybacked response and a separate response, both from the other
+        %% source.  The device itself does not answer.
+        ok = send_raw_message(
+            OSock, emqx_coap_message:piggyback({ok, content}, <<"forged">>, Req)
+        ),
+        ok = send_raw_message(
+            OSock,
+            (emqx_coap_message:response({ok, content}, <<"forged">>, Req))#coap_message{
+                type = non, id = (Req#coap_message.id + 1) band 16#FFFF
+            }
+        ),
+        ?assertMatch({ok, 504, _}, wait_api_result(Ref))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        gen_udp:close(OSock),
+        gen_udp:close(VSock)
+    end.
+
+-doc """
+A UDP source that has named one client stays with the channel of that client.
+The channel serves only its own client: a later request of the source that names
+another client ID is refused, also when it carries the valid token of that other
+client.  Neither client's channel, identity or downlink changes.
+""".
+t_request_for_other_client_refused_on_bound_source(_) ->
+    Topic = <<"coap/refused_then_own">>,
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    {ok, SockB0} = gen_udp:open(0, [binary, {active, false}]),
+    {ok, SockB1} = gen_udp:open(0, [binary, {active, false}]),
+    Token = connection(Channel1),
+    try
+        observe_topic(Channel1, Token, Topic, <<"client1-observe">>),
+        [PidA] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        ProxyA = current_udp_proxy_id(PidA),
+        TokenB = raw_connection(SockB0, <<"client2">>),
+        [PidB] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>),
+        ProxyB0 = current_udp_proxy_id(PidB),
+        OwnURI = client_uri(pubsub_uri("coap/client2_own"), <<"client2">>, TokenB),
+
+        %% The new source names client1 and is refused.
+        ?assertMatch(
+            {error, unauthorized, _},
+            raw_udp_request(
+                SockB1,
+                client_uri(pubsub_uri(binary_to_list(Topic)), <<"client1">>, TokenB),
+                make_req(post, <<"refused">>)
+            )
+        ),
+        %% Its next request reaches client1's channel too, which does not serve
+        %% client2.
+        ?assertMatch(
+            {error, unauthorized, _},
+            raw_udp_request(SockB1, OwnURI, make_req(post, <<"own">>))
+        ),
+
+        %% client1 keeps its channel, identity and downlink.
+        ?assertEqual([PidA], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+        ?assertEqual(ProxyA, current_udp_proxy_id(PidA)),
+        ?assertMatch(
+            #{clientinfo := #{clientid := <<"client1">>}}, emqx_gateway_conn:info(PidA)
+        ),
+        %% So does client2, which is still served through its first source.
+        ?assertEqual([PidB], emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>)),
+        ?assertEqual(ProxyB0, current_udp_proxy_id(PidB)),
+        ?assertMatch(
+            #{clientinfo := #{clientid := <<"client2">>}}, emqx_gateway_conn:info(PidB)
+        ),
+        ?assertMatch(
+            {ok, changed, _},
+            raw_udp_request(SockB0, OwnURI, make_req(post, <<"own">>))
+        ),
+
+        Payload = <<"for-client1-only">>,
+        publish(Topic, ?QOS_0, Payload),
+        _ = assert_notify(Channel1, non, Payload),
+        ?assertEqual({error, timeout}, gen_udp:recv(SockB1, 0, 300)),
+        ?assertEqual({error, timeout}, gen_udp:recv(SockB0, 0, 0))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client2">>),
+        _ = catch disconnection(Channel1, Token),
+        gen_udp:close(SockB1),
+        gen_udp:close(SockB0),
+        er_coap_channel:close(Channel1),
+        er_coap_udp_socket:close(Sock1)
+    end.
+
+-doc """
+A refused request that names another client leaves the UDP proxy of its source
+with the client that owns it.  When the named client closes later, the owner
+still has its downlink and receives its notifications.
+""".
+t_refused_request_for_other_client_keeps_downlink(_) ->
+    Topic = <<"coap/keeps_downlink">>,
+    {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    {ok, SockB} = gen_udp:open(0, [binary, {active, false}]),
+    Token = connection(Channel1),
+    try
+        observe_topic(Channel1, Token, Topic, <<"client1-observe">>),
+        [PidA] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        ProxyA = current_udp_proxy_id(PidA),
+        TokenB = raw_connection(SockB, <<"client2">>),
+        [PidB] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>),
+
+        %% client1's source names client2 with a token that is not client2's.
+        ?assertMatch(
+            {error, unauthorized, _},
+            do_request(
+                Channel1,
+                client_uri(pubsub_uri("coap/other_client"), <<"client2">>, <<"not-the-token">>),
+                make_req(post, <<"refused">>)
+            )
+        ),
+
+        %% client2 closes its connection.
+        MRefB = erlang:monitor(process, PidB),
+        ?assertMatch(
+            {ok, deleted, _},
+            raw_udp_request(SockB, connection_uri(<<"client2">>, TokenB), make_req(delete))
+        ),
+        receive
+            {'DOWN', MRefB, process, PidB, _} -> ok
+        after 5000 -> error(client2_channel_still_alive)
+        end,
+
+        %% The proxy of client1's source is still running and is still the
+        %% downlink of client1.
+        ?assert(is_map(sys:get_state(ProxyA))),
+        ?assertEqual([PidA], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+        ?assertEqual(ProxyA, current_udp_proxy_id(PidA)),
+        Payload = <<"still-delivered">>,
+        publish(Topic, ?QOS_0, Payload),
+        _ = assert_notify(Channel1, non, Payload),
+        ?assert(is_process_alive(ProxyA))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client2">>),
+        _ = catch disconnection(Channel1, Token),
+        gen_udp:close(SockB),
+        er_coap_channel:close(Channel1),
+        er_coap_udp_socket:close(Sock1)
+    end.
+
+-doc """
+A UDP source serves one client at a time.  A second client that connects from a
+source whose first client is still connected is refused and does not share the
+proxy of that client.  Once the first client has closed its connection, the same
+source can connect as the second client.
+""".
+t_udp_source_serves_one_client_at_a_time(_) ->
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    try
+        TokenA = raw_connection(Sock, <<"client1">>),
+        [PidA] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        ProxyA = current_udp_proxy_id(PidA),
+
+        ?assertMatch(
+            {error, bad_request, _},
+            raw_udp_request(Sock, connection_uri(<<"client2">>), make_req(post))
+        ),
+        ?assertEqual([], emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>)),
+        ?assertEqual([PidA], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+        ?assertEqual(ProxyA, current_udp_proxy_id(PidA)),
+        ?assertMatch(
+            {ok, changed, _},
+            raw_udp_request(
+                Sock,
+                client_uri(pubsub_uri("coap/one_at_a_time"), <<"client1">>, TokenA),
+                make_req(post, <<"a">>)
+            )
+        ),
+
+        %% client1 closes its connection, which ends the proxy of the source.
+        MRef = erlang:monitor(process, ProxyA),
+        ?assertMatch(
+            {ok, deleted, _},
+            raw_udp_request(Sock, connection_uri(<<"client1">>, TokenA), make_req(delete))
+        ),
+        receive
+            {'DOWN', MRef, process, ProxyA, _} -> ok
+        after 5000 -> error(udp_proxy_still_alive)
+        end,
+
+        %% The listener may still hold the stopped proxy for this source when
+        %% the next datagram arrives, so allow a retry.
+        TokenB = ?retry(200, 5, raw_connection(Sock, <<"client2">>)),
+        [PidB] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>),
+        ?assertMatch(
+            {ok, changed, _},
+            raw_udp_request(
+                Sock,
+                client_uri(pubsub_uri("coap/one_at_a_time"), <<"client2">>, TokenB),
+                make_req(post, <<"b">>)
+            )
+        ),
+        ?assert(is_process_alive(current_udp_proxy_id(PidB)))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client2">>),
+        gen_udp:close(Sock)
+    end.
+
 t_wrong_clientid_with_valid_token_rejected_across_udp_sessions(_) ->
     {ok, Sock1, Channel1} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     Token = connection(Channel1),
@@ -1251,6 +1519,66 @@ recv_raw_udp_response(Socket) ->
     {ok, {_Host, _Port, ResponseData}} = gen_udp:recv(Socket, 0, 2000),
     #coap_message{method = {Class, Code}, payload = Payload} = parse_udp_message(ResponseData),
     {Class, Code, Payload}.
+
+raw_connection(Socket, ClientId) ->
+    {ok, created, Token} = raw_udp_request(Socket, connection_uri(ClientId), make_req(post)),
+    Token.
+
+connection_uri(ClientId) ->
+    compose_uri(
+        ?MQTT_PREFIX ++ "/connection",
+        #{"clientid" => ClientId, "username" => <<"admin">>, "password" => <<"public">>},
+        false
+    ).
+
+connection_uri(ClientId, Token) ->
+    client_uri(?MQTT_PREFIX ++ "/connection", ClientId, Token).
+
+raw_observe(Socket, ClientId, Token, Topic) ->
+    URI = client_uri(pubsub_uri(binary_to_list(Topic)), ClientId, Token),
+    {ok, content, _} = raw_udp_request(Socket, URI, make_req(get, <<>>, [{observe, 0}])),
+    ok.
+
+client_uri(Prefix, ClientId, Token) ->
+    compose_uri(Prefix, #{"clientid" => ClientId, "token" => Token}, false).
+
+send_raw_message(Socket, Message) ->
+    Data = emqx_coap_frame:serialize_pkt(Message, emqx_coap_frame:serialize_opts()),
+    gen_udp:send(Socket, {127, 0, 0, 1}, 5683, Data).
+
+recv_raw_message(Socket, Timeout) ->
+    {ok, {_Host, _Port, Data}} = gen_udp:recv(Socket, 0, Timeout),
+    parse_udp_message(Data).
+
+other_source_reply(reset, Req) ->
+    emqx_coap_message:reset(Req);
+other_source_reply(ack, Req) ->
+    emqx_coap_message:ack(Req).
+
+async_api_request(ClientId, Payload, Timeout) ->
+    Uri = emqx_mgmt_api_test_util:uri([
+        "gateways", "coap", "clients", binary_to_list(ClientId), "request"
+    ]),
+    Body = #{
+        token => <<"apitoken">>,
+        payload => Payload,
+        timeout => Timeout,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Parent = self(),
+    Ref = make_ref(),
+    _ = spawn_link(fun() ->
+        Parent ! {api_result, Ref, emqx_mgmt_api_test_util:request(post, Uri, Body)}
+    end),
+    Ref.
+
+wait_api_result(Ref) ->
+    receive
+        {api_result, Ref, Result} -> Result
+    after 15000 ->
+        error(api_request_timeout)
+    end.
 
 wait_for_udp_proxy_messages(Pid, MinCount, 0) ->
     ?assert(udp_proxy_message_count(Pid) >= MinCount),

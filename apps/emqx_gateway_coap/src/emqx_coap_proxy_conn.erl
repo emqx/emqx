@@ -83,6 +83,11 @@ normalize_clientid(ClientId) when is_list(ClientId) ->
 normalize_clientid(_Other) ->
     undefined.
 
+%% A UDP source stays with the first client ID it names for as long as its
+%% proxy lives. esockd attaches the proxy to the channel of the ID returned
+%% here and watches that channel, and the channel checks the request only
+%% afterwards. So a later request that names another client ID must not move
+%% the proxy: it goes to the bound channel, which refuses it.
 select_cid(undefined, undefined, Peer) ->
     {peer_id(Peer), undefined};
 select_cid(undefined, BoundCId, _Peer) ->

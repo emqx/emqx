@@ -81,6 +81,7 @@
     %% Listener Tag
     listener :: listener() | undefined,
     %% Defer UDP proxy ownership changes until the channel validates the packet.
+    %% The channel module must then export handle_udp_proxy_in/2.
     defer_udp_proxy_takeover = false :: boolean()
 }).
 
@@ -950,7 +951,7 @@ handle_udp_proxy_incoming(Packet, NSock, State) ->
     Ctx = ChannMod:info(ctx, Channel),
     ok = inc_incoming_stats(Ctx, FrameMod, Packet),
     ?SLOG(debug, #{msg => "packet_received", packet => FrameMod:format(Packet)}),
-    with_udp_proxy_channel(handle_in, [Packet], NSock, State).
+    with_udp_proxy_channel(handle_udp_proxy_in, [Packet], NSock, State).
 
 %%--------------------------------------------------------------------
 %% With Channel

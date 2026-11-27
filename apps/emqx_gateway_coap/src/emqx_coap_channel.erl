@@ -20,6 +20,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_udp_proxy_in/2,
     handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
@@ -176,6 +177,27 @@ handle_in(Msg, Channel0) ->
             check_auth_state(Msg, Channel);
         _ ->
             call_session(handle_response, Msg, Channel)
+    end.
+
+%% A message from a UDP source that is not the current downlink of this channel.
+%% Only a request carries the client ID and token that check_auth_state/2 can
+%% verify, so other messages are dropped. The source can send them once one of
+%% its requests has been accepted and the downlink has moved to it.
+-spec handle_udp_proxy_in(coap_message() | {frame_error, any()}, channel()) ->
+    {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: term(), channel()}
+    | {shutdown, Reason :: term(), replies(), channel()}.
+handle_udp_proxy_in(Msg, Channel) ->
+    case emqx_coap_message:is_request(Msg) of
+        true ->
+            handle_in(Msg, Channel);
+        false ->
+            ?SLOG(debug, #{
+                msg => "drop_coap_message_from_non_downlink_udp_source",
+                message => emqx_coap_frame:format(Msg)
+            }),
+            {ok, Channel}
     end.
 
 handle_frame_error(Reason, Channel) ->
@@ -477,7 +499,18 @@ check_token(
                     ReqToken1 =/= undefined,
                     ReqClientId1 =/= ClientId
                 ->
-                    try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
+                    case Token of
+                        undefined ->
+                            %% No client has connected on this channel yet, so it
+                            %% can resume the session of the client that the
+                            %% request names.
+                            try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
+                        _ ->
+                            %% This channel already serves another client. It
+                            %% keeps that client, also when the token is valid
+                            %% for the client ID in the request.
+                            with_udp_proxy_decision(reject, invalid_token_reply(Msg, Channel))
+                    end;
                 _ ->
                     with_udp_proxy_decision(reject, missing_token_or_clientid_reply(Msg, Channel))
             end
