@@ -848,6 +848,78 @@ t_disallowed_placeholders_path(TCConfig) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
+-doc """
+A path placeholder value that gives a `.` or `..` segment in the URL path makes the authorizer
+send no request and deny the action, also when `authorization.no_match` is `allow`.
+""".
+t_path_dot_segment(TCConfig) ->
+    TestPid = self(),
+    Handler = fun(Req0, State) ->
+        TestPid ! {http_request, cowboy_req:path(Req0)},
+        {ok, cowboy_req:reply(204, Req0), State}
+    end,
+    ClientInfo = #{
+        clientid => <<"client id">>,
+        username => <<"user name">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => 'tcp:default'
+    },
+    %% The static `x` segment keeps the path that the test server resolves inside its route.
+    Check = fun(Placeholder, Field, Value, Topic) ->
+        ok = setup_handler_and_config(
+            TCConfig,
+            Handler,
+            #{
+                <<"url">> =>
+                    <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/authz/x/",
+                        Placeholder/binary, "/check">>
+            }
+        ),
+        Result = emqx_access_control:authorize(
+            ClientInfo#{Field => Value}, ?AUTHZ_PUBLISH, Topic
+        ),
+        {Field, Value, Topic, Result, receive_http_requests()}
+    end,
+    CheckAll = fun() ->
+        [
+            Check(<<"${username}">>, username, <<"..">>, <<"t">>),
+            Check(<<"${username}">>, username, <<".">>, <<"t">>),
+            Check(<<"${clientid}">>, clientid, <<"..">>, <<"t">>),
+            Check(<<"${topic}">>, clientid, <<"c">>, <<"..">>),
+            Check(<<"${topic}">>, clientid, <<"c">>, <<".">>),
+            Check(<<"${topic}">>, clientid, <<"c">>, <<"../x">>),
+            Check(<<"${username}">>, username, <<"a..b">>, <<"t">>)
+        ]
+    end,
+    Expected = [
+        {username, <<"..">>, <<"t">>, deny, []},
+        {username, <<".">>, <<"t">>, deny, []},
+        {clientid, <<"..">>, <<"t">>, deny, []},
+        {clientid, <<"c">>, <<"..">>, deny, []},
+        {clientid, <<"c">>, <<".">>, deny, []},
+        {clientid, <<"c">>, <<"../x">>, allow, [<<"/authz/x/..%2Fx/check">>]},
+        {username, <<"a..b">>, <<"t">>, allow, [<<"/authz/x/a..b/check">>]}
+    ],
+    NoMatch = emqx:get_config([authorization, no_match]),
+    try
+        lists:foreach(
+            fun(NoMatchValue) ->
+                emqx_config:put([authorization, no_match], NoMatchValue),
+                ?assertEqual(Expected, CheckAll(), {no_match, NoMatchValue})
+            end,
+            [deny, allow]
+        )
+    after
+        emqx_config:put([authorization, no_match], NoMatch)
+    end.
+
+receive_http_requests() ->
+    receive
+        {http_request, Path} -> [Path | receive_http_requests()]
+    after 100 -> []
+    end.
+
 t_create_replace(TCConfig) ->
     ClientInfo = #{
         clientid => <<"clientid">>,

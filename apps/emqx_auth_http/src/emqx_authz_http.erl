@@ -124,8 +124,15 @@ authorize(
                 msg => "http_request_generation_failed",
                 reason => Reason
             }),
-            ignore
+            request_generation_failed_result(Reason)
     end.
+
+%% A dot segment in the request path denies the action. The configured
+%% `no_match` result does not apply.
+request_generation_failed_result({invalid_url_path, dot_segment}) ->
+    {matched, deny};
+request_generation_failed_result(_Reason) ->
+    ignore.
 
 format_for_api(#{<<"headers">> := Headers} = Source) ->
     NewHeaders =

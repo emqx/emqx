@@ -365,14 +365,30 @@ handshaking(
 handshaking(
     info,
     {publish, #{payload := Payload, properties := #{'Correlation-Data' := ReqId}}},
-    St0 = #st{
-        handshake_reqid = ReqId,
-        actor = Actor,
-        incarnation = Incarnation
-    }
+    St = #st{handshake_reqid = ReqId, actor = Actor}
 ) ->
+    case emqx_cluster_link_mqtt:decode_resp(Payload) of
+        {actor_init_ack, Ack} ->
+            handle_actor_init_ack(Ack, St);
+        {error, invalid_actor_init_ack} ->
+            ?tp_routerepl(debug, "handshake_invalid_ack", #{actor => Actor}),
+            keep_state_and_data
+    end;
+handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
+    ?tp_routerepl(warning, "handshake_timeout", #{
+        target_cluster => target_cluster(St),
+        actor => Actor
+    }),
+    %% Stop client, will move into `disconnected` once it is.
+    ok = terminate_client(St),
+    keep_state_and_data;
+handshaking(info, ?DOWN(MRef, _, Reason), St = #st{client_mref = MRef}) ->
+    enter_disconnected(client_down_reason(Reason), St);
+handshaking(Type, Event, St) ->
+    handle_event(Type, Event, St).
+
+handle_actor_init_ack(Ack, St0 = #st{actor = Actor, incarnation = Incarnation}) ->
     TargetCluster = target_cluster(St0),
-    {actor_init_ack, Ack} = emqx_cluster_link_mqtt:decode_resp(Payload),
     St = St0#st{handshake_reqid = undefined},
     case Ack of
         #{result := ok, need_bootstrap := NeedBootstrap} ->
@@ -388,19 +404,7 @@ handshaking(
             %% Stop client, will move into `disconnected` once it is.
             ok = terminate_client(St),
             keep_state_and_data
-    end;
-handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
-    ?tp_routerepl(warning, "handshake_timeout", #{
-        target_cluster => target_cluster(St),
-        actor => Actor
-    }),
-    %% Stop client, will move into `disconnected` once it is.
-    ok = terminate_client(St),
-    keep_state_and_data;
-handshaking(info, ?DOWN(MRef, _, Reason), St = #st{client_mref = MRef}) ->
-    enter_disconnected(client_down_reason(Reason), St);
-handshaking(Type, Event, St) ->
-    handle_event(Type, Event, St).
+    end.
 
 enter_bootstrap(_NeedBootstrap, St = #st{bootstrapped = false}) ->
     enter_bootstrapping(St);

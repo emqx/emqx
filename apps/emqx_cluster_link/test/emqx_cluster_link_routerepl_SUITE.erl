@@ -47,6 +47,61 @@ end_per_testcase(TCName, Config) ->
 
 %%
 
+t_protocol_error_logging('init', Config) ->
+    Config;
+t_protocol_error_logging('end', _Config) ->
+    snabbkaffe:stop().
+
+t_protocol_error_logging(_Config) ->
+    Invalid = #{'$op' => <<"route">>, 10 => <<"actor">>, 11 => 1, 12 => [invalid]},
+    Unknown = #{'$op' => <<"future_operation">>, payload => <<"private-data">>},
+    ?check_trace(
+        begin
+            lists:foreach(
+                fun(Operation) ->
+                    Msg = emqx_message:make(
+                        undefined, 0, ?ROUTE_TOPIC(<<"remote">>), term_to_binary(Operation)
+                    ),
+                    {stop, OutMsg} = emqx_cluster_link:on_message_publish(Msg),
+                    ?assertEqual(true, emqx_message:get_header(should_disconnect, OutMsg))
+                end,
+                [Invalid, Unknown]
+            )
+        end,
+        fun(Trace) ->
+            [InvalidEvent, UnknownEvent] = ?of_kind("cluster_link_routerepl_protocol_error", Trace),
+            ?assertMatch(#{reason := invalid_route_op}, InvalidEvent),
+            ?assertNot(maps:is_key(stacktrace, InvalidEvent)),
+            ?assertMatch(#{operation := <<"future_operation">>}, UnknownEvent),
+            ?assertNot(maps:is_key(payload, UnknownEvent))
+        end
+    ).
+
+-doc "A client publishing an invalid route operation is disconnected for every QoS.".
+t_invalid_route_op_disconnects_client(_Config) ->
+    Invalid = #{'$op' => <<"route">>, 10 => <<"actor">>, 11 => 1, 12 => [invalid]},
+    lists:foreach(
+        fun(QoS) ->
+            ClientId = <<"invalid-route-op-", (integer_to_binary(QoS))/binary>>,
+            {ok, Client} = emqtt:start_link([
+                {clientid, ClientId}, {proto_ver, v5}, {reconnect, 0}
+            ]),
+            true = unlink(Client),
+            Ref = monitor(process, Client),
+            {ok, _} = emqtt:connect(Client),
+            _ =
+                catch emqtt:publish(
+                    Client, ?ROUTE_TOPIC(<<"remote">>), term_to_binary(Invalid), QoS
+                ),
+            ?assertReceive(
+                {'DOWN', Ref, process, Client,
+                    {shutdown, {disconnected, ?RC_IMPLEMENTATION_SPECIFIC_ERROR, _}}},
+                5_000
+            )
+        end,
+        [0, 1, 2]
+    ).
+
 %% If an exception occurs while handling a route op message, we disconnect the upstream
 %% actor client so it restarts.
 t_disconnect_on_errors('init', Config) ->
@@ -156,6 +211,77 @@ t_restart_connection_on_actor_init_timeout(Config) ->
         ]
     ).
 
+t_invalid_actor_init_ack_keeps_timeout('init', Config) ->
+    t_restart_connection_on_actor_init_timeout('init', Config);
+t_invalid_actor_init_ack_keeps_timeout('end', Config) ->
+    t_restart_connection_on_actor_init_timeout('end', Config).
+
+t_invalid_actor_init_ack_keeps_timeout(Config) ->
+    Actor = ?FUNCTION_NAME,
+    TargetCluster = <<"invalid-actor-init">>,
+    ActorMF = fun
+        (incarnation) -> erlang:system_time(millisecond);
+        (marker) -> TargetCluster
+    end,
+    Link = mk_self_link(TargetCluster, [<<"#">>]),
+    HSt = ?config(hook_state, Config),
+    hookst_put(ignore_init, invalid, HSt),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {ok, RouteRepl} = emqx_cluster_link_routerepl:start_link(Actor, ActorMF, Link),
+            ?block_until(#{
+                ?snk_kind := "cluster_link_routerepl_handshake_invalid_ack", actor := Actor
+            }),
+            ?block_until(#{?snk_kind := "cluster_link_routerepl_handshake_timeout", actor := Actor}),
+            hookst_put(ignore_init, false, HSt),
+            ?block_until(#{?snk_kind := "cluster_link_routerepl_bootstrap_complete", actor := Actor}),
+            true = erlang:unlink(RouteRepl),
+            ok = gen:stop(RouteRepl, shutdown, infinity)
+        end,
+        fun(Trace) ->
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := "cluster_link_routerepl_handshake_invalid_ack"},
+                    #{?snk_kind := "cluster_link_routerepl_handshake_timeout"},
+                    Trace
+                )
+            )
+        end
+    ).
+
+t_invalid_actor_init_ack_then_valid('init', Config) ->
+    t_restart_connection_on_actor_init_timeout('init', Config);
+t_invalid_actor_init_ack_then_valid('end', Config) ->
+    t_restart_connection_on_actor_init_timeout('end', Config).
+
+t_invalid_actor_init_ack_then_valid(Config) ->
+    Actor = ?FUNCTION_NAME,
+    TargetCluster = <<"invalid-then-valid-ack">>,
+    ActorMF = fun
+        (incarnation) -> erlang:system_time(millisecond);
+        (marker) -> TargetCluster
+    end,
+    Link = mk_self_link(TargetCluster, [<<"#">>]),
+    HSt = ?config(hook_state, Config),
+    hookst_put(ignore_init, invalid_then_valid, HSt),
+    ?check_trace(
+        #{timetrap => 10_000},
+        begin
+            {ok, RouteRepl} = emqx_cluster_link_routerepl:start_link(Actor, ActorMF, Link),
+            ?block_until(#{
+                ?snk_kind := "cluster_link_routerepl_handshake_invalid_ack", actor := Actor
+            }),
+            ?block_until(#{?snk_kind := "cluster_link_routerepl_bootstrap_complete", actor := Actor}),
+            true = erlang:unlink(RouteRepl),
+            ok = gen:stop(RouteRepl, shutdown, infinity)
+        end,
+        fun(Trace) ->
+            ?assertEqual(1, length(?of_kind("cluster_link_routerepl_connected", Trace))),
+            ?assertEqual([], ?of_kind("cluster_link_routerepl_handshake_timeout", Trace))
+        end
+    ).
+
 h_restart_connection_on_actor_init_timeout(
     Msg = #message{
         topic = Topic = <<?ROUTE_TOPIC_PREFIX, Cluster/binary>>,
@@ -171,6 +297,16 @@ h_restart_connection_on_actor_init_timeout(
             case hookst_get(ignore_init, HSt) of
                 true ->
                     %% Ignore the handshake:
+                    {stop, Msg};
+                Mode when Mode =:= invalid; Mode =:= invalid_then_valid ->
+                    MsgResp = emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, true, Msg),
+                    emqx_broker:publish(
+                        MsgResp#message{payload = term_to_binary(#{'$op' => <<"actor_init_ack">>})}
+                    ),
+                    case Mode of
+                        invalid -> ok;
+                        invalid_then_valid -> emqx_broker:publish(MsgResp)
+                    end,
                     {stop, Msg};
                 _ ->
                     %% Accept the handshake:
@@ -351,8 +487,8 @@ t_consistency_under_unstable_connectivity(Config) ->
             {ok, RouteRepl} = emqx_cluster_link_routerepl:start_link(Actor, ActorMF, Link),
             ?block_until(#{?snk_kind := "cluster_link_routerepl_online", actor := Actor}),
             %% Start test workers filling up routing tables:
-            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, add, <<"#">>, tc),
-            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, delete, <<"#">>, tc),
+            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, add, <<"#">>, <<"tc">>),
+            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, delete, <<"#">>, <<"tc">>),
             Workers = [
                 spawn_link(fun() -> route_worker_init(TargetCluster, Actor, Scenario) end)
              || Scenario <- [
@@ -440,7 +576,7 @@ route_worker_loop({fixed, Topic} = Scenario, PushF, N, St) ->
     case maps:get(Topic, St, none) of
         none ->
             Op = add,
-            RouteID = {self(), N},
+            RouteID = term_to_binary({self(), N}),
             NSt = maps:put(Topic, RouteID, St);
         RouteID ->
             Op = delete,
@@ -455,7 +591,7 @@ route_worker_loop({seq, Prefix, AddEach, DeleteEach} = Scenario, PushF, N, St0) 
 
 route_worker_seq_add(Prefix, AddEach, PushF, N, St) when N rem AddEach =:= 0 ->
     Topic = emqx_topic:join([Prefix, integer_to_binary(N div AddEach)]),
-    RouteID = {self(), N},
+    RouteID = term_to_binary({self(), N}),
     false = maps:is_key(Topic, St),
     ok = PushF(add, Topic, RouteID),
     maps:put(Topic, RouteID, St);
