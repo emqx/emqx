@@ -2520,33 +2520,24 @@ t_start_node_with_plugin_enabled(Config) when is_list(Config) ->
             ct:pal("checking N2 state"),
             ?ON(N2, assert_started_and_hooks_loaded()),
             %% Now make them join.
-            %% N.B.: We need to start autocluster so that applications are restarted in
-            %% order, and also we need to override the config loader to emulate what
-            %% `emqx_cth_cluster' does and avoid the node crashing due to lack of config
-            %% keys.
-
-            %% FIXME: how to replace it?
-            %%ok = ?ON(N2, emqx_machine_boot:start_autocluster()),
-            ?ON(N2, begin
-                StartCallback0 =
-                    case ekka:env({callback, start}) of
-                        {ok, SC0} -> SC0;
-                        _ -> fun() -> ok end
-                    end,
-                StartCallback = fun() ->
-                    ok = emqx_app:set_config_loader(emqx_cth_suite),
-                    StartCallback0()
-                end,
-                ekka:callback(start, StartCallback)
-            end),
-            %% `emqx_machine_boot_apps_started' fires after the boot tail has
-            %% started the plugin apps, so the assertions below cannot race
-            %% with the plugin start.
-            {ok, {ok, _}} =
-                ?wait_async_action(
-                    ?ON(N2, emqx_cluster:join(N1)),
-                    #{?snk_kind := emqx_machine_boot_apps_started}
-                ),
+            %% On a real node, the join drops the node out of the boot run
+            %% level and re-enters it, which re-runs the machine's boot tail
+            %% (`emqx_machine_boot:ensure_apps_started/0') that (re)starts the
+            %% plugin apps. `emqx_cth_cluster' starts applications individually
+            %% and never runs that boot tail, so emulate it after the join as
+            %% well. The config loader does not have to be overridden here
+            %% anymore: the harness appspec inhibits it on every (re)start of
+            %% the `emqx' application (see `default_appspec(emqx, _)' in
+            %% `emqx_cth_suite').
+            ok = ?ON(N2, emqx_cluster:join(N1, join)),
+            ?retry(
+                200,
+                100,
+                begin
+                    ok = ?ON(N2, emqx_plugins:ensure_started()),
+                    ?ON(N2, assert_started_and_hooks_loaded())
+                end
+            ),
             ct:pal("checking N1 state after join"),
             ?ON(N1, assert_started_and_hooks_loaded()),
             ct:pal("checking N2 state after join"),
