@@ -51,6 +51,8 @@ Most of the time, you just need to:
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("classy/include/classy.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include("emqx_machine_rl.hrl").
 
 -export([start/2, start/3, stop/1]).
@@ -235,8 +237,10 @@ on_run_level(RestSpecs) ->
 
 -spec wait_business_apps(timeout()) -> ok.
 wait_business_apps(Timeout) ->
+    _ = emqx_machine:wait_cluster_ready(Timeout),
     case optvar:read(?rest_started, Timeout) of
         {ok, Apps} when is_list(Apps) ->
+            wait_for_emqx_rl_ready(Timeout),
             ok;
         {ok, {error, stopping}} ->
             exit(cth_suite_boot_aborted);
@@ -264,6 +268,15 @@ load_app_deps(App) ->
         undefined ->
             ok
     end.
+
+wait_for_emqx_rl_ready(infinity) ->
+    wait_for_emqx_rl_ready(999_999_999);
+wait_for_emqx_rl_ready(Timeout) ->
+    ?retry(
+        100,
+        Timeout div 100,
+        ?assert(classy:run_level() >= ?emqx_rl_ready)
+    ).
 
 -doc """
 Start applications without checking for system/business type of start.
