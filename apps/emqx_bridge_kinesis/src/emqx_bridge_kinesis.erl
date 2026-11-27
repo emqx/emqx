@@ -110,6 +110,35 @@ fields(connector_config) ->
                     desc => ?DESC("endpoint")
                 }
             )},
+        {assume_role_arn,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    example => <<"arn:aws:iam::123456789012:role/emqx-kinesis-writer">>,
+                    validator => fun validate_role_arn/1,
+                    desc => ?DESC("assume_role_arn")
+                }
+            )},
+        {assume_role_external_id,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    validator => fun validate_external_id/1,
+                    desc => ?DESC("assume_role_external_id")
+                }
+            )},
+        {sts_endpoint,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    example => <<"https://sts.us-east-1.amazonaws.com">>,
+                    validator => fun validate_sts_endpoint/1,
+                    desc => ?DESC("sts_endpoint")
+                }
+            )},
         {max_retries,
             mk(
                 non_neg_integer(),
@@ -231,26 +260,87 @@ action_values() ->
 
 %% Without static credentials, the connector obtains them from the ECS task role or EC2 instance
 %% metadata, so the access key ID and the secret access key must be either both set or both unset.
+%% The external ID and the STS endpoint are used only to assume a role.
 %%
 %% Hocon calls the validator of the `connectors.kinesis' map both with the whole map and with each
 %% connector config in it, whose keys may be either atoms or binaries.
 validate_credentials(Config) ->
     case get_field(endpoint, Config) of
         Endpoint when is_binary(Endpoint) ->
-            HasAccessKeyId = is_set(get_field(aws_access_key_id, Config)),
-            HasSecretAccessKey = is_set(
-                emqx_schema_secret:source(get_field(aws_secret_access_key, Config))
-            ),
-            case HasAccessKeyId =:= HasSecretAccessKey of
-                true ->
-                    ok;
-                false ->
-                    {error,
-                        <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
+            maybe
+                ok ?= validate_static_credentials(Config),
+                validate_assume_role(Config)
             end;
         _ ->
             %% Map level validation
             ok
+    end.
+
+validate_static_credentials(Config) ->
+    HasAccessKeyId = is_set(get_field(aws_access_key_id, Config)),
+    HasSecretAccessKey = is_set(
+        emqx_schema_secret:source(get_field(aws_secret_access_key, Config))
+    ),
+    case HasAccessKeyId =:= HasSecretAccessKey of
+        true ->
+            ok;
+        false ->
+            {error, <<"aws_access_key_id and aws_secret_access_key must be provided together">>}
+    end.
+
+validate_assume_role(Config) ->
+    HasRoleArn = is_set(get_field(assume_role_arn, Config)),
+    HasRoleOption =
+        is_set(get_field(assume_role_external_id, Config)) orelse
+            is_set(get_field(sts_endpoint, Config)),
+    case HasRoleOption andalso not HasRoleArn of
+        true ->
+            {error, <<"assume_role_external_id and sts_endpoint require assume_role_arn">>};
+        false ->
+            ok
+    end.
+
+%% <https://docs.aws.amazon.com/STS/latest/APIReference/API_AssumeRole.html>
+validate_role_arn(undefined) ->
+    ok;
+validate_role_arn(<<>>) ->
+    ok;
+validate_role_arn(RoleArn) ->
+    Pattern = "^arn:aws[a-z-]*:iam::[0-9]{12}:role/[\\w+=,.@/-]+$",
+    case re:run(RoleArn, Pattern, [{capture, none}, unicode]) of
+        match when byte_size(RoleArn) =< 2048 ->
+            ok;
+        _ ->
+            {error, <<"must be an IAM role ARN, such as arn:aws:iam::123456789012:role/name">>}
+    end.
+
+validate_external_id(undefined) ->
+    ok;
+validate_external_id(<<>>) ->
+    ok;
+validate_external_id(ExternalId) ->
+    Pattern = "^[\\w+=,.@:/-]{2,1224}$",
+    case re:run(ExternalId, Pattern, [{capture, none}, unicode]) of
+        match ->
+            ok;
+        nomatch ->
+            {error,
+                <<"must have 2 to 1224 characters from letters, digits and the symbols +=,.@:/-">>}
+    end.
+
+validate_sts_endpoint(undefined) ->
+    ok;
+validate_sts_endpoint(<<>>) ->
+    ok;
+validate_sts_endpoint(Endpoint) ->
+    try
+        _ = emqx_schema:parse_server(Endpoint, #{
+            default_port => 443, supported_schemes => ["http", "https"]
+        }),
+        ok
+    catch
+        throw:_ ->
+            {error, <<"must be a URL, such as https://sts.us-east-1.amazonaws.com">>}
     end.
 
 get_field(Key, Config) ->

@@ -12,11 +12,17 @@
 
 -type state() :: #{
     instance_id := resource_id(),
-    aws_config := aws_config()
+    %% Unresolved: without static credentials, they are obtained for each request.
+    aws_config := aws_config(),
+    assume_role := emqx_bridge_kinesis_sts:t() | undefined,
+    %% Holds the temporary credentials of the assumed role.
+    assumed_aws_config := aws_config() | undefined
 }.
 -type record() :: {Data :: binary(), PartitionKey :: binary()}.
 
 -define(DEFAULT_PORT, 443).
+%% Assume the role again when the temporary credentials expire in less than this.
+-define(ASSUMED_ROLE_REFRESH_MARGIN_S, 300).
 
 %% API
 -export([
@@ -78,11 +84,15 @@ query(Pid, Records, StreamName) ->
 
 %% @doc Checks that credentials can be obtained, when they are not configured statically.
 -spec check_credentials(emqx_bridge_kinesis_impl_producer:config_connector()) ->
-    ok | {error, {failed_to_obtain_credentials, term()}}.
+    ok
+    | {error, {failed_to_obtain_credentials, term()}}
+    | {error, {failed_to_assume_role, term()}}.
 check_credentials(Config) ->
     maybe
-        {ok, _} ?= resolve_aws_config(new_aws_config(Config)),
+        {{ok, _}, _State} ?= resolve(new_state(Config)),
         ok
+    else
+        {Error, _} -> Error
     end.
 
 %%--------------------------------------------------------------------
@@ -100,32 +110,31 @@ start_link(Options) ->
 %% Initialize kinesis connector
 -spec init(emqx_bridge_kinesis_impl_producer:config_connector()) ->
     {ok, state()} | {stop, Reason :: term()}.
-init(#{instance_id := InstanceId} = Config) ->
+init(Config) ->
     process_flag(trap_exit, true),
-    State = #{
-        instance_id => InstanceId,
-        aws_config => new_aws_config(Config)
-    },
     %% Leave checking the connection to health checks
-    {ok, State}.
+    {ok, new_state(Config)}.
 
-handle_call({connection_status, StreamName}, _From, #{aws_config := AWSConfig0} = State) ->
+handle_call({connection_status, StreamName}, _From, State0) ->
+    {Resolved, State} = resolve(State0),
     Status =
         maybe
-            {ok, AWSConfig} ?= resolve_aws_config(AWSConfig0),
+            {ok, AWSConfig} ?= Resolved,
             get_status(StreamName, AWSConfig)
         end,
     {reply, Status, State};
-handle_call(connection_status, _From, #{aws_config := AWSConfig0} = State) ->
+handle_call(connection_status, _From, State0) ->
+    {Resolved, State} = resolve(State0),
     Status =
         maybe
-            {ok, AWSConfig} ?= resolve_aws_config(AWSConfig0),
+            {ok, AWSConfig} ?= Resolved,
             {ok, _ListStreamsResult} ?= erlcloud_kinesis:list_streams(<<".">>, 1, AWSConfig),
             {ok, ?status_connected}
         end,
     {reply, Status, State};
-handle_call({query, Records, StreamName}, _From, #{aws_config := AWSConfig} = State) ->
-    Result = do_query(StreamName, Records, AWSConfig),
+handle_call({query, Records, StreamName}, _From, State0) ->
+    {Resolved, State} = resolve(State0),
+    Result = do_query(StreamName, Records, Resolved),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -146,6 +155,34 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+new_state(#{instance_id := InstanceId} = Config) ->
+    #{
+        instance_id => InstanceId,
+        aws_config => new_aws_config(Config),
+        assume_role => new_assume_role(Config),
+        assumed_aws_config => undefined
+    }.
+
+new_assume_role(#{assume_role_arn := RoleArn, endpoint := Endpoint} = Config) when
+    is_binary(RoleArn), RoleArn =/= <<>>
+->
+    StsEndpoint =
+        case maps:get(sts_endpoint, Config, undefined) of
+            StsEndpoint0 when is_binary(StsEndpoint0), StsEndpoint0 =/= <<>> ->
+                StsEndpoint0;
+            _ ->
+                #{hostname := Host} =
+                    emqx_schema:parse_server(Endpoint, #{
+                        default_port => ?DEFAULT_PORT,
+                        supported_schemes => ["http", "https"]
+                    }),
+                emqx_bridge_kinesis_sts:default_endpoint(Host)
+        end,
+    ExternalId = maps:get(assume_role_external_id, Config, undefined),
+    emqx_bridge_kinesis_sts:new(RoleArn, ExternalId, StsEndpoint);
+new_assume_role(_Config) ->
+    undefined.
 
 new_aws_config(#{endpoint := Endpoint, max_retries := MaxRetries} = Config) ->
     #{scheme := Scheme, hostname := Host, port := Port} =
@@ -187,6 +224,46 @@ resolve_aws_config(AWSConfig) ->
             {error, {failed_to_obtain_credentials, Reason}}
     end.
 
+%% Returns the config to sign a request with, and the state with the cached temporary
+%% credentials of the assumed role, if any.
+resolve(#{assume_role := undefined, aws_config := AWSConfig} = State) ->
+    {resolve_aws_config(AWSConfig), State};
+resolve(#{assumed_aws_config := #aws_config{expiration = Expiration} = AWSConfig} = State) when
+    is_integer(Expiration)
+->
+    case Expiration - erlang:system_time(second) > ?ASSUMED_ROLE_REFRESH_MARGIN_S of
+        true ->
+            {{ok, AWSConfig}, State};
+        false ->
+            assume_role(State)
+    end;
+resolve(State) ->
+    assume_role(State).
+
+assume_role(#{instance_id := InstanceId, aws_config := AWSConfig0, assume_role := Opts} = State) ->
+    maybe
+        {ok, BaseAWSConfig} ?= resolve_aws_config(AWSConfig0),
+        {ok, Credentials} ?= emqx_bridge_kinesis_sts:assume_role(Opts, BaseAWSConfig),
+        #{
+            access_key_id := AccessKeyID,
+            secret_access_key := SecretAccessKey,
+            session_token := SessionToken,
+            expiration := Expiration
+        } = Credentials,
+        AWSConfig = AWSConfig0#aws_config{
+            access_key_id = AccessKeyID,
+            secret_access_key = SecretAccessKey,
+            security_token = SessionToken,
+            expiration = Expiration
+        },
+        ?tp(kinesis_role_assumed, #{instance_id => InstanceId, expiration => Expiration}),
+        {{ok, AWSConfig}, State#{assumed_aws_config := AWSConfig}}
+    else
+        {error, _} = Error ->
+            ?tp(kinesis_assume_role_failed, #{instance_id => InstanceId, error => Error}),
+            {Error, State#{assumed_aws_config := undefined}}
+    end.
+
 get_status(StreamName, AWSConfig) ->
     case erlcloud_kinesis:describe_stream(StreamName, 1, AWSConfig) of
         {ok, _} ->
@@ -197,13 +274,13 @@ get_status(StreamName, AWSConfig) ->
             {error, Error}
     end.
 
--spec do_query(binary(), [record()], aws_config()) ->
+-spec do_query(binary(), [record()], {ok, aws_config()} | {error, term()}) ->
     {ok, jsx:json_term() | binary()}
     | {error, {recoverable_error, term()}}
     | {error, {unrecoverable_error, term()}}
     | {error, term()}.
-do_query(StreamName, Records, AWSConfig0) ->
-    case resolve_aws_config(AWSConfig0) of
+do_query(StreamName, Records, Resolved) ->
+    case Resolved of
         {ok, AWSConfig} ->
             try
                 execute(put_record, {StreamName, Records}, AWSConfig)

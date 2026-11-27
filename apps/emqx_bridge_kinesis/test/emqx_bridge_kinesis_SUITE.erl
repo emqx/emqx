@@ -37,6 +37,12 @@
 
 -define(STREAM_NAME, <<"stream0">>).
 
+%% LocalStack keeps the resources of a request whose access key ID is a 12-digit number in the
+%% account with that ID.  It issues the credentials of an assumed role in the default account,
+%% where `create_stream/1' creates the stream.
+-define(OTHER_ACCOUNT_KEY, <<"111111111111">>).
+-define(ROLE_ARN, <<"arn:aws:iam::000000000000:role/emqx-kinesis-test">>).
+
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
 %%------------------------------------------------------------------------------
@@ -377,6 +383,85 @@ mock_metadata_credentials(Result) ->
                 meck:passthrough([AWSConfig])
         end
     ).
+
+%% Unlike `snabbkaffe:collect_trace/0', keeps the events for the next call.
+trace_so_far() ->
+    Trace = get_trace_so_far() ++ snabbkaffe:collect_trace(),
+    put(?MODULE, Trace),
+    Trace.
+
+get_trace_so_far() ->
+    case get(?MODULE) of
+        undefined -> [];
+        Trace -> Trace
+    end.
+
+assume_role_overrides() ->
+    assume_role_overrides(#{}).
+
+assume_role_overrides(Overrides) ->
+    maps:merge(
+        #{
+            <<"aws_access_key_id">> => ?OTHER_ACCOUNT_KEY,
+            <<"assume_role_arn">> => ?ROLE_ARN,
+            <<"assume_role_external_id">> => <<"emqx-test-id">>,
+            <<"sts_endpoint">> => <<"http://toxiproxy:4566">>
+        },
+        Overrides
+    ).
+
+meck_erlcloud_httpc(Fun) ->
+    ok = meck:new(erlcloud_httpc, [passthrough]),
+    on_exit(fun() -> meck:unload(erlcloud_httpc) end),
+    ok = meck:expect(erlcloud_httpc, request, fun(URL, Method, Headers, Body, Timeout, Config) ->
+        Fun([URL, Method, Headers, Body, Timeout, Config])
+    end).
+
+is_assume_role_request(Body) ->
+    is_binary(Body) andalso binary:match(Body, <<"Action=AssumeRole">>) =/= nomatch.
+
+sts_requests() ->
+    [
+        {Headers, Body}
+     || {_Pid, {erlcloud_httpc, request, [_URL, post, Headers, Body | _]}, _Result} <-
+            meck:history(erlcloud_httpc),
+        is_assume_role_request(Body)
+    ].
+
+is_signed_by(KeyPrefix, Headers) ->
+    Authorization = proplists:get_value("Authorization", Headers, ""),
+    string:find(Authorization, ["Credential=", KeyPrefix]) =/= nomatch.
+
+assert_signed_by(KeyPrefix, Headers) ->
+    ?assert(is_signed_by(KeyPrefix, Headers), #{headers => Headers, key => KeyPrefix}).
+
+sts_access_denied() ->
+    Body = <<
+        """
+        <ErrorResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+          <Error>
+            <Type>Sender</Type>
+            <Code>AccessDenied</Code>
+            <Message>User: arn:aws:iam::111111111111:user/emqx is not authorized to perform:
+              sts:AssumeRole on resource: arn:aws:iam::000000000000:role/emqx-kinesis-test</Message>
+          </Error>
+          <RequestId>1</RequestId>
+        </ErrorResponse>
+        """
+    >>,
+    {ok, {{403, "Forbidden"}, [], Body}}.
+
+with_expiration({ok, {Status, Headers, Body}}, Expiration) ->
+    Timestamp = calendar:system_time_to_rfc3339(Expiration, [{offset, "Z"}]),
+    NewBody = re:replace(
+        Body,
+        <<"<Expiration>[^<]*</Expiration>">>,
+        ["<Expiration>", Timestamp, "</Expiration>"],
+        [{return, binary}]
+    ),
+    {ok, {Status, Headers, NewBody}};
+with_expiration(Result, _Expiration) ->
+    Result.
 
 assert_body_contains(Body, Pattern) ->
     Encoded = emqx_utils_json:encode(Body),
@@ -1304,4 +1389,196 @@ t_metadata_credentials_refresh_failure(_TCConfig) ->
         emqx_bridge_kinesis_connector_client:query(Pid, [{<<"data">>, <<"key">>}], ?STREAM_NAME)
     ),
     gen_server:stop(Pid),
+    ok.
+
+%% Checks that, with a role to assume, the connector signs the writes and the health checks with
+%% the temporary credentials of the role, and that it reuses them until they are close to expiry.
+t_assume_role(TCConfig) ->
+    meck_erlcloud_httpc(fun meck:passthrough/1),
+    %% Without the role, the stream is not in the account of the connector credentials.
+    {201, _} = create_connector_api(TCConfig, #{<<"aws_access_key_id">> => ?OTHER_ACCOUNT_KEY}),
+    ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, create_action_api(TCConfig, #{})),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ?assertMatch({204, _}, probe_connector_api(TCConfig, assume_role_overrides())),
+    snabbkaffe:stop(),
+    snabbkaffe:start_trace(),
+    meck:reset(erlcloud_httpc),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, assume_role_overrides())
+    ),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    ShardIt = get_shard_iterator(TCConfig),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    Record = wait_record(ShardIt, TCConfig),
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Data)),
+    %% STS requests are signed with the connector credentials.
+    StsRequests = sts_requests(),
+    ?assertMatch([_ | _], StsRequests),
+    lists:foreach(
+        fun({Headers, Body}) ->
+            ?assertEqual(match, re:run(Body, <<"ExternalId=emqx-test-id">>, [{capture, none}])),
+            assert_signed_by(?OTHER_ACCOUNT_KEY, Headers)
+        end,
+        StsRequests
+    ),
+    %% Kinesis requests are signed with the temporary credentials.
+    KinesisHeaders = [
+        Headers
+     || {_Pid, {erlcloud_httpc, request, [_URL, post, Headers | _]}, _Result} <-
+            meck:history(erlcloud_httpc),
+        lists:member(proplists:get_value("x-amz-target", Headers), [
+            "Kinesis_20131202.PutRecord",
+            "Kinesis_20131202.PutRecords",
+            "Kinesis_20131202.DescribeStream",
+            "Kinesis_20131202.ListStreams"
+        ])
+    ],
+    ?assertMatch([_ | _], KinesisHeaders),
+    lists:foreach(
+        fun(Headers) ->
+            assert_signed_by(<<"ASIA">>, Headers),
+            ?assert(proplists:is_defined("x-amz-security-token", Headers))
+        end,
+        KinesisHeaders
+    ),
+    %% One role session for the start check of the connector, and at most one for each worker,
+    %% despite repeated health checks.
+    #{<<"pool_size">> := PoolSize} = get_config(connector_config, TCConfig),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    ?retry(
+        500,
+        20,
+        ?assertMatch(
+            [_, _, _, _, _ | _],
+            ?of_kind("kinesis_producer_connector_hc_enter", trace_so_far())
+        )
+    ),
+    Assumed = [
+        E
+     || #{instance_id := Id} = E <- ?of_kind(kinesis_role_assumed, trace_so_far()),
+        Id =:= ConnResId
+    ],
+    ?assert(length(Assumed) >= 2, #{events => Assumed}),
+    ?assert(length(Assumed) =< 1 + PoolSize, #{events => Assumed}),
+    ok.
+
+%% Checks that the connector assumes the role again before the temporary credentials expire.
+t_assume_role_refresh(TCConfig) ->
+    %% STS issues credentials that expire within the refresh margin.
+    meck_erlcloud_httpc(fun([_URL, _Method, _Headers, Body | _] = Args) ->
+        Result = meck:passthrough(Args),
+        case is_assume_role_request(Body) of
+            true -> with_expiration(Result, erlang:system_time(second) + 60);
+            false -> Result
+        end
+    end),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, assume_role_overrides())
+    ),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TCConfig),
+    #{<<"pool_size">> := PoolSize} = get_config(connector_config, TCConfig),
+    CountAssumed = fun() ->
+        length([
+            E
+         || #{instance_id := Id} = E <- ?of_kind(kinesis_role_assumed, trace_so_far()),
+            Id =:= ConnResId
+        ])
+    end,
+    %% Each health check gets new credentials from STS.
+    ?retry(500, 20, ?assert(CountAssumed() > 1 + 3 * PoolSize)),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_action_api(TCConfig)),
+    ok.
+
+%% Checks that a failure to assume the role gives a readable error, both when STS rejects the
+%% request and when STS cannot be reached.
+t_assume_role_failure(TCConfig) ->
+    meck_erlcloud_httpc(fun([_URL, _Method, _Headers, Body | _] = Args) ->
+        case is_assume_role_request(Body) of
+            true -> sts_access_denied();
+            false -> meck:passthrough(Args)
+        end
+    end),
+    {400, ProbeBody} = probe_connector_api(TCConfig, assume_role_overrides()),
+    assert_body_contains(ProbeBody, <<"failed_to_assume_role">>),
+    assert_body_contains(ProbeBody, <<"AccessDenied">>),
+    assert_body_contains(ProbeBody, <<"is not authorized to perform">>),
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := Reason
+    }} = create_connector_api(TCConfig, assume_role_overrides()),
+    assert_body_contains(Reason, <<"AccessDenied">>),
+    %% STS cannot be reached.
+    {400, ProbeBody2} = probe_connector_api(
+        TCConfig,
+        assume_role_overrides(#{
+            <<"sts_endpoint">> => <<"http://127.0.0.1:9">>, <<"max_retries">> => 0
+        })
+    ),
+    assert_body_contains(ProbeBody2, <<"failed_to_assume_role">>),
+    ok.
+
+%% Checks that two connectors with the same role and different base credentials do not share
+%% the temporary credentials.
+t_assume_role_not_shared(TCConfig) ->
+    DeniedKey = <<"222222222222">>,
+    meck_erlcloud_httpc(fun([_URL, _Method, Headers, Body | _] = Args) ->
+        case is_assume_role_request(Body) andalso is_signed_by(DeniedKey, Headers) of
+            true -> sts_access_denied();
+            false -> meck:passthrough(Args)
+        end
+    end),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, assume_role_overrides())
+    ),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    Name2 = <<(get_config(connector_name, TCConfig))/binary, "_2">>,
+    TCConfig2 = lists:foldl(
+        fun({K, V}, Acc) -> lists:keystore(K, 1, Acc, {K, V}) end,
+        TCConfig,
+        [{connector_name, Name2}, {action_name, Name2}]
+    ),
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := Reason
+    }} = create_connector_api(
+        TCConfig2, assume_role_overrides(#{<<"aws_access_key_id">> => DeniedKey})
+    ),
+    assert_body_contains(Reason, <<"AccessDenied">>),
+    ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_action_api(TCConfig)),
+    ok.
+
+%% Checks the validation of the role settings.
+t_assume_role_validation(TCConfig) ->
+    lists:foreach(
+        fun({Overrides, Pattern}) ->
+            ?assertMatch({400, _}, probe_connector_api(TCConfig, Overrides)),
+            {400, Body} = create_connector_api(TCConfig, Overrides),
+            assert_body_contains(Body, Pattern)
+        end,
+        [
+            {
+                #{<<"assume_role_arn">> => <<"arn:aws:iam::123:role/x">>},
+                <<"must be an IAM role ARN">>
+            },
+            {#{<<"assume_role_arn">> => <<"arn:aws:s3:::bucket">>}, <<"must be an IAM role ARN">>},
+            {
+                assume_role_overrides(#{<<"assume_role_external_id">> => <<"a b">>}),
+                <<"must have 2 to 1224 characters">>
+            },
+            {
+                assume_role_overrides(#{<<"sts_endpoint">> => <<"ftp://sts">>}),
+                <<"must be a URL">>
+            },
+            {#{<<"assume_role_external_id">> => <<"emqx-test-id">>}, <<"require assume_role_arn">>},
+            {#{<<"sts_endpoint">> => <<"http://toxiproxy:4566">>}, <<"require assume_role_arn">>}
+        ]
+    ),
     ok.
