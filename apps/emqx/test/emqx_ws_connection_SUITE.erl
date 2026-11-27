@@ -326,6 +326,21 @@ t_websocket_handle_pong(_) ->
 t_websocket_handle_bad_frame(_) ->
     {[{shutdown, unexpected_ws_frame}], _St} = ?ws_conn:websocket_handle({badframe, <<>>}, st()).
 
+-doc """
+A text frame closes the connection, because MQTT packets must be in binary frames.
+The client causes it, so the log is at the debug level, not an error.
+""".
+t_websocket_handle_text_frame_log(_) ->
+    St = st(),
+    SendTextFrame = fun() ->
+        {[{shutdown, unexpected_ws_frame}], _} = ?ws_conn:websocket_handle({text, <<"hi">>}, St)
+    end,
+    Capture = fun(Level) ->
+        [R || #{frame := text} = R <- emqx_cth_log_capture:capture(Level, SendTextFrame)]
+    end,
+    ?assertEqual([], Capture(info)),
+    ?assertMatch([#{msg := "unexpected_frame"}], Capture(debug)).
+
 t_websocket_info_call(_) ->
     From = {make_ref(), self()},
     Call = {call, From, badreq},

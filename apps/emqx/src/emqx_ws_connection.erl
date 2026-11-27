@@ -377,8 +377,9 @@ websocket_handle(Frame, State) when Frame =:= ping; Frame =:= pong ->
 websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
     {ok, State};
 websocket_handle({Frame, _}, State) ->
-    %% TODO: should not close the ws connection
-    ?LOG(error, #{msg => "unexpected_frame", frame => Frame}),
+    %% A client must send MQTT packets in binary data frames. The server must
+    %% close the connection when it receives any other data frame [MQTT-6.0.0-1].
+    ?TRACE("WS-MQTT", "unexpected_frame", #{frame => Frame}),
     {[{shutdown, unexpected_ws_frame}], State}.
 
 websocket_info({call, From, Req}, State) ->
