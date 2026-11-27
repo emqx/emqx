@@ -857,11 +857,10 @@ parse_node(Query, Default) ->
     end.
 
 parse_position(Bin) when is_binary(Bin) ->
-    try
-        {ok, {cont, binary_to_term(emqx_base62:decode(Bin), [safe])}}
-    catch
-        error:_ ->
-            {error, bad_cursor}
+    maybe
+        {ok, Json} ?= emqx_utils_cursor:decode_json(Bin),
+        {ok, Cursor} ?= emqx_trace:cursor_from_json(Json),
+        {ok, {cont, Cursor}}
     end;
 parse_position(0) ->
     %% NOTE: Backward compatibility.
@@ -878,7 +877,7 @@ encode_meta(Cont = {What, _}, Bytes) ->
     end.
 
 encode_position({_, Cursor}) ->
-    emqx_base62:encode(term_to_binary(Cursor)).
+    emqx_utils_cursor:encode_json(emqx_trace:cursor_to_json(Cursor)).
 
 collect_file_size(Nodes, Name, AllTraceSizes) ->
     lists:foldl(

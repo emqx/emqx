@@ -720,6 +720,57 @@ t_stream_log_errors(_Config) ->
     {error, {_, 404, _}} =
         request_api(get, api_path("trace/err_stream_log_not_found/log")).
 
+-doc "The trace log stream accepts a `position` only in the JSON cursor format.".
+t_stream_log_term_position(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Now = erlang:system_time(second),
+    create_trace(<<"term_pos_stream_log">>, ClientId, Now - 10),
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    ok = emqtt:disconnect(Client),
+    ct:sleep(200),
+    {ok, _, {_, Cursor}} = emqx_trace:stream_log(<<"term_pos_stream_log">>, start, 10),
+    %% The same cursor in the JSON format is accepted:
+    JsonPos = emqx_utils_cursor:encode_json(emqx_trace:cursor_to_json(Cursor)),
+    {ok, _} =
+        request_api(get, api_path(["trace/term_pos_stream_log/log?bytes=10&position=", JsonPos])),
+    %% The same cursor in the Erlang term format is rejected:
+    TermPos = emqx_base62:encode(term_to_binary(Cursor)),
+    {error, {_, 400, _}} =
+        request_api(get, api_path(["trace/term_pos_stream_log/log?bytes=10&position=", TermPos])).
+
+-doc "A log stream cursor, including a deferred error, survives a JSON round trip.".
+t_stream_log_cursor_json(_Config) ->
+    Fragment = #{i => 1, in => 123, mt => 1700000000, ls => 4096},
+    Cursors = [
+        #{s => 1700000000, p => 0, f => Fragment},
+        #{s => 1700000000, p => 100, f => Fragment#{in => 0}},
+        #{e => stale_cursor},
+        #{e => {file_error, eacces}}
+    ],
+    lists:foreach(
+        fun(Cursor) ->
+            Pos = emqx_utils_cursor:encode_json(emqx_trace:cursor_to_json(Cursor)),
+            {ok, Json} = emqx_utils_cursor:decode_json(Pos),
+            ?assertEqual({ok, Cursor}, emqx_trace:cursor_from_json(Json))
+        end,
+        Cursors
+    ),
+    Bad = [
+        #{
+            <<"s">> => -1,
+            <<"p">> => 0,
+            <<"f">> => emqx_trace_handler:log_fragment_to_json(Fragment)
+        },
+        #{<<"s">> => 1, <<"p">> => 0, <<"f">> => #{<<"i">> => <<"1">>}},
+        #{<<"e">> => <<"file_error">>, <<"r">> => <<"no_such_atom_cursor_json_test">>},
+        #{<<"e">> => <<"other">>}
+    ],
+    lists:foreach(
+        fun(Json) -> ?assertEqual({error, bad_cursor}, emqx_trace:cursor_from_json(Json)) end,
+        Bad
+    ).
+
 -doc """
 RPC failures other than `nodedown' (e.g. `timeout') while streaming a trace log
 return a structured 503, and downloading a trace over a failing RPC returns a

@@ -26,7 +26,9 @@
 
 -export([
     find_log_fragment/2,
-    read_log_fragment_at/4
+    read_log_fragment_at/4,
+    log_fragment_to_json/1,
+    log_fragment_from_json/1
 ]).
 
 %% For logger handler filters callbacks
@@ -187,6 +189,25 @@ filesync(HandlerId) ->
     %% Last seen file size:
     ls := non_neg_integer()
 }.
+
+-doc "Convert a log fragment to a JSON object.".
+-spec log_fragment_to_json(log_fragment()) -> map().
+log_fragment_to_json(#{i := I, in := Inode, mt := MTime, ls := LastSz}) ->
+    #{<<"i">> => I, <<"in">> => Inode, <<"mt">> => MTime, <<"ls">> => LastSz}.
+
+-doc "Convert a JSON object that `log_fragment_to_json/1` returned back to a log fragment.".
+-spec log_fragment_from_json(term()) -> {ok, log_fragment()} | error.
+log_fragment_from_json(#{<<"i">> := I, <<"in">> := Inode, <<"mt">> := MTime, <<"ls">> := LastSz}) when
+    is_integer(I),
+    I >= 0,
+    is_integer(Inode),
+    is_integer(MTime),
+    is_integer(LastSz),
+    LastSz >= 0
+->
+    {ok, #{i => I, in => Inode, mt => MTime, ls => LastSz}};
+log_fragment_from_json(_) ->
+    error.
 
 -doc """
 Find either the first log fragment to read data from, or the next to the one previously

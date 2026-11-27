@@ -53,3 +53,9 @@
 - Swapped the order of record deletion and counter decrement in cleanup paths so that
   a crash between the two operations leaves the counter slightly higher (safe direction)
   rather than lower.
+
+## 1.2.2
+
+- Changed the format of the `cursor` returned by `GET /quota/usernames`.
+  A cursor returned by an earlier version is rejected with 400 `INVALID_CURSOR`.
+  Start the listing again without a cursor.

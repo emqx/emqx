@@ -42,7 +42,9 @@
 %% Trace Log API:
 -export([
     log_details/1,
-    stream_log/3
+    stream_log/3,
+    cursor_to_json/1,
+    cursor_from_json/1
 ]).
 
 %% Manager API:
@@ -104,8 +106,8 @@
 -export_type([cursor/0]).
 
 %% Cursor in a log stream.
-%% * Can be sent to the outside and received back from it, hence should be
-%%   safe against `binary_to_term(term_to_binary(Cursor))`.
+%% * Can be sent to the outside and received back from it as JSON, see
+%%   `cursor_to_json/1` and `cursor_from_json/1`.
 %% * Can be forged, however it's generally exposed to trusted user agents.
 %%   Still, contains no information to "escape" the log stream.
 -opaque cursor() :: #{
@@ -448,6 +450,42 @@ stream_log_cursor(Name, Cursor0 = #{s := Start, p := Pos, f := Fragment0}, Limit
 stream_log_cursor(_Name, #{e := Reason}, _Limit) ->
     {error, Reason};
 stream_log_cursor(_Name, _Cursor, _Limit) ->
+    {error, bad_cursor}.
+
+-doc "Convert a log stream cursor to a JSON object.".
+-spec cursor_to_json(cursor()) -> map().
+cursor_to_json(#{e := stale_cursor}) ->
+    #{<<"e">> => <<"stale_cursor">>};
+cursor_to_json(#{e := {file_error, Posix}}) ->
+    #{<<"e">> => <<"file_error">>, <<"r">> => atom_to_binary(Posix)};
+cursor_to_json(#{s := Start, p := Pos, f := Fragment}) ->
+    #{
+        <<"s">> => Start,
+        <<"p">> => Pos,
+        <<"f">> => emqx_trace_handler:log_fragment_to_json(Fragment)
+    }.
+
+-doc "Convert a JSON object that `cursor_to_json/1` returned back to a log stream cursor.".
+-spec cursor_from_json(term()) -> {ok, cursor()} | {error, bad_cursor}.
+cursor_from_json(#{<<"e">> := <<"stale_cursor">>}) ->
+    {ok, #{e => stale_cursor}};
+cursor_from_json(#{<<"e">> := <<"file_error">>, <<"r">> := Posix}) when is_binary(Posix) ->
+    try
+        {ok, #{e => {file_error, binary_to_existing_atom(Posix)}}}
+    catch
+        error:badarg ->
+            {error, bad_cursor}
+    end;
+cursor_from_json(#{<<"s">> := Start, <<"p">> := Pos, <<"f">> := Fragment0}) when
+    is_integer(Start), Start >= 0, is_integer(Pos), Pos >= 0
+->
+    case emqx_trace_handler:log_fragment_from_json(Fragment0) of
+        {ok, Fragment} ->
+            {ok, #{s => Start, p => Pos, f => Fragment}};
+        error ->
+            {error, bad_cursor}
+    end;
+cursor_from_json(_) ->
     {error, bad_cursor}.
 
 stream_log_error(stale) ->

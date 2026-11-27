@@ -112,6 +112,7 @@
 %% field keys
 -define(CURSOR_ETS_NODE_IDX, 1).
 -define(CURSOR_ETS_CONT, 2).
+-define(CURSOR_DOMAIN, clients_v2).
 
 -define(DEFAULT_LIMIT_CLIENT_V2, 100).
 
@@ -1118,16 +1119,15 @@ next_ds_cursor(Iter) ->
     }.
 
 parse_cursor(CursorBin, Nodes) ->
-    try emqx_base62:decode(CursorBin) of
-        Bin ->
-            parse_cursor1(Bin, Nodes)
-    catch
-        _:_ ->
+    case emqx_mgmt_cursor:lookup(?CURSOR_DOMAIN, CursorBin) of
+        {ok, Cursor} ->
+            parse_cursor1(Cursor, Nodes);
+        {error, bad_cursor} ->
             {error, bad_cursor}
     end.
 
-parse_cursor1(CursorBin, Nodes) ->
-    try binary_to_term(CursorBin, [safe]) of
+parse_cursor1(Cursor0, Nodes) ->
+    case Cursor0 of
         [
             ?CURSOR_VSN1,
             ?CURSOR_TYPE_ETS,
@@ -1151,9 +1151,6 @@ parse_cursor1(CursorBin, Nodes) ->
             {ok, Cursor};
         _ ->
             {error, bad_cursor}
-    catch
-        error:badarg ->
-            {error, bad_cursor}
     end.
 
 serialize_cursor(#{type := ?CURSOR_TYPE_ETS, node_idx := NodeIdx, cont := Cont}) ->
@@ -1162,12 +1159,10 @@ serialize_cursor(#{type := ?CURSOR_TYPE_ETS, node_idx := NodeIdx, cont := Cont})
         ?CURSOR_TYPE_ETS,
         #{?CURSOR_ETS_NODE_IDX => NodeIdx, ?CURSOR_ETS_CONT => Cont}
     ],
-    Bin = term_to_binary(Cursor0, [{compressed, 9}]),
-    emqx_base62:encode(Bin);
+    emqx_mgmt_cursor:store(?CURSOR_DOMAIN, Cursor0);
 serialize_cursor(#{type := ?CURSOR_TYPE_DS, iterator := Iter}) ->
     Cursor0 = [?CURSOR_VSN1, ?CURSOR_TYPE_DS, Iter],
-    Bin = term_to_binary(Cursor0, [{compressed, 9}]),
-    emqx_base62:encode(Bin).
+    emqx_mgmt_cursor:store(?CURSOR_DOMAIN, Cursor0).
 
 %% An adapter function so we can reutilize all the logic in `emqx_mgmt_api' for
 %% selecting/fuzzy filters, and also reutilize its BPAPI for selecting rows.
