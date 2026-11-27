@@ -1,5 +1,5 @@
 import { loadedTools, loadedProfiles, pipelineSteps } from './state.js';
-import { esc, stepClass } from './ui_helpers.js';
+import { esc, stepClass, withUnmanagedFields } from './ui_helpers.js';
 import { createSchemaEditor, getSchemaEditorValue } from './schema_editor.js';
 
 export function defaultStep(type) {
@@ -223,6 +223,16 @@ export function syncAll() {
   pipelineSteps.forEach((_, idx) => syncStep(idx));
 }
 
+// Step fields that the step form edits, by step type.
+const STEP_FORM_KEYS = {
+  call_tool: ['id', 'type', 'tool', 'args', 'result_path'],
+  llm_loop: [
+    'id', 'type', 'provider_name', 'model', 'key_expression', 'max_tokens', 'max_total_tokens',
+    'persistent', 'tools', 'input', 'instructions', 'set_result_schema', 'result_path'
+  ],
+  break: ['id', 'type', 'path', 'not']
+};
+
 export function collectSteps() {
   syncAll();
   return pipelineSteps.map(s => {
@@ -251,6 +261,8 @@ export function collectSteps() {
       if (s.path) out.path = s.path;
       if (s.not === true) out.not = true;
     }
-    return out;
+    // A step loaded from the server keeps the fields that the step form does not edit.
+    const loaded = s.source?.type === s.type ? s.source : undefined;
+    return withUnmanagedFields(loaded, out, STEP_FORM_KEYS[s.type] ?? ['id', 'type']);
   });
 }

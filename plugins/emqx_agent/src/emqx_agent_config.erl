@@ -73,6 +73,9 @@ same external shape that was submitted by users.
 -define(PIPELINES, <<"pipelines">>).
 -define(PIPELINE_ID, <<"pipeline_id">>).
 -define(DEFAULT_PIPELINE_KEY_EXPRESSION, <<"message.topic">>).
+-define(HEADERS, <<"headers">>).
+-define(HEADER_NAME, <<"name">>).
+-define(HEADER_VALUE, <<"value">>).
 
 -type tool_type() :: binary().
 -type tool_id() :: binary().
@@ -173,17 +176,10 @@ lookup_tool(Type, ToolId) ->
 -spec update_tool(tool_type(), tool_id(), raw_tool()) ->
     {ok, raw_tool()} | {error, term()}.
 update_tool(Type, ToolId, Body) when is_map(Body) ->
-    case wrap_tool(put_entry_fields(Body, [{?TOOL_TYPE, Type}, {?TOOL_ID, ToolId}])) of
+    Entry = put_entry_fields(Body, [{?TOOL_TYPE, Type}, {?TOOL_ID, ToolId}]),
+    case wrap_tool(Entry) of
         {ok, Tool} ->
-            case
-                update_raw_config(fun(Config0) ->
-                    Tools0 = entries(Config0, ?TOOLS),
-                    case replace_entry(tool_pred(Type, ToolId), Tool, Tools0) of
-                        {ok, Tools} -> {ok, Config0#{?TOOLS => Tools}};
-                        {error, _} = Error -> Error
-                    end
-                end)
-            of
+            case update_config_entry(?TOOLS, tool_pred(Type, ToolId), Tool) of
                 ok -> lookup_tool(Type, ToolId);
                 {error, _} = Error -> Error
             end;
@@ -239,15 +235,7 @@ lookup_connection(ConnectionId) ->
     {ok, raw_connection()} | {error, term()}.
 update_connection(ConnectionId, Body) when is_map(Body) ->
     Conn = wrap_connection(put_entry_fields(Body, [{?CONNECTION_ID, ConnectionId}])),
-    case
-        update_raw_config(fun(Config0) ->
-            Connections0 = entries(Config0, ?CONNECTIONS),
-            case replace_entry(id_pred(ConnectionId), Conn, Connections0) of
-                {ok, Connections} -> {ok, Config0#{?CONNECTIONS => Connections}};
-                {error, _} = Error -> Error
-            end
-        end)
-    of
+    case update_config_entry(?CONNECTIONS, id_pred(ConnectionId), Conn) of
         ok -> lookup_connection(ConnectionId);
         {error, _} = Error -> Error
     end;
@@ -364,7 +352,64 @@ update_raw_config(Fun) ->
             Error
     end.
 
-normalize_config_for_storage(Config) ->
+update_config_entry(Section, Pred, Entry) ->
+    update_raw_config(fun(Config) ->
+        Entries = entries(Config, Section),
+        case find_entry(Pred, Entries) of
+            {ok, OldEntry} ->
+                Restored = restore_config_entry(Entry, unwrap_union(OldEntry)),
+                {ok, Updated} = replace_entry(Pred, Restored, Entries),
+                {ok, Config#{Section => Updated}};
+            {error, _} = Error ->
+                Error
+        end
+    end).
+
+%% Both the submitted and the stored headers are normalized first, so that
+%% masked headers are restored by their normalized names.
+restore_config_entry(Entry0, OldEntry0) ->
+    Entry = normalize_headers(Entry0),
+    OldEntry = normalize_headers(OldEntry0),
+    case unwrap_union(Entry) of
+        Entry ->
+            emqx_agent_redact:deobfuscate(Entry, OldEntry);
+        Body ->
+            [Record] = maps:keys(Entry),
+            #{Record => emqx_agent_redact:deobfuscate(Body, OldEntry)}
+    end.
+
+%% In every header list, lowercase the header names and keep only the last
+%% header with each name.
+normalize_headers(Map) when is_map(Map) ->
+    maps:map(
+        fun
+            (?HEADERS, Headers) when is_list(Headers) -> normalize_header_list(Headers);
+            (_K, V) -> normalize_headers(V)
+        end,
+        Map
+    );
+normalize_headers(List) when is_list(List) ->
+    [normalize_headers(X) || X <- List];
+normalize_headers(Term) ->
+    Term.
+
+normalize_header_list(Headers) ->
+    {Normalized, _Seen} = lists:foldr(fun keep_last_header/2, {[], #{}}, Headers),
+    Normalized.
+
+keep_last_header(#{?HEADER_NAME := Name0} = Header, {Acc, Seen}) when
+    is_binary(Name0), map_size(Header) == 2, is_map_key(?HEADER_VALUE, Header)
+->
+    Name = string:lowercase(Name0),
+    case Seen of
+        #{Name := _} -> {Acc, Seen};
+        #{} -> {[Header#{?HEADER_NAME := Name} | Acc], Seen#{Name => true}}
+    end;
+keep_last_header(Other, {Acc, Seen}) ->
+    {[Other | Acc], Seen}.
+
+normalize_config_for_storage(Config0) ->
+    Config = normalize_headers(Config0),
     %% NOTE
     %% This is frontend issue workaround.
     %% It renders missing values as `null` instead of defaults, and
@@ -691,15 +736,17 @@ pipeline_pred(PipelineId) ->
     end.
 
 normalize_config(Config) ->
-    Config1 = maybe_put(#{}, ?TOOLS, normalize_entries(maps:get(?TOOLS, Config, []))),
+    Root = maps:with([<<"enable_builder_tools">>], Config),
+    Config1 = maybe_put(Root, ?TOOLS, normalize_entries(maps:get(?TOOLS, Config, []))),
     Config2 = maybe_put(
         Config1, ?CONNECTIONS, normalize_entries(maps:get(?CONNECTIONS, Config, []))
     ),
     maybe_put(Config2, ?PIPELINES, normalize_pipelines(maps:get(?PIPELINES, Config, []))).
 
 prepare_config_for_storage(Config) when is_map(Config) ->
+    Root = maps:with([<<"enable_builder_tools">>], Config),
     Config1 = maybe_put(
-        #{}, ?TOOLS, [wrap_tool_for_storage(Entry) || Entry <- maps:get(?TOOLS, Config, [])]
+        Root, ?TOOLS, [wrap_tool_for_storage(Entry) || Entry <- maps:get(?TOOLS, Config, [])]
     ),
     Config2 = maybe_put(
         Config1,

@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { esc, setMsg, toast } from './ui_helpers.js';
+import { esc, setMsg, toast, withUnmanagedFields } from './ui_helpers.js';
 import { loadedConnections, editingConnectionId } from './state.js';
 
 export async function loadConnections() {
@@ -51,6 +51,20 @@ function renderRuntimeStatus(status) {
   return `<span class="tag ${cls}">${esc(value)}</span>`;
 }
 
+// Connection fields that the connection form edits, by level.
+const CONNECTION_FORM_KEYS = ['id', 'type', 'enable', 'config'];
+const CONFIG_FORM_KEYS = [
+  'server', 'database', 'username', 'password', 'pool_size', 'connect_timeout',
+  'disable_prepared_statements', 'ssl'
+];
+const SSL_FORM_KEYS = ['enable'];
+
+function withUnmanagedConnectionFields(loaded, body) {
+  const ssl = withUnmanagedFields(loaded?.config?.ssl, body.config.ssl, SSL_FORM_KEYS);
+  const config = withUnmanagedFields(loaded?.config, { ...body.config, ssl }, CONFIG_FORM_KEYS);
+  return withUnmanagedFields(loaded, { ...body, config }, CONNECTION_FORM_KEYS);
+}
+
 export function collectConnectionBody() {
   const id = document.getElementById('conn-id').value.trim();
   return {
@@ -76,7 +90,9 @@ export async function saveConnection() {
   if (!body.config.server) return setMsg('conn-msg', 'Server is required', true);
   try {
     if (editingConnectionId.value) {
-      await api('PUT', `/connections/${encodeURIComponent(editingConnectionId.value)}`, body);
+      const loaded = loadedConnections.find(c => c.id === editingConnectionId.value);
+      const update = withUnmanagedConnectionFields(loaded, body);
+      await api('PUT', `/connections/${encodeURIComponent(editingConnectionId.value)}`, update);
       toast('Connection "' + body.id + '" updated', 'ok');
     } else {
       await api('POST', '/connections', body);

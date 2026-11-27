@@ -94,7 +94,7 @@ on_start(
     ?SLOG(info, #{
         msg => "starting_agent_tool_postgresql_connector",
         connector => InstId,
-        config => emqx_utils:redact(Config)
+        config => emqx_agent_redact:redact(Config)
     }),
     SslOpts =
         case maps:get(enable, SSL) of

@@ -17,6 +17,7 @@ init_per_suite(Config) ->
         [emqx_resource, emqx_agent],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    ok = emqx_agent_app:on_config_changed(#{}, #{<<"enable_builder_tools">> => true}),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->

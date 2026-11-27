@@ -290,7 +290,7 @@ end_per_suite(Config) ->
 
 init_per_testcase(_TC, Config) ->
     ct:timetrap({seconds, 240}),
-    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_plugin_config_fixture:setup(#{<<"enable_builder_tools">> => true}),
     ok = register_builder_tools(),
     ok = register_pg_connection(),
     ok = register_builder_pipeline(),

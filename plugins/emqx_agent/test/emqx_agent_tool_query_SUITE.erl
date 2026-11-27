@@ -52,7 +52,7 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_plugin_config_fixture:setup(),
+    ok = emqx_agent_plugin_config_fixture:setup(#{<<"enable_builder_tools">> => true}),
     ok = emqx_agent_service:tool_create(#{
         <<"type">> => <<"agent__query_tools">>, <<"id">> => ?SK_TOOLS_ID
     }),
@@ -180,6 +180,37 @@ t_query_tools_get_not_found(_Config) ->
         cap_response(Reply)
     ),
     ok = emqx:unsubscribe(reply_topic(ReqId)).
+
+-doc "Check that tool queries mask stored sensitive headers.".
+t_query_tools_redacts_headers(_Config) ->
+    Type = <<"http">>,
+    Id = <<"http-headers">>,
+    Name = <<"authorization">>,
+    ok = emqx_agent_service:tool_create(#{
+        <<"type">> => Type,
+        <<"id">> => Id,
+        <<"desc">> => <<"Test HTTP tool">>,
+        <<"method">> => <<"get">>,
+        <<"url">> => <<"http://stub">>,
+        <<"input_schema">> => ?VALID_INPUT_SCHEMA,
+        <<"headers">> => [#{<<"name">> => Name, <<"value">> => <<"test-secret">>}]
+    }),
+    ReqId = unique_req_id(<<"req-qs-headers">>),
+    Topic = reply_topic(ReqId),
+    ok = emqx:subscribe(Topic),
+    invoke(<<"agent__query_tools">>, ?SK_TOOLS_ID, #{<<"type">> => Type, <<"id">> => Id}, ReqId),
+    ?assertMatch(
+        #{
+            <<"status">> := <<"ok">>,
+            <<"result">> := #{
+                <<"item">> := #{
+                    <<"headers">> := [#{<<"name">> := Name, <<"value">> := <<"******">>}]
+                }
+            }
+        },
+        cap_response(recv_reply(ReqId))
+    ),
+    ok = emqx:unsubscribe(Topic).
 
 t_query_tools_reply_correlation(_Config) ->
     ReqId = <<"req-qs-corr">>,

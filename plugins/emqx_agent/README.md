@@ -157,6 +157,12 @@ The same pattern applies to other tool types: a `message__publish` instance fixe
 | `kv__del` | Delete one key-value entry from a last-value EMQX stream. |
 | `kv__clear` | Clear all key-value entries from a last-value EMQX stream. |
 
+### HTTP Tool Headers
+
+The Agent API masks the values of sensitive `http` tool headers, such as `Authorization` and `Cookie`, as `******`. When a tool is saved with masked values, the stored values are kept.
+
+When a tool is saved, its header names are converted to lowercase, and only the last header with each name is kept. HTTP header names are case-insensitive, and a header that allows several values takes them as one comma-separated value.
+
 ### Image Handling
 
 The `http` and `message__request` tools can extract images from tool responses so multimodal data can be passed to the LLM safely. OpenAI-compatible APIs do not accept images embedded directly in tool response messages, so Agent replaces extracted images in the payload with `Image <id>` placeholders and returns the image data as separate attachments.
@@ -288,7 +294,10 @@ The root payload is represented as `Image .` and the PNG bytes are attached sepa
 
 ### Meta-Tools
 
-Meta-tools let users build pipelines that modify Agent configuration. They are ordinary tools, but are usually exposed only to trusted builder workflows.
+Meta-tools read and modify Agent configuration. The plugin does not run them by default.
+The configuration can store meta-tool definitions, but the plugin does not start them and
+rejects their invocation. To run them for a trusted builder workflow, set
+`enable_builder_tools = true` in the Agent plugin configuration.
 
 - `agent__create_tool`
 - `agent__update_tool`
@@ -440,7 +449,7 @@ The script creates the `apple-inspector` AI provider, a PostgreSQL connection, a
 a database table, and an active `apple-box-inspection` pipeline.
 Open the [Apple Box Conveyor page](http://127.0.0.1:8000/apple-box.html).
 
-Provision the Pipeline Builder demo:
+Enable the [meta-tools](#meta-tools) before provisioning the Pipeline Builder demo:
 
 ```bash
 python3 plugins/emqx_agent/demo_builder_init.py

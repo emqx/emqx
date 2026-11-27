@@ -20,6 +20,13 @@ export function stepClass(t) {
   return '';
 }
 
+// Returns the edited object with the loaded fields that the form does not manage.
+// An edit form uses it to send back the fields that it does not show.
+export function withUnmanagedFields(loaded, edited, managedKeys) {
+  const unmanaged = Object.entries(loaded ?? {}).filter(([k]) => !managedKeys.includes(k));
+  return { ...Object.fromEntries(unmanaged), ...edited };
+}
+
 export function setMsg(id, msg, isErr = false) {
   const el = document.getElementById(id);
   el.textContent = msg;

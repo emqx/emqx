@@ -109,7 +109,7 @@ export function editPipeline(id) {
   document.getElementById('pipe-cancel-btn').style.display = '';
 
   pipelineSteps.length = 0;
-  pipelineSteps.push(...(pipeline.steps ?? []).map((s, i) => deserializeStep(s, i)));
+  pipelineSteps.push(...(pipeline.steps ?? []).map((s, i) => ({ ...deserializeStep(s, i), source: s })));
   renderSteps();
 
   document.getElementById('pipe-card-title').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -126,7 +126,7 @@ function deserializeStep(s, i) {
   if (type === 'llm_loop') {
     const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
     const setResultSchema = s.set_result_schema || null;
-    return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', key_expression: s.key_expression ?? 'message.topic', persistent: s.persistent ?? false, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
+    return { id, type, provider_name: s.provider_name ?? '', model: s.model ?? '', key_expression: s.key_expression ?? 'message.topic', max_tokens: s.max_tokens, max_total_tokens: s.max_total_tokens, persistent: s.persistent ?? false, tools: s.tools ?? [], input, instructions: s.instructions ?? '', set_result_schema: setResultSchema, result_path: s.result_path ?? '' };
   }
   if (type === 'break') {
     return { id, type, path: s.path ?? '', not: s.not === true };

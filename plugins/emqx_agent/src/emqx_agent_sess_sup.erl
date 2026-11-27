@@ -10,7 +10,10 @@ Supervisor for session gen_statem processes.
 Sessions are lazy: started on the first message arriving at
 sess/in/<SID>. Non-persistent sessions terminate normally once the current LLM
 request finishes and there is nothing left to process. Persistent sessions keep
-the LLM context until idle timeout, so restart => transient.
+the LLM context until idle timeout.
+
+A session is not restarted: a restarted session has neither its request nor its
+LLM context, so restart => temporary.
 """.
 
 -behaviour(supervisor).
@@ -34,7 +37,7 @@ init([]) ->
     ChildSpec = #{
         id => emqx_agent_session,
         start => {emqx_agent_session, start_link, []},
-        restart => transient,
+        restart => temporary,
         shutdown => 30000,
         type => worker,
         modules => [emqx_agent_session]

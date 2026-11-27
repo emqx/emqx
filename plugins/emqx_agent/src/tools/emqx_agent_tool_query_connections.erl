@@ -81,10 +81,10 @@ do_handle_invoke(Request) ->
 query(#{<<"id">> := Id}) ->
     case emqx_agent_service:connection_get(Id) of
         {ok, Conn} ->
-            {ok, #{<<"item">> => emqx_utils:redact(Conn)}};
+            {ok, #{<<"item">> => emqx_agent_redact:redact(Conn)}};
         {error, not_found} ->
             {error, <<"not found">>}
     end;
 query(_) ->
-    Items = [emqx_utils:redact(Conn) || Conn <- emqx_agent_service:connection_list()],
+    Items = lists:map(fun emqx_agent_redact:redact/1, emqx_agent_service:connection_list()),
     {ok, #{<<"items">> => Items}}.
