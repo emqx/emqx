@@ -836,6 +836,17 @@ assert_persisted_service_account_json_is_binary(TCConfig) ->
     ),
     ok.
 
+activated_alarm_names() ->
+    [Name || #{name := Name} <- emqx_alarm:get_alarms(activated)].
+
+mark_ready_and_wait_waiter() ->
+    ?tp(test_marking_node_ready, #{}),
+    ?wait_async_action(
+        emqx_node_readiness:mark_ready(),
+        #{?snk_kind := resource_ready_waiter_ran},
+        5_000
+    ).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -2318,4 +2329,122 @@ t_legacy_service_account_json_redact(TCConfig) ->
     ),
     ?assertMatch(<<"{", _/binary>>, persisted_service_account_json(TCConfig)),
     ?assertMatch({204, _}, probe_connector_api(TCConfig, RedactedParams)),
+    ok.
+
+%% Checks that a source started while the node is not ready pulls and acknowledges
+%% nothing and reports `connected' while it waits, then delivers the messages
+%% published meanwhile. It is restarted first, so its workers patch the existing
+%% subscription, as after a node restart.
+t_pull_after_node_ready(TCConfig) ->
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    SourceResId = emqx_bridge_v2_testlib:resource_id(TCConfig),
+    NumWorkers = 2,
+    NumMsgs = 3,
+    SubscriptionReady = ?match_event(
+        #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"}
+    ),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            %% MQTT connections are refused while the node is not ready.
+            C = start_client(),
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {ok, SRef0} = snabbkaffe:subscribe(SubscriptionReady, NumWorkers, 40_000),
+            {201, _} = create_source_api(TCConfig, #{
+                <<"parameters">> => #{<<"consumer_workers_per_topic">> => NumWorkers}
+            }),
+            {ok, _} = snabbkaffe:receive_events(SRef0),
+            #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+            {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, 2}]),
+            {204, _} = disable_source_api(TCConfig),
+            ?tp(test_source_disabled, #{}),
+            {ok, SRef1} = snabbkaffe:subscribe(SubscriptionReady, NumWorkers, 40_000),
+            {204, _} = enable_source_api(TCConfig),
+            {ok, _} = snabbkaffe:receive_events(SRef1),
+            Payloads = [emqx_guid:to_hexstr(emqx_guid:gen()) || _ <- lists:seq(1, NumMsgs)],
+            pubsub_publish(TCConfig, PubSubTopic, [#{<<"data">> => P} || P <- Payloads]),
+            ?retry(
+                200,
+                20,
+                ?assertMatch({200, #{<<"status">> := <<"connected">>}}, get_source_api(TCConfig))
+            ),
+            ?assertNot(lists:member(SourceResId, activated_alarm_names())),
+            {ok, {ok, _}} = mark_ready_and_wait_waiter(),
+            {ok, Published} = receive_published(#{n => NumMsgs}),
+            ?assertEqual(
+                lists:sort(Payloads),
+                lists:sort([V || #{payload := #{<<"value">> := V}} <- Published])
+            ),
+            ok
+        end,
+        [
+            fun(Trace) ->
+                {BeforeReady, _AfterReady} = ?split_trace_at(
+                    #{?snk_kind := test_marking_node_ready}, Trace
+                ),
+                ?assertEqual([], ?of_kind(gcp_pubsub_consumer_worker_pull_async, BeforeReady)),
+                ?assertEqual(
+                    [], ?of_kind("gcp_pubsub_consumer_worker_handle_message", BeforeReady)
+                ),
+                ?assertEqual(
+                    [], ?of_kind(gcp_pubsub_consumer_worker_will_acknowledge, BeforeReady)
+                ),
+                {_, AfterDisable} = ?split_trace_at(
+                    #{?snk_kind := test_source_disabled}, Trace
+                ),
+                ?assertEqual(
+                    [],
+                    ?of_kind("gcp_pubsub_consumer_worker_subscription_created", AfterDisable)
+                ),
+                ?assertMatch(
+                    [_, _],
+                    ?of_kind("gcp_pubsub_consumer_worker_subscription_patched", AfterDisable)
+                ),
+                %% Both the stopped and the running workers left a deferred pull.
+                WorkerKeys = [
+                    {emqx_bridge_gcp_pubsub_consumer_worker, Pid}
+                 || #{?snk_meta := #{pid := Pid}} <- ?of_kind(
+                        "gcp_pubsub_consumer_worker_subscription_ready", Trace
+                    )
+                ],
+                ?assertMatch([_], ?of_kind(resource_ready_waiter_ran, Trace)),
+                [#{keys := Keys}] = ?of_kind(resource_ready_waiter_ran, Trace),
+                ?assertEqual(lists:sort(WorkerKeys), lists:sort(Keys)),
+                ok
+            end,
+            prop_handled_only_once()
+        ]
+    ),
+    ok.
+
+%% Checks that a source deleted while the node is not ready never pulls, and that the
+%% waiter clears its deferred pull once the node is ready.
+t_remove_before_node_ready(TCConfig) ->
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            on_exit(fun emqx_node_readiness:mark_ready/0),
+            ok = emqx_node_readiness:mark_not_ready(),
+            {201, _} = create_connector_api(TCConfig, #{}),
+            {{201, _}, {ok, #{?snk_meta := #{pid := WorkerPid}}}} =
+                ?wait_async_action(
+                    create_source_api(TCConfig, #{}),
+                    #{?snk_kind := "gcp_pubsub_consumer_worker_subscription_ready"},
+                    40_000
+                ),
+            {204, _} = delete_source_api(TCConfig),
+            ?retry(100, 20, ?assertNot(is_process_alive(WorkerPid))),
+            ?assertMatch(
+                {ok, {ok, #{keys := [{emqx_bridge_gcp_pubsub_consumer_worker, WorkerPid}]}}},
+                mark_ready_and_wait_waiter()
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(gcp_pubsub_consumer_worker_pull_async, Trace)),
+            ok
+        end
+    ),
     ok.
