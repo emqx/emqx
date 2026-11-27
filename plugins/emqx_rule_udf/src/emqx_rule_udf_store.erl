@@ -76,7 +76,7 @@ delete(Name) ->
 programs_dir() ->
     filename:join([emqx:data_dir(), "plugins", "emqx_rule_udf", "programs"]).
 
--doc "Accept a program name that matches the emqx-rule-udf/2 name rule (`PROTOCOL.md`, section 4).".
+-doc "Accept a program name that matches the emqx-rule-udf/1 name rule (`PROTOCOL.md`, section 4).".
 -spec validate_name(term()) -> ok | {error, binary()}.
 validate_name(Name) when is_binary(Name) ->
     case re:run(Name, ?NAME_RE, [{capture, none}]) of

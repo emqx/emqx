@@ -7,7 +7,7 @@
 Plugin API, under `/api/v5/plugin_api/emqx_rule_udf/`:
 
 - `GET ui`: the program editor page.
-- `GET server`: the state of the function server (`GET /v2/info`).
+- `GET server`: the state of the function server (`GET /v1/info`).
 - `GET programs`: all programs, without the source.
 - `GET programs/{name}`: one program, with the source.
 - `PUT programs/{name}`: create or replace a program. Body: `{"source", "runtime"}`.
@@ -126,7 +126,7 @@ get_source(#{<<"source">> := Source}) when is_binary(Source) ->
 get_source(_) ->
     error_json(400, <<"BAD_REQUEST">>, <<"'source' must be a string">>).
 
-%% The function server decides which runtimes exist (`GET /v2/info`).
+%% The function server decides which runtimes exist (`GET /v1/info`).
 get_runtime(#{<<"runtime">> := Runtime}) when is_binary(Runtime), Runtime =/= <<>> ->
     {ok, Runtime};
 get_runtime(_) ->
@@ -167,7 +167,7 @@ summary(#?PROGRAM_TAB{} = P) ->
 with_source(#?PROGRAM_TAB{source = Source} = P) ->
     (summary(P))#{source => Source}.
 
-%% Errors from the function server keep their emqx-rule-udf/2 code. A 4xx reply,
+%% Errors from the function server keep their emqx-rule-udf/1 code. A 4xx reply,
 %% except 401, keeps its status. Anything else becomes 502: a 401 from this
 %% API would look like an expired dashboard session.
 server_error(#{status := Status, code := Code, message := Msg} = E) ->

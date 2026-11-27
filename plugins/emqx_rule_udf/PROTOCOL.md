@@ -1,4 +1,4 @@
-# emqx-rule-udf protocol, version 2 (draft)
+# emqx-rule-udf protocol, version 1 (draft)
 
 This document specifies the HTTP protocol between EMQX and a function server.
 A function server runs user-defined functions that EMQX rule SQL calls by name.
@@ -76,14 +76,14 @@ knows the version of its own copy of a function without asking the server.
 Returns `200` with `{"status": "ok"}` when the server can accept requests. It
 needs no authentication and MUST NOT return other data.
 
-### 5.2 `GET /v2/info`
+### 5.2 `GET /v1/info`
 
 Returns the protocol version, the runtimes and the limits of the server.
 
 ```json
 {
-  "protocol": "emqx-rule-udf/2",
-  "server": "emqx-rule-udf-wasm-server/0.3.0",
+  "protocol": "emqx-rule-udf/1",
+  "server": "emqx-rule-udf-wasm-server/0.3.1",
   "runtimes": [{"name": "python3", "version": "3.14.7"}],
   "limits": {
     "max_source_bytes": 65536,
@@ -94,11 +94,11 @@ Returns the protocol version, the runtimes and the limits of the server.
 }
 ```
 
-- `protocol` MUST be `emqx-rule-udf/2` for this version of the protocol.
+- `protocol` MUST be `emqx-rule-udf/1` for this version of the protocol.
 - `limits` is for information. A client MUST still handle the errors in
   section 6.
 
-### 5.3 `POST /v2/validate`
+### 5.3 `POST /v1/validate`
 
 Checks a function. The client sends it before it saves a function.
 
@@ -122,7 +122,7 @@ Response `200`:
 - `sha256` is the version (section 4). A client SHOULD check that it equals
   its own.
 
-### 5.4 `POST /v2/call`
+### 5.4 `POST /v1/call`
 
 Calls a function.
 
@@ -204,7 +204,7 @@ When the server does not have the version that a call names, it MUST return
 ## 7. Runtimes
 
 A runtime identifier names a language and a calling convention. The server
-lists its runtimes in `GET /v2/info`. This version of the protocol defines one
+lists its runtimes in `GET /v1/info`. This version of the protocol defines one
 runtime.
 
 ### 7.1 `python3`

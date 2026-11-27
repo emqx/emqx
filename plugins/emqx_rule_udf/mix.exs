@@ -101,7 +101,7 @@ defmodule EMQXRuleUdf.MixProject do
         ],
         description:
           "Store programs in EMQX and call them from rule SQL with udf('name', ...). " <>
-            "An emqx-rule-udf/2 function server runs them in a sandbox.",
+            "An emqx-rule-udf/1 function server runs them in a sandbox.",
         index: "/ui"
       ]
     ]

@@ -9,11 +9,11 @@ SELECT udf('temp-convert.py', payload) AS t FROM "sensors/#"
 ```
 
 EMQX runs no user code. The function server runs the programs and must isolate
-them (`PROTOCOL.md`, section 10). EMQX and the server talk the emqx-rule-udf/2
+them (`PROTOCOL.md`, section 10). EMQX and the server talk the emqx-rule-udf/1
 protocol over HTTP. `PROTOCOL.md` specifies it, so a server can be written in any
 language.
 
-The reference server is the image `ghcr.io/emqx/emqx-rule-udf-wasm-server:0.3.0`
+The reference server is the image `ghcr.io/emqx/emqx-rule-udf-wasm-server:0.3.1`
 (source: [emqx/docker-images](https://github.com/emqx/docker-images), directory
 `emqx-rule-udf-wasm-server`). It runs each `python3` program in CPython on
 WebAssembly, with no file, network, process or environment access, and with a
@@ -26,13 +26,13 @@ docker run -d --name emqx-rule-udf-server -p 127.0.0.1:8080:8080 \
   -e UDF_TOKEN="$(openssl rand -hex 32)" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   --pids-limit 256 --memory 1g \
-  ghcr.io/emqx/emqx-rule-udf-wasm-server:0.3.0
+  ghcr.io/emqx/emqx-rule-udf-wasm-server:0.3.1
 ```
 
 Run it as a sidecar of each EMQX node, or as a service behind a load balancer.
 The server keeps no state that EMQX needs, so the instances behind a load
 balancer need no shared storage (see "Programs" below). The plugin needs server
-0.3.0 or later.
+0.3.1 or later.
 
 ## Configure
 
@@ -54,7 +54,7 @@ Set the function server in the plugin config:
 ## Programs
 
 - A program has a name, a runtime and a source. The function server lists the
-  runtimes it offers in `GET /v2/info`, and the plugin does not depend on any
+  runtimes it offers in `GET /v1/info`, and the plugin does not depend on any
   one of them. The reference server offers `python3`: such a program defines
   `handle(*args)`.
 - A name has 1 to 64 characters from `A-Z a-z 0-9 . _ -` and must not start with
@@ -94,7 +94,7 @@ plugin API under `/api/v5/plugin_api/emqx_rule_udf/`:
 | Method and path | Purpose |
 |---|---|
 | `GET ui` | The editor page. |
-| `GET server` | State of the function server (`GET /v2/info`). |
+| `GET server` | State of the function server (`GET /v1/info`). |
 | `GET programs` | All programs, without the source. |
 | `GET programs/{name}` | One program, with the source. |
 | `PUT programs/{name}` | Create or replace a program. Body: `{"runtime": "python3", "source": "..."}`. `runtime` is required. |

@@ -91,7 +91,7 @@ t_health_check_reports_server_reachable(Config) ->
     ?assertMatch(
         {200, #{
             <<"reachable">> := true,
-            <<"info">> := #{<<"protocol">> := <<"emqx-rule-udf/2">>}
+            <<"info">> := #{<<"protocol">> := <<"emqx-rule-udf/1">>}
         }},
         api(get, ["server"])
     ).
@@ -250,7 +250,7 @@ t_https_trusts_node_trusted_certs(Config) ->
         %% A changed config restarts the pool, which reads the trusted CAs.
         {204, _} = set_server(Config, #{<<"url">> => ProxyURL, <<"pool_size">> => 3}),
         ?assertMatch(
-            {ok, #{<<"protocol">> := <<"emqx-rule-udf/2">>}}, emqx_rule_udf_client:server_info()
+            {ok, #{<<"protocol">> := <<"emqx-rule-udf/1">>}}, emqx_rule_udf_client:server_info()
         )
     after
         restore_trusted_certs(Previous),
@@ -447,7 +447,7 @@ str(S) -> S.
 
 %% A call sent to the function server directly, without the plugin.
 server_call(Config, Body) ->
-    URL = server_url(Config) ++ "/v2/call",
+    URL = server_url(Config) ++ "/v1/call",
     Headers = [{"authorization", "Bearer " ++ binary_to_list(?SERVER_TOKEN)}],
     Request = {URL, Headers, "application/json", emqx_utils_json:encode(Body)},
     {ok, {{_, Status, _}, _, _}} = httpc:request(post, Request, [], []),
@@ -536,7 +536,7 @@ init(Req0, #{call_reply := Reply} = State) when is_binary(Reply) ->
 init(Req0, #{forget := Forget} = State) ->
     Path = binary_to_list(cowboy_req:path(Req0)),
     {ok, Body, Req} = cowboy_req:read_body(Req0),
-    case Forget andalso Path =:= "/v2/call" andalso emqx_utils_json:decode(Body) of
+    case Forget andalso Path =:= "/v1/call" andalso emqx_utils_json:decode(Body) of
         #{<<"function">> := _} -> forward(Req, Path, Body, State);
         #{} -> {ok, not_loaded_reply(Req), State};
         false -> forward(Req, Path, Body, State)

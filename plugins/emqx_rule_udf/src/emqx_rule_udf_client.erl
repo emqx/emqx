@@ -4,14 +4,14 @@
 -module(emqx_rule_udf_client).
 
 -moduledoc """
-Client of an emqx-rule-udf/2 function server (see `PROTOCOL.md`).
+Client of an emqx-rule-udf/1 function server (see `PROTOCOL.md`).
 
 EMQX stores and names the programs. The server checks them (`validate/2`) and
 runs them, and keeps loaded programs only as a cache.
 
 `call/2` and `try_call/2` are the hot path. They run in the process that
 evaluates the rule. They read the client settings from `persistent_term` and the
-program from `emqx_rule_udf_store`, and send `POST /v2/call` through an `ehttpc`
+program from `emqx_rule_udf_store`, and send `POST /v1/call` through an `ehttpc`
 pool.
 
 After a `FUNCTION_NOT_FOUND` reply, the call is repeated once with the program
@@ -114,7 +114,7 @@ call_with_program(Client, #?PROGRAM_TAB{name = Name, sha256 = Sha256} = Program,
     end.
 
 do_call(Client, Body) ->
-    case request(Client, post, <<"/v2/call">>, Body) of
+    case request(Client, post, <<"/v1/call">>, Body) of
         {ok, 200, #{<<"result">> := Result}} ->
             {ok, Result};
         {ok, 200, Other} ->
@@ -153,7 +153,7 @@ validate(Runtime, Source) ->
     maybe
         {ok, Client} ?= client(),
         Body = emqx_utils_json:encode(#{<<"runtime">> => Runtime, <<"source">> => Source}),
-        {ok, 200, Resp} ?= request(Client, post, <<"/v2/validate">>, Body),
+        {ok, 200, Resp} ?= request(Client, post, <<"/v1/validate">>, Body),
         Sha256 = version(Runtime, Source),
         case maps:get(<<"sha256">>, Resp, undefined) of
             Sha256 ->
@@ -165,16 +165,16 @@ validate(Runtime, Source) ->
         end
     end.
 
--doc "Send `GET /v2/info` to the function server and return the decoded body.".
+-doc "Send `GET /v1/info` to the function server and return the decoded body.".
 -spec server_info() -> {ok, map()} | {error, map()}.
 server_info() ->
     maybe
         {ok, Client} ?= client(),
-        {ok, 200, Info} ?= request(Client, get, <<"/v2/info">>, undefined),
+        {ok, 200, Info} ?= request(Client, get, <<"/v1/info">>, undefined),
         {ok, Info}
     end.
 
--doc "Return the emqx-rule-udf/2 version of a program (`PROTOCOL.md`, section 4).".
+-doc "Return the emqx-rule-udf/1 version of a program (`PROTOCOL.md`, section 4).".
 -spec version(binary(), binary()) -> binary().
 version(Runtime, Source) ->
     binary:encode_hex(crypto:hash(sha256, [Runtime, $\n, Source]), lowercase).
