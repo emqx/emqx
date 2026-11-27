@@ -2166,6 +2166,30 @@ See the documentation for details on each field.
 Each row in the rest of this file must contain the same number of columns as the header line,
 and column can be omitted then its value will be `undefined`."""
 
+banned_tarpit {
+  label: "Tarpit for Banned Clients"
+  desc: """~
+    Hold a banned client at its CONNECT, instead of a reply with CONNACK "Banned".
+    The tarpit applies to the tcp, ssl, ws and wss listeners. It does not apply to QUIC listeners or to gateways.~"""
+}
+
+banned_tarpit_delay {
+  label: "Tarpit Delay"
+  desc: """~
+    The time that EMQX holds a banned client before it closes the connection.
+    During this time, EMQX sends no CONNACK and no DISCONNECT, and does not read from the connection.
+    The value `0s` disables the tarpit. The maximum is `5m`.
+    A held client keeps its connection process and counts toward the listener connection limits until the connection closes.~"""
+}
+
+banned_tarpit_max {
+  label: "Max Tarpitted Clients"
+  desc: """~
+    The maximum number of banned clients that EMQX holds at the same time on each node.
+    When this number is reached, EMQX replies to the next banned client with CONNACK "Banned" at once.
+    The value `0` disables the tarpit.~"""
+}
+
 socket_tcp_keepalive.desc:
 """Enable TCP keepalive.
 The value is three comma separated numbers in the format of 'Idle,Interval,Probes'

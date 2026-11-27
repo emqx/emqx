@@ -34,6 +34,7 @@ init([]) ->
         period => 10
     },
     Banned = child_spec(emqx_banned, 1000, worker),
+    BannedTarpit = child_spec(emqx_banned_tarpit, 1000, worker),
     Flapping = child_spec(emqx_flapping, 1000, worker),
     Locker = child_spec(emqx_cm_locker, 5000, worker),
     CmPool = emqx_pool_sup:spec(emqx_cm_pool_sup, [?CM_POOL, random, {emqx_pool, start_link, []}]),
@@ -44,6 +45,7 @@ init([]) ->
     Children =
         [
             Banned,
+            BannedTarpit,
             Flapping,
             Locker,
             CmPool,

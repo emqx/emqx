@@ -103,8 +103,9 @@
     socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Sock State.
     %% `congested` or the reference of the send queue check timer denotes
-    %% send queue congestion.
-    sockstate :: emqx_types:sockstate() | congested | reference(),
+    %% send queue congestion. `tarpit` denotes a banned client that is held
+    %% until the tarpit timer fires; the socket is not read any more.
+    sockstate :: emqx_types:sockstate() | congested | reference() | tarpit,
     %% Packet parser / serializer (undefined before initialization)
     parser :: undefined | parser(),
     serialize :: emqx_frame:serialize_opts(),
@@ -480,6 +481,8 @@ handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
     case process_msg(Msg, ensure_stats_timer(State)) of
+        {ok, NewState = #state{sockstate = tarpit}} ->
+            hibernate(Parent, NewState);
         {ok, NewState} ->
             ?MODULE:recvloop(Parent, NewState);
         {stop, Reason, NewState} ->
@@ -591,6 +594,8 @@ handle_msg({'$gen_call', From, Req}, State) ->
             gen_server:reply(From, Reply),
             stop(Reason, NState)
     end;
+handle_msg(Msg, State = #state{sockstate = tarpit}) ->
+    handle_tarpit_msg(Msg, State);
 handle_msg({'$gen_cast', Req}, State) ->
     NewState = handle_cast(Req, State),
     {ok, NewState};
@@ -698,6 +703,16 @@ handle_msg(Shutdown = {shutdown, _Reason}, State) ->
     stop(Shutdown, State);
 handle_msg(Msg, State) ->
     handle_info(Msg, State).
+
+%% A banned client in the tarpit. Data, socket notifications and packets
+%% left over from the CONNECT batch are dropped: the client gets nothing
+%% before the close. A peer close is seen only when the tarpit timer fires.
+handle_tarpit_msg({timeout, _TRef, {tarpit, Reason}}, State) ->
+    shutdown(Reason, State);
+handle_tarpit_msg(Shutdown = {shutdown, _Reason}, State) ->
+    stop(Shutdown, State);
+handle_tarpit_msg(_Msg, _State) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Terminate
@@ -1056,7 +1071,21 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
                 {ok, {sock_error, _}, NState2} ->
                     %% Ignore send errors during shutdown to avoid crashing.
                     shutdown(Reason, NState2)
-            end
+            end;
+        {tarpit, Reason, Delay, NChannel} ->
+            enter_tarpit(Reason, Delay, State#state{channel = NChannel})
+    end.
+
+%% Stop reading, keep only the tarpit timer, and send nothing. The process
+%% hibernates in `handle_recv/3'.
+enter_tarpit(Reason, Delay, State = #state{transport = Transport, socket = Socket}) ->
+    case Transport:setopts(Socket, [{active, false}]) of
+        ok ->
+            _ = start_timer(Delay, {tarpit, Reason}),
+            NState = cancel_stats_timer(State),
+            {ok, NState#state{sockstate = tarpit, stats_timer = disabled}};
+        {error, _} ->
+            shutdown(Reason, State)
     end.
 
 %%--------------------------------------------------------------------
