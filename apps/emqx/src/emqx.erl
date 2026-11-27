@@ -113,11 +113,24 @@ is_running() ->
 
 -spec running_nodes() -> [node()].
 running_nodes() ->
-    mria:running_nodes().
+    classy:nodes(connected).
 
 -spec cluster_nodes(all | running | cores | stopped) -> [node()].
-cluster_nodes(Type) ->
-    mria:cluster_nodes(Type).
+cluster_nodes(all) ->
+    classy:nodes(all);
+cluster_nodes(running) ->
+    classy:nodes(connected);
+cluster_nodes(cores) ->
+    classy:nodes(core);
+cluster_nodes(stopped) ->
+    %% TODO: this implementation keeps compatibility with the old
+    %% (broken) implementation that considered disconnected nodes
+    %% stopped and ignored stopped replicants. Eventually, this should
+    %% resolve to `stopped':
+    ordsets:intersection(
+        classy:nodes(core),
+        classy:nodes(disconnected)
+    ).
 
 %%--------------------------------------------------------------------
 %% PubSub API
