@@ -8253,10 +8253,13 @@ t_cleanup_expired_message_keeps_a_refreshed_row(_Config) ->
 "a role that never resolves still falls back to replicant - the safe side.\n"
 "Per-request `is_core/0` keeps the immediate fallback (it does not sleep).".
 t_role_probe_retries_before_giving_up(_Config) ->
-    ok = meck:new(mria_config, [passthrough, no_link]),
+    %% `emqx_bcast:probe_role/1' consults `mria_cluster:role/0' (it reads the
+    %% role from a persistent term, so mecking it is the only way to exercise
+    %% the retry logic).
+    ok = meck:new(mria_cluster, [passthrough, no_link]),
     try
         Calls = counters:new(1, [atomics]),
-        ok = meck:expect(mria_config, whoami, fun() ->
+        ok = meck:expect(mria_cluster, role, fun() ->
             _ = counters:add(Calls, 1, 1),
             case counters:get(Calls, 1) of
                 1 -> error(mria_not_ready);
@@ -8266,8 +8269,8 @@ t_role_probe_retries_before_giving_up(_Config) ->
         ?assert(emqx_bcast:init_role()),
         %% A permanent miss still answers replicant, so the node does not
         %% create tables or serve writes it cannot serve.
-        ok = meck:expect(mria_config, whoami, fun() -> error(mria_not_ready) end),
+        ok = meck:expect(mria_cluster, role, fun() -> error(mria_not_ready) end),
         ?assertNot(emqx_bcast:init_role())
     after
-        meck:unload(mria_config)
+        meck:unload(mria_cluster)
     end.
