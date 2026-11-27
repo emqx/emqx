@@ -175,6 +175,69 @@ t_wrong_clientid_with_valid_token_rejected(_Config) ->
     er_coap_channel:close(Channel2),
     er_coap_dtls_socket:close(Sock2).
 
+-doc """
+After a token takeover in a new DTLS session, the channel authorizes requests with the
+authentication result of the resumed session.
+""".
+t_token_takeover_across_dtls_sessions_keeps_authn_result(_Config) ->
+    Acl = #{rules => #{pub => [<<"coap/allowed/#">>]}},
+    Attrs = #{<<"group">> => <<"g1">>},
+    ok = meck:expect(emqx_access_control, authenticate, fun(_) ->
+        {ok, #{is_superuser => false, acl => Acl, client_attrs => Attrs}}
+    end),
+    {ok, Sock1, Channel1} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+    URI0 = emqx_coap_SUITE:compose_uri(
+        ?MQTT_PREFIX ++ "/connection",
+        #{
+            "clientid" => <<"client1">>,
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        false
+    ),
+    {ok, created, Data} = emqx_coap_SUITE:do_request(
+        Channel1, URI0, emqx_coap_SUITE:make_req(post)
+    ),
+    #coap_content{payload = BinToken} = Data,
+    er_coap_channel:close(Channel1),
+    er_coap_dtls_socket:close(Sock1),
+    %% The channel of session 1, and channels of earlier cases that are not closed yet.
+    OldPids = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+
+    {ok, Sock2, Channel2} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
+        {verify, verify_none}
+    ]),
+    PubURI = fun(Topic) ->
+        emqx_coap_SUITE:compose_uri(
+            "coaps://127.0.0.1/ps/" ++ Topic,
+            #{"clientid" => <<"client1">>, "token" => BinToken},
+            false
+        )
+    end,
+    ?assertMatch(
+        {ok, changed, _},
+        emqx_coap_SUITE:do_request(
+            Channel2, PubURI("coap/allowed/1"), emqx_coap_SUITE:make_req(post, <<"x">>)
+        )
+    ),
+    %% The old channels can stay in the registry for a short time after the takeover.
+    [Pid] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>) -- OldPids,
+    ?assertMatch(
+        #{clientinfo := #{acl := Acl, client_attrs := Attrs}},
+        emqx_gateway_conn:info(Pid)
+    ),
+    %% Denied by authorization: the reply has no payload.
+    ?assertEqual(
+        {error, unauthorized},
+        emqx_coap_SUITE:do_request(
+            Channel2, PubURI("coap/denied/1"), emqx_coap_SUITE:make_req(post, <<"x">>)
+        )
+    ),
+    er_coap_channel:close(Channel2),
+    er_coap_dtls_socket:close(Sock2).
+
 t_partial_token_params_rejected(_Config) ->
     {ok, Sock, Channel} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
         {verify, verify_none}

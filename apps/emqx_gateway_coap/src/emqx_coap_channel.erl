@@ -34,6 +34,10 @@
 
 -export_type([channel/0]).
 
+-ifdef(TEST).
+-export([merge_takeover_clientinfo/3]).
+-endif.
+
 -include("emqx_coap.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -518,20 +522,17 @@ takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channe
             invalid_token_reply(Msg, Channel)
     end.
 
+%% Client info keys that describe the connection which received the request.
+%% `dn' and `cn' come from the peer certificate of that connection.
+-define(TAKEOVER_CONN_KEYS, [zone, listener, protocol, peerhost, peername, sockport, dn, cn]).
+
+%% Build the client info of the resumed session. All keys come from the resumed
+%% client info (the authentication result included), except the connection keys,
+%% which come from the channel that received the request.
 merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo) ->
-    BaseClientInfo = ClientInfo0#{clientid => ReqClientId},
-    lists:foldl(
-        fun(Key, Acc) ->
-            case maps:find(Key, ResumeClientInfo) of
-                {ok, Value} ->
-                    Acc#{Key => Value};
-                error ->
-                    Acc
-            end
-        end,
-        BaseClientInfo,
-        [username, is_superuser, auth_expire_at, mountpoint, enable_authn]
-    ).
+    ResumeInfo = maps:without(?TAKEOVER_CONN_KEYS, ResumeClientInfo),
+    ConnFacts = maps:with(?TAKEOVER_CONN_KEYS, ClientInfo0),
+    maps:merge(ResumeInfo, ConnFacts#{clientid => ReqClientId}).
 
 invalid_token_reply(Msg, Channel) ->
     ErrMsg = <<"Invalid token or clientid in connection mode">>,
