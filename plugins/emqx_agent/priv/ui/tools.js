@@ -20,10 +20,16 @@ export async function loadTools() {
       <td><span class="tag ${typeClass(s.type)}">${esc(s.type)}</span></td>
       <td style="color:var(--muted)">${esc(s.desc ?? '')}</td>
       <td><div style="display:flex;gap:6px">
-        <button class="btn sm" onclick="editTool('${esc(s.type)}','${esc(s.id)}')">edit</button>
-        <button class="btn sm danger" onclick="deleteTool('${esc(s.type)}','${esc(s.id)}')">delete</button>
+        <button class="btn sm" onclick="editTool(this.dataset.type,this.dataset.id)">edit</button>
+        <button class="btn sm danger" onclick="deleteTool(this.dataset.type,this.dataset.id)">delete</button>
       </div></td>
     </tr>`).join('');
+  list.forEach((tool, index) => {
+    for (const button of tbody.rows[index].querySelectorAll('button')) {
+      button.dataset.type = tool.type;
+      button.dataset.id = tool.id;
+    }
+  });
 }
 
 export function initToolEditors() {

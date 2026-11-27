@@ -30,12 +30,17 @@ export async function loadPipelines() {
       <td>${steps}</td>
       <td>${statusBadge}</td>
       <td><div style="display:flex;gap:4px">
-        <button class="btn sm" onclick="togglePipelineActive('${esc(p.pipeline_id)}')">${toggleLabel}</button>
-        <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
-        <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
+        <button class="btn sm" onclick="togglePipelineActive(this.dataset.id)">${toggleLabel}</button>
+        <button class="btn sm" onclick="editPipeline(this.dataset.id)">edit</button>
+        <button class="btn sm danger" onclick="deletePipeline(this.dataset.id)">delete</button>
       </div></td>
     </tr>`;
   }).join('');
+  list.forEach((pipeline, index) => {
+    for (const button of tbody.rows[index].querySelectorAll('button')) {
+      button.dataset.id = pipeline.pipeline_id;
+    }
+  });
 }
 
 function stepClass(t) {
