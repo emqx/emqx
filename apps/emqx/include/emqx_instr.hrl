@@ -120,6 +120,43 @@
     500000
 ]).
 
+-ifdef(EMQX_BROKER_INSTR_SELFTRACE).
+
+-define(BROKER_INSTR_SELFTRACE(EXPR), EXPR).
+-define(BROKER_INSTR_SELFTRACE_BIND(BIND, X, Y),
+    (BIND =
+        case emqx_selftrace:enabled() of
+            true -> Y;
+            _ -> X
+        end)
+).
+
+-define(BROKER_INSTR_SELFTRACE_SLICE_OPEN(NAME, ARGS),
+    (case emqx_selftrace:enabled() of
+        false -> ok;
+        _ -> emqx_selftrace:slice_open(NAME, ARGS)
+    end)
+).
+
+-define(BROKER_INSTR_SELFTRACE_SLICE_CLOSE(), (emqx_selftrace:slice_close())).
+-define(BROKER_INSTR_SELFTRACE_SLICE_CLOSE_ALL(), (emqx_selftrace:slice_close_all())).
+
+-else.
+
+-define(BROKER_INSTR_SELFTRACE(EXPR), stub).
+-define(BROKER_INSTR_SELFTRACE_BIND(BIND, X, _), (BIND = X)).
+-define(BROKER_INSTR_SELFTRACE_SLICE_OPEN(NAME, ARGS), stub).
+-define(BROKER_INSTR_SELFTRACE_SLICE_CLOSE(), stub).
+-define(BROKER_INSTR_SELFTRACE_SLICE_CLOSE_ALL(), stub).
+
+-endif.
+
+-ifdef(EMQX_BROKER_INSTR_SELFTRACE_GC).
+-define(BROKER_INSTR_SELFTRACE_ASPECTS, [garbage_collection]).
+-else.
+-define(BROKER_INSTR_SELFTRACE_ASPECTS, []).
+-endif.
+
 -define(BROKER_INSTR_BIND(BIND, X), ?BROKER_INSTR_BIND(BIND, stub, X)).
 
 -ifdef(EMQX_BROKER_INSTR).

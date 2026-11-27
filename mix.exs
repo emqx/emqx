@@ -367,7 +367,9 @@ defmodule EMQXUmbrella.MixProject do
   defp broker_instr_options() do
     features = %{
       "message_latency" => :EMQX_BROKER_INSTR_MESSAGE_LATENCY,
-      "socket_packets" => :EMQX_BROKER_INSTR_SOCKET_PACKETS
+      "socket_packets" => :EMQX_BROKER_INSTR_SOCKET_PACKETS,
+      "selftrace" => :EMQX_BROKER_INSTR_SELFTRACE,
+      "selftrace_gc" => :EMQX_BROKER_INSTR_SELFTRACE_GC
     }
 
     enabled =
@@ -379,6 +381,10 @@ defmodule EMQXUmbrella.MixProject do
 
     defines =
       enabled
+      |> Enum.flat_map(fn
+        "selftrace_gc" -> ["selftrace", "selftrace_gc"]
+        feature -> [feature]
+      end)
       |> Enum.uniq()
       |> Enum.map(fn feature ->
         case Map.fetch(features, feature) do

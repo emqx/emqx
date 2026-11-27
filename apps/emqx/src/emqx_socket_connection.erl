@@ -450,7 +450,10 @@ recvloop(Parent, State = #state{conf = Conf}) ->
 handle_recv({system, From, Request}, Parent, State) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv(Msg, Parent, State) ->
-    case process_msg(Msg, ensure_stats_timer(State)) of
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN('connection-loop', #{}),
+    Result = process_msg(Msg, ensure_stats_timer(State)),
+    ?BROKER_INSTR_SELFTRACE_SLICE_CLOSE_ALL(),
+    case Result of
         {ok, NewState} ->
             #state{conf = #conf{minor_gc_after = Timeout}} = NewState,
             drain_loop(Parent, NewState, Timeout);
@@ -477,7 +480,10 @@ drain_loop(Parent, State, Timeout) ->
 handle_recv_drain({system, From, Request}, Parent, State, _Timeout) ->
     sys:handle_system_msg(Request, From, Parent, ?MODULE, [], State);
 handle_recv_drain(Msg, Parent, State, Timeout) ->
-    case process_msg(Msg, ensure_stats_timer(State)) of
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN('connection-loop', #{}),
+    Result = process_msg(Msg, ensure_stats_timer(State)),
+    ?BROKER_INSTR_SELFTRACE_SLICE_CLOSE_ALL(),
+    case Result of
         {ok, NewState} ->
             ?MODULE:drain_loop(Parent, NewState, Timeout);
         {stop, Reason, NewSate} ->
@@ -712,6 +718,7 @@ handle_msg(
     ?BROKER_INSTR_EXTRACT_MARK(Mark, Deliver#deliver.message),
     ?BROKER_INSTR_MSGLATENCY(?BROKER_INSTR_SETMARK(t0_deliver, {Mark, ?BROKER_INSTR_TS()})),
     Delivers = [Deliver | emqx_utils:drain_deliver(ActiveN)],
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN(deliveries, #{count => length(Delivers)}),
     with_channel_result(emqx_channel:handle_deliver(Delivers, Channel), State);
 handle_msg({connack, ConnAck}, State) ->
     handle_outgoing(ConnAck, State);
@@ -720,6 +727,12 @@ handle_msg({close, Reason}, State) ->
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     handle_info({sock_closed, Reason}, close_socket(State));
 handle_msg({event, connected}, State = #state{channel = Channel}) ->
+    ?BROKER_INSTR_SELFTRACE(
+        case emqx_selftrace:selected(?MODULE, [emqx_channel:info(clientinfo, Channel)]) of
+            true -> emqx_selftrace:enable(?BROKER_INSTR_SELFTRACE_ASPECTS);
+            false -> ok
+        end
+    ),
     ClientId = emqx_channel:info(clientid, Channel),
     ok = set_chan_stats(State),
     emqx_cm:insert_channel_info(ClientId, info(State), emqx_chan_stats:ref()),
@@ -738,9 +751,13 @@ handle_msg({event, updated}, State) ->
     ok = set_session_stats(State),
     {ok, State};
 handle_msg({timeout, TRef, TMsg}, State) ->
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN(timeout, #{timeout => TMsg}),
     handle_timeout(TRef, TMsg, State);
 handle_msg(Shutdown = {shutdown, _Reason}, State) ->
     stop(Shutdown, State);
+handle_msg('$selftrace_slice_close', _State) ->
+    ?BROKER_INSTR_SELFTRACE_SLICE_CLOSE(),
+    ok;
 handle_msg(Msg, State) ->
     handle_info(Msg, State).
 
@@ -893,6 +910,7 @@ handle_data(
         channel = Channel
     }
 ) ->
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN(data, #{bytes => iolist_size(Data)}),
     Oct = iolist_size(Data),
     inc_metrics('bytes.received', State0, Oct),
     ?LOG(
@@ -1044,11 +1062,15 @@ handle_data_ready(Socket, State) ->
 
 %% The parser accumulates packets in reverse wire order.
 -compile({inline, [next_incoming_msgs/2]}).
-next_incoming_msgs(Tail, [Packet]) ->
+next_incoming_msgs(Tail0, [Packet]) ->
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN('incoming-packets', #{count => 1}),
+    ?BROKER_INSTR_SELFTRACE_BIND(Tail, Tail0, ['$selftrace_slice_close' | Tail0]),
     [{incoming, Packet} | Tail];
 next_incoming_msgs(Tail, []) ->
     Tail;
-next_incoming_msgs(Tail, Packets) ->
+next_incoming_msgs(Tail0, Packets) ->
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN('incoming-packets', #{count => length(Packets)}),
+    ?BROKER_INSTR_SELFTRACE_BIND(Tail, Tail0, ['$selftrace_slice_close' | Tail0]),
     [{incoming, lists:reverse(Packets)} | Tail].
 
 parse_incoming(Data, State = #state{parser = Parser, channel = Channel}) ->
@@ -1151,7 +1173,10 @@ handle_incoming(Packet, State = #state{channel = Channel}) ->
 handle_incoming(Packet = ?PACKET(_), State, Channel) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
     inc_incoming_stats(Packet, State),
-    emqx_channel:handle_in(Packet, Channel);
+    ?BROKER_INSTR_SELFTRACE_SLICE_OPEN(emqx_selftrace:packet_type(Packet), #{}),
+    Result = emqx_channel:handle_in(Packet, Channel),
+    ?BROKER_INSTR_SELFTRACE_SLICE_CLOSE(),
+    Result;
 handle_incoming(FrameError, _State, Channel) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => FrameError}),
     emqx_channel:handle_in(FrameError, Channel).
