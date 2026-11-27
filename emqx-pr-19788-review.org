@@ -82,7 +82,7 @@ Membership event shape verified compatible: consumers already match
 ={membership, {node, up|down|leaving, Node}}= and =mria_membership:notify=
 delivers exactly that.
 
-** TODO [#B] Leftover call sites of removed APIs (broken at runtime)
+** [#B] Leftover call sites of removed APIs (broken at runtime)
 :PROPERTIES:
 :CUSTOM_ID: leftover-call-sites
 :END:
@@ -97,7 +97,7 @@ Retargeted at =emqx_dist_tls_check= (commit =bf03a6a=); verified all call
 sites in the current file use the new module.  The module comment was
 updated too.
 
-*** TODO [#B] mgmt CLI suite calls removed =set_booting/1=
+*** VERIFY [#B] mgmt CLI suite calls removed =set_booting/1=
 :PROPERTIES:
 :FILE:  apps/emqx_management/test/emqx_mgmt_cli_SUITE.erl
 :LINES: 181-213
