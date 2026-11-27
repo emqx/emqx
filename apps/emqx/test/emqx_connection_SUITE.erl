@@ -445,6 +445,31 @@ t_parse_incoming_before_connect(_) ->
         emqx_connection:parse_incoming(Publish, st(#{}, #{conn_state => idle}))
     ).
 
+-doc """
+The stream parsers of `emqx_connection` and `emqx_socket_connection` stop at a
+DISCONNECT and do not parse the data after it in the same read: a valid PUBLISH
+is not returned, and a malformed SUBSCRIBE does not give a frame error. The
+socket backend also reports that it must not read more data.
+""".
+t_parse_incoming_stops_at_disconnect(_) ->
+    Data = disconnect_then_more_data(),
+    ?assertMatch(
+        {1, [?PACKET(?DISCONNECT)], _NState},
+        emqx_connection:parse_incoming(Data, st_after_connect())
+    ),
+    ?assertMatch(
+        {disconnect, 1, [?PACKET(?DISCONNECT)], _NState},
+        emqx_socket_connection:parse_incoming(Data, socket_st_after_connect())
+    ).
+
+%% A DISCONNECT, a valid PUBLISH and a SUBSCRIBE with a bad QoS, in one binary.
+disconnect_then_more_data() ->
+    iolist_to_binary([
+        emqx_frame:serialize(?DISCONNECT_PACKET()),
+        emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"after">>)),
+        <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>
+    ]).
+
 t_next_incoming_msgs(_) ->
     ?assertEqual(
         {incoming, packet},

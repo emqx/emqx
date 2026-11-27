@@ -315,6 +315,22 @@ t_websocket_handle_packet_order(_) ->
         iolist_to_binary(emqx_frame:serialize(?PUBREC_PACKET(2)))
     ).
 
+-doc """
+The parser stops at a DISCONNECT and does not parse the data after it in the
+same WebSocket message: a valid PUBLISH is not returned, and a malformed
+SUBSCRIBE does not give a frame error.
+""".
+t_parse_incoming_stops_at_disconnect(_) ->
+    Data = iolist_to_binary([
+        emqx_frame:serialize(?DISCONNECT_PACKET()),
+        emqx_frame:serialize(?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, <<"after">>)),
+        <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>
+    ]),
+    ?assertMatch(
+        {[?PACKET(?DISCONNECT)], _},
+        ?ws_conn:parse_incoming(Data, [], st_after_connect())
+    ).
+
 t_websocket_handle_ping(_) ->
     {ok, St} = ?ws_conn:websocket_handle(ping, St = st()),
     {ok, St} = ?ws_conn:websocket_handle({ping, <<>>}, St).

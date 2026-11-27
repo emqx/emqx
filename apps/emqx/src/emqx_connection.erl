@@ -956,6 +956,10 @@ run_stream_parser(<<>>, Acc, N, NParseState, State) ->
     {N, Acc, State#state{parser = NParseState}};
 run_stream_parser(Data, Acc, N, ParseState, State) ->
     case emqx_frame:parse(Data, ParseState) of
+        {?PACKET(?DISCONNECT) = Packet, _Rest, NParseState} ->
+            %% A client must not send more packets after DISCONNECT.
+            %% Do not parse the rest of the data.
+            {N + 1, [Packet | Acc], State#state{parser = NParseState}};
         {Packet, Rest, NParseState} ->
             run_stream_parser(Rest, [Packet | Acc], N + 1, NParseState, State);
         {_More, NParseState} ->
