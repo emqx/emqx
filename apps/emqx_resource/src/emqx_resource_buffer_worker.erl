@@ -1210,21 +1210,31 @@ reply_caller_defer_metrics(
     Id, ?REPLY(ReplyTo, HasBeenSent, Result, RequestContext, TraceCtx), IsSimpleQuery
 ) ->
     IsUnrecoverableError = is_unrecoverable_error(Result),
-    {Decision, PostFn, DeltaCounters} = handle_query_result_pure(
+    {Decision, PostFn0, DeltaCounters} = handle_query_result_pure(
         Id, Result, HasBeenSent, TraceCtx
     ),
-    case {Decision, Result, IsUnrecoverableError, IsSimpleQuery} of
-        {?ack, {async_return, _}, true, _} ->
-            ok = do_reply_caller(ReplyTo, RequestContext, Result);
-        {?ack, {async_return, _}, false, _} ->
-            ok;
-        {_, _, _, true} ->
-            ok = do_reply_caller(ReplyTo, RequestContext, Result);
-        {?nack, _, _, _} ->
-            ok;
-        {?ack, _, _, _} ->
-            ok = do_reply_caller(ReplyTo, RequestContext, Result)
-    end,
+    PostFn =
+        case {Decision, Result, IsUnrecoverableError, IsSimpleQuery} of
+            {?ack, {async_return, _}, true, _} ->
+                fun(ResultContext) ->
+                    PostFn0(ResultContext),
+                    ok = do_reply_caller(ReplyTo, RequestContext, Result)
+                end;
+            {?ack, {async_return, _}, false, _} ->
+                PostFn0;
+            {_, _, _, true} ->
+                fun(ResultContext) ->
+                    PostFn0(ResultContext),
+                    ok = do_reply_caller(ReplyTo, RequestContext, Result)
+                end;
+            {?nack, _, _, _} ->
+                PostFn0;
+            {?ack, _, _, _} ->
+                fun(ResultContext) ->
+                    PostFn0(ResultContext),
+                    ok = do_reply_caller(ReplyTo, RequestContext, Result)
+                end
+        end,
     {Decision, PostFn, DeltaCounters}.
 
 %% This is basically used only by rule actions.  To avoid rule action metrics from

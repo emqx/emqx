@@ -2846,13 +2846,15 @@ t_async_reply_multi_eval(_Config) ->
     ok = emqx_resource:simple_sync_query(?ID, block),
     %% To track what happened.
     ReplyTraceTab = ets:new(random_reply_trace, [public, ordered_set]),
+    TestPid = self(),
+    ReplyTo = {fun(Ctx) -> TestPid ! {reply, Ctx} end, []},
     inc_counter_in_parallel(
         TotalQueries,
         fun() ->
             Rand = rand:uniform(1000),
             {random_reply, Rand, ReplyTraceTab}
         end,
-        #{}
+        #{reply_to => ReplyTo}
     ),
     ?retry(
         2 * ResumeInterval,
@@ -2882,6 +2884,14 @@ t_async_reply_multi_eval(_Config) ->
             )
         end
     ),
+    %% should receive replies only once for each query.
+    ReceivedReplies = lists:map(
+        fun(_) ->
+            ?assertReceive({reply, _})
+        end,
+        lists:seq(1, TotalQueries)
+    ),
+    ?assertNotReceive({reply, _}, 300, #{received => ReceivedReplies}),
     ok.
 
 t_retry_async_inflight_batch(_Config) ->
