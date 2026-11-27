@@ -36,6 +36,9 @@ groups() ->
         {parse, [parallel], [
             t_parse_cont,
             t_parse_frame_too_large,
+            t_parse_max_size_counts_fixed_header,
+            t_transport_packet_size,
+            t_serialize_frame_at_max_size,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_remaining_len_five_bytes_pingreq,
             t_parse_remaining_len_five_bytes_disconnect,
@@ -56,6 +59,7 @@ groups() ->
             t_parse_many_user_properties_is_linear,
             t_parse_connect_user_property_limit,
             t_parse_connect_packet_too_large,
+            t_parse_max_connect_size_counts_fixed_header,
             t_serialize_parse_connect_without_clientid,
             t_serialize_parse_connect_with_will,
             t_serialize_parse_connect_with_malformed_will,
@@ -226,6 +230,93 @@ t_parse_frame_too_large(_) ->
     ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 256})),
     ?ASSERT_FRAME_THROW(#{cause := frame_too_large}, parse_serialize(Packet, #{max_size => 512})),
     ?assertEqual(Packet, parse_serialize(Packet, #{max_size => 2048, version => ?MQTT_PROTO_V4})).
+
+-doc """
+`max_size' is a limit on the whole packet, fixed header included. A PUBLISH of
+exactly the limit parses; with the limit one byte lower it is refused, and the
+error reports the whole packet size. The Remaining Length takes 1, 2, 3 and 4
+bytes.
+""".
+t_parse_max_size_counts_fixed_header(_) ->
+    lists:foreach(
+        fun(RemLen) ->
+            assert_packet_size_limit(max_size, frame_too_large, publish_frame(RemLen))
+        end,
+        [127, 128, 16383, 16384, 2097151, 2097152]
+    ).
+
+-doc """
+The transport `packet_size' is 2 bytes below the limit on the whole packet, and
+never 0, which means no limit.
+""".
+t_transport_packet_size(_) ->
+    ?assertEqual(1, emqx_frame:transport_packet_size(1)),
+    ?assertEqual(1, emqx_frame:transport_packet_size(2)),
+    ?assertEqual(1, emqx_frame:transport_packet_size(3)),
+    ?assertEqual(1024, emqx_frame:transport_packet_size(1026)).
+
+%% A QoS 0 PUBLISH to topic `t' with the given Remaining Length.
+publish_frame(RemLen) ->
+    Payload = binary:copy(<<0>>, RemLen - 3),
+    <<(?PUBLISH bsl 4), (encode_vbi(RemLen))/binary, 0, 1, "t", Payload/binary>>.
+
+%% Parse `Frame' with the limit `Key' at the frame size minus 1, the frame size
+%% and the frame size plus 1: whole, with the first 5 bytes one at a time, and
+%% with `parse_complete/2'.
+assert_packet_size_limit(Key, Cause, Frame) ->
+    Size = byte_size(Frame),
+    <<Head:5/binary, Tail/binary>> = Frame,
+    Chunks = [<<B>> || <<B>> <= Head] ++ [Tail],
+    lists:foreach(
+        fun(Limit) ->
+            State = emqx_frame:initial_parse_state(#{Key => Limit}),
+            case Limit < Size of
+                true ->
+                    Err = #{cause => Cause, limit => Limit, received => Size},
+                    ?assertThrow({?FRAME_PARSE_ERROR, Err}, emqx_frame:parse(Frame, State)),
+                    ?assertThrow({?FRAME_PARSE_ERROR, Err}, parse_chunks(Chunks, State)),
+                    ?assertThrow(
+                        {?FRAME_PARSE_ERROR, Err}, emqx_frame:parse_complete(Frame, State)
+                    );
+                false ->
+                    {Packet, <<>>, _} = emqx_frame:parse(Frame, State),
+                    ?assertMatch(#mqtt_packet{}, Packet),
+                    ?assertEqual(Packet, parse_chunks(Chunks, State)),
+                    ?assertEqual(Packet, parse_complete_packet(Frame, State))
+            end
+        end,
+        [Size - 1, Size, Size + 1]
+    ).
+
+%% `parse_complete/2' returns a CONNECT together with the next parse state.
+parse_complete_packet(Frame, State) ->
+    case emqx_frame:parse_complete(Frame, State) of
+        [Packet, _NState] -> Packet;
+        Packet -> Packet
+    end.
+
+parse_chunks([Chunk], State) ->
+    {Packet, <<>>, _} = emqx_frame:parse(Chunk, State),
+    Packet;
+parse_chunks([Chunk | Rest], State) ->
+    {_More, NState} = emqx_frame:parse(Chunk, State),
+    parse_chunks(Rest, NState).
+
+%% MQTT-3.1.2-24 forbids only packets *exceeding* Maximum Packet Size, so a
+%% packet whose serialized size is exactly the limit must still be sent.
+t_serialize_frame_at_max_size(_) ->
+    Ver = ?MQTT_PROTO_V5,
+    Packet = ?PUBLISH_PACKET(?QOS_1, <<"t">>, 1, payload(100)),
+    Bin = iolist_to_binary(emqx_frame:serialize(Packet, Ver)),
+    Size = byte_size(Bin),
+    AtLimit = emqx_frame:serialize_opts(Ver, Size),
+    OverLimit = emqx_frame:serialize_opts(Ver, Size - 1),
+    %% exactly at the limit: sent
+    ?assertEqual(Bin, iolist_to_binary(emqx_frame:serialize_pkt(Packet, AtLimit))),
+    ?assertEqual(Bin, iolist_to_binary((emqx_frame:serialize_fun(AtLimit))(Packet))),
+    %% one byte over the limit: dropped
+    ?assertEqual(<<>>, emqx_frame:serialize_pkt(Packet, OverLimit)),
+    ?assertEqual(<<>>, (emqx_frame:serialize_fun(OverLimit))(Packet)).
 
 t_parse_frame_malformed_variable_byte_integer(_) ->
     MalformedPayload = <<<<16#80>> || _ <- lists:seq(1, 6)>>,
@@ -631,6 +722,18 @@ t_parse_connect_packet_too_large(_) ->
     Publish = ?PUBLISH_PACKET(?QOS_0, <<"t">>, undefined, binary:copy(<<"x">>, 2048)),
     PublishBin = iolist_to_binary(emqx_frame:serialize(Publish)),
     ?assertMatch({Publish, <<>>, _}, emqx_frame:parse(PublishBin, PState)).
+
+-doc """
+`max_connect_size' is a limit on the whole CONNECT packet, fixed header
+included, with a Remaining Length of 1 and of 2 bytes.
+""".
+t_parse_max_connect_size_counts_fixed_header(_) ->
+    Small = make_v5_connect_frame(user_properties(1)),
+    Large = make_v5_connect_frame(user_properties(20)),
+    ?assertMatch(<<_, 0:1, _:7, _/binary>>, Small),
+    ?assertMatch(<<_, 1:1, _:7, 0:1, _:7, _/binary>>, Large),
+    assert_packet_size_limit(max_connect_size, connect_packet_too_large, Small),
+    assert_packet_size_limit(max_connect_size, connect_packet_too_large, Large).
 
 user_properties(N) ->
     iolist_to_binary([

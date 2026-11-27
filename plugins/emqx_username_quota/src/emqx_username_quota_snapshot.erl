@@ -33,6 +33,10 @@ Only core nodes own snapshots; replicant nodes receive a `not_core_node` error.
     code_change/3
 ]).
 
+-ifdef(TEST).
+-export([encode_cursor/4]).
+-endif.
+
 -include("emqx_username_quota.hrl").
 
 -define(SERVER, ?MODULE).
@@ -390,37 +394,47 @@ now_ms() ->
 %% Cursor encoding/decoding
 %%--------------------------------------------------------------------
 
-encode_cursor(Node, Generation, UsedGte, LastKey) ->
-    base64:encode(term_to_binary({Node, Generation, UsedGte, LastKey}), #{
-        mode => urlsafe, padding => false
-    }).
+%% The cursor is a JSON object in URL-safe base64 without padding.
+%% The username is base64-encoded because it can be any binary.
+encode_cursor(Node, Generation, UsedGte, {Counter, Username}) ->
+    Json = emqx_utils_json:encode(#{
+        <<"n">> => atom_to_binary(Node),
+        <<"g">> => Generation,
+        <<"u">> => UsedGte,
+        <<"c">> => Counter,
+        <<"k">> => base64:encode(Username)
+    }),
+    base64:encode(Json, #{mode => urlsafe, padding => false}).
 
 decode_cursor(undefined) ->
     error;
 decode_cursor(Cursor) when is_list(Cursor) ->
     decode_cursor(iolist_to_binary(Cursor));
 decode_cursor(Cursor) when is_binary(Cursor) ->
-    try binary_to_term(base64:decode(Cursor, #{mode => urlsafe, padding => false}), [safe]) of
-        {Node, Generation, UsedGte, {Counter, Username} = LastKey} when
-            is_atom(Node),
-            is_integer(Generation),
-            is_integer(UsedGte),
-            is_integer(Counter),
-            is_binary(Username)
-        ->
-            {ok, {Node, Generation, UsedGte, LastKey}};
-        %% Accept old 3-tuple format — will cause generation mismatch → page 1
-        {Node, Generation, {Counter, Username} = LastKey} when
-            is_atom(Node),
-            is_integer(Generation),
-            is_integer(Counter),
-            is_binary(Username)
-        ->
-            {ok, {Node, Generation, undefined, LastKey}};
-        _ ->
-            error
+    try
+        Json = base64:decode(Cursor, #{mode => urlsafe, padding => false}),
+        decode_cursor_fields(emqx_utils_json:decode(Json))
     catch
         _:_ -> error
     end;
 decode_cursor(_Other) ->
+    error.
+
+decode_cursor_fields(#{
+    <<"n">> := NodeBin,
+    <<"g">> := Generation,
+    <<"u">> := UsedGte,
+    <<"c">> := Counter,
+    <<"k">> := Username64
+}) when
+    is_binary(NodeBin),
+    is_integer(Generation),
+    is_integer(UsedGte),
+    is_integer(Counter),
+    is_binary(Username64)
+->
+    Node = binary_to_existing_atom(NodeBin),
+    Username = base64:decode(Username64),
+    {ok, {Node, Generation, UsedGte, {Counter, Username}}};
+decode_cursor_fields(_) ->
     error.

@@ -412,6 +412,64 @@ t_authenticate_path_placeholders(TCConfig) ->
         ?GLOBAL
     ).
 
+-doc """
+A path placeholder value that gives a `.` or `..` segment in the URL path makes the
+authenticator send no request. The HTTP authenticator is alone in the chain, so the login fails.
+""".
+t_authenticate_path_dot_segment(TCConfig) ->
+    TestPid = self(),
+    ok = emqx_utils_http_test_server:set_handler(
+        fun(Req0, State) ->
+            TestPid ! {http_request, cowboy_req:path(Req0)},
+            {ok, cowboy_req:reply(204, Req0), State}
+        end
+    ),
+    %% The static `x` segment keeps the path that the test server resolves inside its route.
+    Authenticate = fun(Placeholder, Field, Value) ->
+        AuthConfig = maps:merge(
+            raw_http_auth_config(TCConfig),
+            #{
+                <<"url">> =>
+                    <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/auth/x/",
+                        Placeholder/binary, "/check">>,
+                <<"body">> => #{}
+            }
+        ),
+        {ok, _} = emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}),
+        Result =
+            case emqx_access_control:authenticate(maps:put(Field, Value, ?CREDENTIALS)) of
+                {ok, _} -> ok;
+                Other -> Other
+            end,
+        _ = emqx_authn_test_lib:delete_authenticators([authentication], ?GLOBAL),
+        {Field, Value, Result, receive_http_requests()}
+    end,
+    Refused = {error, not_authorized},
+    ?assertEqual(
+        [
+            {clientid, <<"..">>, Refused, []},
+            {clientid, <<".">>, Refused, []},
+            {username, <<"..">>, Refused, []},
+            {username, <<".">>, Refused, []},
+            {clientid, <<"../x">>, ok, [<<"/auth/x/..%2Fx/check">>]},
+            {clientid, <<"a..b">>, ok, [<<"/auth/x/a..b/check">>]}
+        ],
+        [
+            Authenticate(<<"${clientid}">>, clientid, <<"..">>),
+            Authenticate(<<"${clientid}">>, clientid, <<".">>),
+            Authenticate(<<"${username}">>, username, <<"..">>),
+            Authenticate(<<"${username}">>, username, <<".">>),
+            Authenticate(<<"${clientid}">>, clientid, <<"../x">>),
+            Authenticate(<<"${clientid}">>, clientid, <<"a..b">>)
+        ]
+    ).
+
+receive_http_requests() ->
+    receive
+        {http_request, Path} -> [Path | receive_http_requests()]
+    after 100 -> []
+    end.
+
 t_no_value_for_placeholder(TCConfig) ->
     Handler = fun(Req0, State) ->
         {ok, RawBody, Req1} = cowboy_req:read_body(Req0),

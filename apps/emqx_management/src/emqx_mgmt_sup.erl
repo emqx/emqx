@@ -22,7 +22,8 @@ init([]) ->
                 []
         end,
     Cluster = child_spec(emqx_mgmt_cluster, 5000, worker),
-    {ok, {{one_for_one, 1, 5}, [Cluster | Workers]}}.
+    Cursor = child_spec(emqx_mgmt_cursor, 5000, worker),
+    {ok, {{one_for_one, 1, 5}, [Cluster, Cursor | Workers]}}.
 
 child_spec(Mod, Shutdown, Type) ->
     #{
