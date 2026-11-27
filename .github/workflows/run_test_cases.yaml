@@ -107,6 +107,13 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}-test.zip
 
+      # A plugin CT suite that needs docker services installs a prebuilt plugin
+      # package too.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ matrix.profile }}-plugin-packages
+          path: _build/plugins
+
       - name: prepare shared secrets directory
         run: |
           mkdir -p /tmp/emqx-ci/emqx-shared-secret
