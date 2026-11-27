@@ -65,7 +65,7 @@ init_per_testcase(TestCase, Config) ->
     ct:timetrap({seconds, 30}),
     emqx_connector_demo:set_callback_mode(always_sync),
     snabbkaffe:start_trace(),
-    ct:print(asciiart:visible($%, "~s", [TestCase])),
+    ct:pal(asciiart:visible($%, "~s", [TestCase])),
     Config.
 
 end_per_testcase(_, _Config) ->
@@ -618,6 +618,7 @@ fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch,
                 start_timeout => 100
             }
         ),
+    ?assertMatch({ok, ?status_connected}, emqx_resource:health_check(ConnResId)),
     ChanId = action_res_id(ConnResId),
     ChanResourceOpts = merge_maps([
         #{
@@ -667,6 +668,99 @@ fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, ShouldBatch,
         chan_resource_opts => ChanResourceOpts,
         n_reqs => NReqs,
         fallback_fn => FallbackFn
+    }.
+
+-doc """
+  1) is attempted 2 times and succeeds.
+  2) is attempted 4 times and succeeds.
+  3) immediate unrecoverable error
+  5) is attempted 3 times and becomes unrecoverable error.
+  4, 6) immediate success.
+
+## First batch attempt
+
+(rec = recoverable error, unrec = unrecoverable error, indices are respective to original
+request)
+
+Result: [1: rec, 2: rec, 3: unrec, 4: ok, 5: rec, 6: ok].
+Indices 3, 4 and 6 are acked, inflight batch is rewritten to be [1, 2, 5].
+The 2 fallback actions of 3 are triggered.
+
+## Second batch attempt
+
+Result: [1: ok, 2: rec, 5: rec]
+Index 1 is acked, inflight batch is rewritten to be [2, 5].
+
+## Third batch attempt
+
+Result: [2: rec, 5: unrec]
+Index 5 is acked, inflight batch is rewritten to be [2].
+The 2 fallback actions of 5 are triggered.
+Important to have this mixed case.
+
+## Fourth batch attempt
+
+Result: [2: ok]
+Index 2 is acked, done.
+""".
+do_t_batch_individual_reply_setup(ChanQueryMode, CallbackMode) ->
+    {ok, Agent} = emqx_utils_agent:start_link(#{}),
+    Get = fun(Idx) ->
+        emqx_utils_agent:get_and_update(Agent, fun(St) ->
+            N = maps:get(Idx, St, 0),
+            {N + 1, St#{Idx => N + 1}}
+        end)
+    end,
+    NReqs = 6,
+    Fn = fun(Ctx0) ->
+        case Ctx0 of
+            #{batch_cb_called := true} ->
+                ok;
+            #{} ->
+                throw(should_have_called_batch_cb)
+        end,
+        #{req_n := N} = Ctx0,
+        NCalled = Get(N),
+        ct:pal("evaluating req ~b, called ~b times so far", [N, NCalled]),
+        case N of
+            1 when NCalled > 1 ->
+                %% make retries succeed.
+                {ok, {retried_and_succeeded, 1}};
+            2 when NCalled > 3 ->
+                {ok, {retried_and_succeeded, 2}};
+            5 when NCalled > 2 ->
+                {error, {unrecoverable_error, {failure_after_retry, 5}}};
+            1 ->
+                {error, {recoverable_error, {try_again, 1}}};
+            2 ->
+                {error, {recoverable_error, {try_again, 2}}};
+            5 ->
+                {error, {recoverable_error, {try_again, 5}}};
+            N when N rem 2 == 0 ->
+                {ok, {succeeded, N}};
+            _ ->
+                {error, {unrecoverable_error, {bad_request, N}}}
+        end
+    end,
+    ChanResourceOptsOverride = #{
+        batch_size => 6,
+        batch_time => 100,
+        worker_pool_size => 1,
+        metrics_flush_interval => 50,
+        resume_interval => 300
+    },
+    Opts = #{
+        fallback_fn => Fn,
+        chan_resource_opts_override => ChanResourceOptsOverride
+    },
+    ConnName = ~"individual_batch",
+    %% sanity check: important that the last query succeeds; so that the buffer worker
+    %% doesn't just take the last query result decision for the whole batch.
+    ?assert(NReqs rem 2 == 0),
+    SetupCtx = fallback_actions_basic_setup(ConnName, ChanQueryMode, CallbackMode, batch, Opts),
+    SetupCtx#{
+        n_reqs := NReqs,
+        agent => Agent
     }.
 
 %%------------------------------------------------------------------------------
@@ -2255,6 +2349,104 @@ t_retry_batch(_Config) ->
     ),
     ok.
 
+t_retry_single_sync(_TCConfig) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(always_sync),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => sync,
+            batch_size => 1,
+            batch_time => 0,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_retry_single().
+
+t_retry_single_async(_TCConfig) ->
+    ResumeInterval = 300,
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} = create(
+        ?ID,
+        ?DEFAULT_RESOURCE_GROUP,
+        ?TEST_RESOURCE,
+        #{name => test_resource},
+        #{
+            query_mode => async,
+            batch_size => 1,
+            batch_time => 0,
+            worker_pool_size => 1,
+            metrics_flush_interval => 50,
+            resume_interval => ResumeInterval
+        }
+    ),
+    do_t_retry_single().
+
+do_t_retry_single() ->
+    {ok, Agent} = emqx_utils_agent:start_link(0),
+    Get = fun() ->
+        emqx_utils_agent:get_and_update(Agent, fun(N) -> {N + 1, N + 1} end)
+    end,
+    Ctx = #{},
+    Fn = fun(Ctx0) ->
+        maybe
+            #{batch_cb_called := true} ?= Ctx0,
+            throw(shouldnt_call_batch_cb)
+        end,
+        NCalled = Get(),
+        ct:pal("evaluating req, called ~b times so far", [NCalled]),
+        case NCalled < 3 of
+            true ->
+                {error, {recoverable_error, {try_again, NCalled}}};
+            false ->
+                {ok, {succeeded, NCalled}}
+        end
+    end,
+    Req = {chan_res_id, #{q => ask, fn => Fn, ctx => Ctx}},
+    ?check_trace(
+        begin
+            ?assertEqual({ok, {succeeded, 3}}, emqx_resource:query(?ID, Req)),
+
+            ?assertEqual(3, emqx_utils_agent:get(Agent)),
+
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    #{
+                        counters := #{
+                            'matched' := 1,
+                            'failed' := 0,
+                            'success' := 1,
+                            'retried' := 1,
+                            'retried.success' := 1,
+                            'retried.failed' := 0,
+                            'dropped.expired' := 0,
+                            'dropped.queue_full' := 0,
+                            'dropped.resource_not_found' := 0,
+                            'dropped.resource_stopped' := 0,
+                            'dropped.other' := 0
+                        },
+                        gauges := #{
+                            'inflight' := 0,
+                            'queuing' := 0
+                        }
+                    },
+                    tap_metrics(?LINE)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_delete_and_re_create_with_same_name(_Config) ->
     NumBufferWorkers = 2,
     {ok, _} = create(
@@ -2654,13 +2846,15 @@ t_async_reply_multi_eval(_Config) ->
     ok = emqx_resource:simple_sync_query(?ID, block),
     %% To track what happened.
     ReplyTraceTab = ets:new(random_reply_trace, [public, ordered_set]),
+    TestPid = self(),
+    ReplyTo = {fun(Ctx) -> TestPid ! {reply, Ctx} end, []},
     inc_counter_in_parallel(
         TotalQueries,
         fun() ->
             Rand = rand:uniform(1000),
             {random_reply, Rand, ReplyTraceTab}
         end,
-        #{}
+        #{reply_to => ReplyTo}
     ),
     ?retry(
         2 * ResumeInterval,
@@ -2689,7 +2883,16 @@ t_async_reply_multi_eval(_Config) ->
                 }
             )
         end
-    ).
+    ),
+    %% should receive replies only once for each query.
+    ReceivedReplies = lists:map(
+        fun(_) ->
+            ?assertReceive({reply, _})
+        end,
+        lists:seq(1, TotalQueries)
+    ),
+    ?assertNotReceive({reply, _}, 300, #{received => ReceivedReplies}),
+    ok.
 
 t_retry_async_inflight_batch(_Config) ->
     ResumeInterval = 1_000,
@@ -3582,64 +3785,69 @@ t_expiration_retry_batch_multiple_times(_Config) ->
     ),
     ok.
 
-t_batch_individual_reply_sync(_Config) ->
-    ResumeInterval = 300,
-    emqx_connector_demo:set_callback_mode(always_sync),
-    {ok, _} = create(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{
-            query_mode => sync,
-            batch_size => 5,
-            batch_time => 100,
-            worker_pool_size => 1,
-            metrics_flush_interval => 50,
-            resume_interval => ResumeInterval
-        }
-    ),
-    do_t_batch_individual_reply().
-
-t_batch_individual_reply_async(_Config) ->
-    ResumeInterval = 300,
-    emqx_connector_demo:set_callback_mode(async_if_possible),
-    {ok, _} = create(
-        ?ID,
-        ?DEFAULT_RESOURCE_GROUP,
-        ?TEST_RESOURCE,
-        #{name => test_resource},
-        #{
-            spawn_buffer_workers => true,
-            query_mode => sync,
-            batch_size => 5,
-            batch_time => 100,
-            worker_pool_size => 1,
-            metrics_flush_interval => 50,
-            resume_interval => ResumeInterval
-        }
-    ),
-    on_exit(fun() -> emqx_resource:remove_local(?ID) end),
-    do_t_batch_individual_reply().
-
-do_t_batch_individual_reply() ->
+t_batch_individual_reply() ->
+    [{matrix, true}].
+t_batch_individual_reply(matrix) ->
+    [
+        [QueryMode | Scenario]
+     || Scenario <- [
+            [sync, always_sync],
+            [async, async_if_possible]
+        ],
+        QueryMode <- [sync_qm, async_qm]
+    ];
+t_batch_individual_reply(TCConfig) ->
+    [QueryMode0, ChanQueryMode, CallbackMode] =
+        group_path(TCConfig, [sync_qm, sync, always_sync]),
+    QueryMode =
+        case QueryMode0 of
+            sync_qm -> sync;
+            async_qm -> async
+        end,
+    #{
+        agent := Agent,
+        chan_id := ChanId
+    } = SetupCtx = do_t_batch_individual_reply_setup(ChanQueryMode, CallbackMode),
     ?check_trace(
         begin
-            {Results, {ok, _}} =
-                ?wait_async_action(
-                    emqx_utils:pmap(
-                        fun(N) ->
-                            emqx_resource:query(?ID, {individual_reply, N rem 2 =:= 0})
-                        end,
-                        lists:seq(1, 5)
-                    ),
-                    #{?snk_kind := buffer_worker_flush_ack, batch_or_query := [_, _ | _]},
-                    5_000
-                ),
+            Results = fallback_send_many(QueryMode, SetupCtx),
 
-            Ok = ok,
-            Error = {error, {unrecoverable_error, bad_request}},
-            ?assertEqual([Error, Ok, Error, Ok, Error], Results),
+            ?assertEqual(
+                [
+                    {ok, {retried_and_succeeded, 1}},
+                    {ok, {retried_and_succeeded, 2}},
+                    {error, {unrecoverable_error, {bad_request, 3}}},
+                    {ok, {succeeded, 4}},
+                    {error, {unrecoverable_error, {failure_after_retry, 5}}},
+                    {ok, {succeeded, 6}}
+                ],
+                Results
+            ),
+
+            ?assertMatch(
+                #{
+                    1 := 2,
+                    2 := 4,
+                    3 := 1,
+                    4 := 1,
+                    5 := 3,
+                    6 := 1
+                },
+                emqx_utils_agent:get(Agent)
+            ),
+
+            %% only requests 3 and 5 should trigger the 2 fallback actions
+            [
+                ?assertReceive(
+                    {fallback_called, #{
+                        n := FallbackNum,
+                        request := #{ctx := #{req_n := ReqNum}}
+                    }}
+                )
+             || ReqNum <- [3, 5],
+                FallbackNum <- [1, 2]
+            ],
+            ?assertNotReceive({fallback_called, _}),
 
             ?retry(
                 200,
@@ -3647,12 +3855,24 @@ do_t_batch_individual_reply() ->
                 ?assertMatch(
                     #{
                         counters := #{
-                            matched := 5,
-                            failed := 3,
-                            success := 2
+                            'matched' := 6,
+                            'failed' := 2,
+                            'success' := 4,
+                            'retried' := 3,
+                            'retried.success' := 2,
+                            'retried.failed' := 1,
+                            'dropped.expired' := 0,
+                            'dropped.queue_full' := 0,
+                            'dropped.resource_not_found' := 0,
+                            'dropped.resource_stopped' := 0,
+                            'dropped.other' := 0
+                        },
+                        gauges := #{
+                            'inflight' := 0,
+                            'queuing' := 0
                         }
                     },
-                    tap_metrics(?LINE)
+                    emqx_resource:get_metrics(ChanId)
                 )
             ),
 
@@ -3661,6 +3881,77 @@ do_t_batch_individual_reply() ->
         []
     ),
     ok.
+
+-doc """
+Checks that, using async batch, an immediate single recoverable error returned by the
+callback module for the whole batch is later retried.
+""".
+t_flush_async_batch_immediate_nack(_TCConfig) ->
+    ConnName = atom_to_binary(?FUNCTION_NAME),
+    ConnResId = connector_res_id(ConnName),
+    ConnConfig = #{name => ?FUNCTION_NAME},
+    emqx_connector_demo:set_callback_mode(async_if_possible),
+    {ok, _} =
+        create(
+            ConnResId,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            ConnConfig,
+            #{
+                health_check_interval => 100,
+                start_timeout => 100
+            }
+        ),
+    {ok, ?status_connected} = emqx_resource:health_check(ConnResId),
+    ActionResId = action_res_id(ConnResId),
+    ActionConfig = #{
+        resource_opts => #{
+            batch_size => 2,
+            batch_time => 50,
+            health_check_interval => 100
+        }
+    },
+    ok = add_channel(ConnResId, ActionResId, ActionConfig),
+
+    Ctx = #{},
+    {ok, Agent} = emqx_utils_agent:start_link(0),
+    TestPid = self(),
+    OkFn = fun(_Ctx) ->
+        N = emqx_utils_agent:get(Agent),
+        TestPid ! {succeeded, N},
+        {ok, N}
+    end,
+    Fn = fun(_Ctx) ->
+        case emqx_utils_agent:get_and_update(Agent, fun(N) -> {N, N + 1} end) of
+            0 ->
+                {return, {error, {recoverable_error, ecpool_empty}}};
+            _ ->
+                TransformFn = fun({ActionResId0, #{q := ask_now} = R}) ->
+                    {ActionResId0, R#{q := ask, fn := OkFn}}
+                end,
+                {transform_batch, TransformFn}
+        end
+    end,
+    Req = {ActionResId, #{q => ask_now, fn => Fn, ctx => Ctx}},
+
+    QueryOpts = #{connector_resource_id => ConnResId},
+    ?assertMatch({ok, 2}, emqx_resource:query(ActionResId, Req, QueryOpts)),
+    %% triggered twice
+    NCalled = emqx_utils_agent:get(Agent),
+    ?assertEqual(2, NCalled),
+    ?assertReceive({succeeded, 2}),
+    ok.
+
+%% -doc """
+%% Checks that, using batches, if a batch is later retried (synchronously) and fails
+%% partially, the fallback actions of acked queries are not evaluated more than once.
+%% """.
+%% t_fallback_actions_called_once_during_retry_individual_batch_reply(_TCConfig) ->
+%%     ConnName = ~"fb_retry_individual_batch_reply",
+%%     SetupCtx = fallback_actions_basic_setup(ConnName, sync, always_sync, batch),
+
+%%     ct:fail(todo),
+%%     ok.
 
 t_recursive_flush(_Config) ->
     emqx_connector_demo:set_callback_mode(async_if_possible),
@@ -5679,7 +5970,7 @@ t_add_large_number_of_channels_oom(_TCConfig) ->
     ok = sys:resume(ResManPid),
     ct:pal("resumed"),
     ct:print(
-        "N.B. if this test OOM crashes, there's something wrong with"
+        "N.B. if this test OOM crashes, there's (possibly) something wrong with"
         " yielding after spawning health check workers"
     ),
     %% Trigger connector health check, which in turn triggers health checks for all

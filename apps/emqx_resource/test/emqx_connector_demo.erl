@@ -299,6 +299,8 @@ on_batch_query(InstId, BatchReq, State) ->
             batch_individual_reply(sync, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply(sync, InstId, BatchReq, State);
+        {_ChanId, #{q := ask_now, fn := _Fn, ctx := _Ctx}} = Req ->
+            batch_eval_ask_now(Req, sync, InstId, BatchReq, State);
         {random_reply, Num, ReplyTab} ->
             %% async batch retried
             Result = make_random_reply(Num),
@@ -321,9 +323,11 @@ on_batch_query_async(InstId, BatchReq, ReplyFunAndArgs, #{pid := Pid} = State) -
             batch_individual_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {_ChanId, #{q := ask, fn := _Fn, ctx := _Ctx}} ->
             batch_ask_reply({async, ReplyFunAndArgs}, InstId, BatchReq, State);
+        {_ChanId, #{q := ask_now, fn := _Fn, ctx := _Ctx}} = Req ->
+            batch_eval_ask_now(Req, {async, ReplyFunAndArgs}, InstId, BatchReq, State);
         {random_reply, Num, ReplyTab} ->
             %% only take the first Num in the batch should be random enough
-            Pid ! {{random_reply, Num, ReplyTab}, ReplyFunAndArgs},
+            Pid ! {{random_reply, Num, ReplyTab, length(BatchReq)}, ReplyFunAndArgs},
             {ok, Pid}
     end.
 
@@ -381,7 +385,9 @@ batch_individual_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
 
 batch_ask_reply(sync, InstId, Batch, State) ->
     emqx_utils:pmap(
-        fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+        fun({ChanId, #{q := ask, fn := _, ctx := Ctx0} = Args0}) ->
+            Ctx = Ctx0#{batch_cb_called => true},
+            Req = {ChanId, Args0#{ctx := Ctx}},
             on_query(InstId, Req, State)
         end,
         Batch,
@@ -390,7 +396,9 @@ batch_ask_reply(sync, InstId, Batch, State) ->
 batch_ask_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
     Pid = spawn(fun() ->
         Results = lists:map(
-            fun(Req = {_ChanId, #{q := ask, fn := _, ctx := _}}) ->
+            fun({ChanId, #{q := ask, fn := _, ctx := Ctx0} = Args0}) ->
+                Ctx = Ctx0#{batch_cb_called => true},
+                Req = {ChanId, Args0#{ctx := Ctx}},
                 on_query(InstId, Req, State)
             end,
             Batch
@@ -398,6 +406,21 @@ batch_ask_reply({async, ReplyFunAndArgs}, InstId, Batch, State) ->
         apply_reply(ReplyFunAndArgs, Results)
     end),
     {ok, Pid}.
+
+batch_eval_ask_now({_ChanId, #{q := ask_now} = R}, SyncOrAsync, ConnResId, Batch, ConnState) ->
+    #{fn := Fn, ctx := Ctx} = R,
+    case Fn(Ctx) of
+        {return, Res} ->
+            Res;
+        {transform_batch, TransformFn} when is_function(TransformFn, 1) ->
+            Batch1 = [TransformFn(Q) || Q <- Batch],
+            case SyncOrAsync of
+                {async, ReplyFnAndArgs} ->
+                    on_batch_query_async(ConnResId, Batch1, ReplyFnAndArgs, ConnState);
+                sync ->
+                    on_batch_query(ConnResId, Batch1, ConnState)
+            end
+    end.
 
 on_get_status(_InstId, #{health_check_error := true}) ->
     ?tp(connector_demo_health_check_error, #{}),
@@ -637,14 +660,14 @@ counter_loop(
                     end,
                 apply_reply(ReplyFun, Res),
                 State;
-            {{random_reply, RandNum, ReplyTab}, ReplyFun} ->
+            {{random_reply, RandNum, ReplyTab, NBatch}, ReplyFun} ->
                 %% usually a behaving  connector should reply once and only once for
                 %% each (batch) request
                 %% but we try to reply random results a random number of times
                 %% with 'ok' in the result, the buffer worker should eventually
                 %% drain the buffer (and inflights table)
                 ReplyCount = 1 + (RandNum rem 3),
-                Results = make_random_replies(ReplyCount),
+                Results = make_random_replies_batch(ReplyCount, NBatch),
                 %% To track expected state.
                 ets:insert(ReplyTab, {erlang:monotonic_time(), Results}),
                 %% add a delay to trigger inflight full
@@ -699,10 +722,13 @@ maybe_register(_Name, _Pid, false) ->
 apply_reply({ReplyFun, Args}, Result) when is_function(ReplyFun) ->
     apply(ReplyFun, Args ++ [Result]).
 
-make_random_replies(0) ->
+make_random_replies_batch(0, _NBatch) ->
     [];
-make_random_replies(N) ->
-    [make_random_reply(N) | make_random_replies(N - 1)].
+make_random_replies_batch(N, NBatch) ->
+    [
+        [make_random_reply(N) || _ <- lists:seq(1, NBatch)]
+        | make_random_replies_batch(N - 1, NBatch)
+    ].
 
 make_random_reply(N) ->
     case rand:uniform(3) of

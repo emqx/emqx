@@ -998,7 +998,7 @@ handle_event(EventType, EventData, State, Data) ->
             event_type => EventType,
             event_data => EventData,
             state => State,
-            data => emqx_utils:redact(Data)
+            statem_data => emqx_utils:redact(Data)
         },
         Data
     ),
@@ -1011,7 +1011,7 @@ log_status_consistency(Status, #data{status = Status} = Data0) ->
 log_status_consistency(Status, Data) ->
     ?tp(warning, "inconsistent_status", #{
         status => Status,
-        data => emqx_utils:redact(Data)
+        statem_data => emqx_utils:redact(Data)
     }).
 
 log_cache_consistency(Data, Data) ->
@@ -1019,7 +1019,7 @@ log_cache_consistency(Data, Data) ->
 log_cache_consistency(DataCached, Data) ->
     ?tp(warning, "inconsistent_cache", #{
         cache => emqx_utils:redact(DataCached),
-        data => emqx_utils:redact(Data)
+        statem_data => emqx_utils:redact(Data)
     }).
 
 %%------------------------------------------------------------------------------
