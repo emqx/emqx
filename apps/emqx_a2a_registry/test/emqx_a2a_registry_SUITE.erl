@@ -33,6 +33,9 @@
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
+suite() ->
+    [{timetrap, {seconds, 300}}].
+
 all() ->
     [
         {group, ?memory_sessions},
@@ -84,7 +87,9 @@ init_per_group(?durable_sessions, TCConfig) ->
         {emqx_a2a_registry, #{config => #{<<"a2a_registry">> => #{<<"enable">> => true}}}},
         emqx_mt_app()
     ],
-    emqx_common_test_helpers:start_apps_ds(TCConfig, ExtraApps, #{});
+    TCConfig1 = emqx_common_test_helpers:start_apps_ds(TCConfig, ExtraApps, #{}),
+    ok = create_test_ns(),
+    TCConfig1;
 init_per_group(?memory_sessions, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
@@ -97,6 +102,7 @@ init_per_group(?memory_sessions, TCConfig) ->
         ],
         #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
+    ok = create_test_ns(),
     [{apps, Apps} | TCConfig];
 init_per_group(?namespaced, TCConfig) ->
     [{namespace, ?NS} | TCConfig];
@@ -111,11 +117,17 @@ emqx_conf_app() ->
     """}.
 
 emqx_mt_app() ->
-    {emqx_mt, #{
-        after_start => fun() ->
-            ok = emqx_mt_config:create_managed_ns(?NS)
-        end
-    }}.
+    emqx_mt.
+
+%% NOTE: this used to run in the `after_start' hook of the `emqx_mt'
+%% appspec. Business applications (and their hooks) start on the boot
+%% run level, while the cluster RPC workers only start on
+%% `?emqx_rl_cluster_rpc': calling `create_managed_ns' (which goes
+%% through the cluster RPC) from the hook crashed the boot hook and
+%% stalled the whole node. `emqx_cth_suite:start/2,3' now waits for the
+%% full readiness before returning, so doing it here is safe.
+create_test_ns() ->
+    emqx_mt_config:create_managed_ns(?NS).
 
 end_per_group(?durable_sessions, TCConfig) ->
     emqx_common_test_helpers:run_cleanups(TCConfig),

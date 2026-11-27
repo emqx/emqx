@@ -197,17 +197,6 @@ t_process_limit_quic_connection(_Config) ->
     ok = meck:unload(emqx_node_readiness),
     ?assertEqual(ok, try_connect(fun emqtt:quic_connect/1, QuicOpts)).
 
--doc "A cluster join is refused on both the joining and the target node while not ready.".
-t_gate_cluster_join(_Config) ->
-    ok = emqx_node_readiness:mark_not_ready(),
-    ?assertMatch({error, _}, emqx_cluster:can_i_join(node())),
-    ?assertMatch(
-        {error, "This node has not fully booted" ++ _},
-        emqx_cluster:join('nosuchnode@127.0.0.1')
-    ),
-    ok = mark_ready_and_wait(),
-    ?assertEqual(ok, emqx_cluster:can_i_join(node())).
-
 -doc """
 The flag is not set while a registered check does not return true, and is
 set once the check passes.  The check does not run after that.

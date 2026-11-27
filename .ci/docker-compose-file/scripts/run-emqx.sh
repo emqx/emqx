@@ -119,8 +119,10 @@ append_conf all "${emqx_env_overrides[@]}"
 
 is_node_up() {
   local node="$1"
+  ## `ekka' was replaced by `classy'; `emqx:running_nodes/0' (backed by mria)
+  ## is the equivalent of the old `ekka_cluster:info()' running nodes list:
   docker exec -i "$node" \
-         bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = maps:get(running_nodes, ekka_cluster:info()).\"" > /dev/null 2>&1
+         bash -c "emqx eval \"['emqx@node1.emqx.io','emqx@node2.emqx.io'] = lists:sort(emqx:running_nodes()).\"" > /dev/null 2>&1
 }
 
 is_node_listening() {

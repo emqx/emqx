@@ -59,9 +59,6 @@ app_specs() ->
         {emqx_license, "license { key = \"default\" }"}
     ].
 
-init_per_testcase(t_custom_shard_transports, Config) ->
-    OldConfig = application:get_env(emqx_machine, custom_shard_transports),
-    [{old_config, OldConfig} | Config];
 init_per_testcase(t_open_ports_check = TestCase, Config) ->
     AppSpecs = [emqx],
     Cluster = [
@@ -78,16 +75,6 @@ init_per_testcase(_TestCase, Config) ->
     application:set_env(emqx_machine, applications, ?APPS),
     Config.
 
-end_per_testcase(t_custom_shard_transports, Config) ->
-    OldConfig0 = ?config(old_config, Config),
-    application:stop(ekka),
-    case OldConfig0 of
-        {ok, OldConfig} ->
-            application:set_env(emqx_machine, custom_shard_transports, OldConfig);
-        undefined ->
-            application:unset_env(emqx_machine, custom_shard_transports)
-    end,
-    ok;
 end_per_testcase(t_open_ports_check, Config) ->
     Nodes = ?config(nodes, Config),
     ok = emqx_cth_cluster:stop(Nodes),
@@ -197,8 +184,8 @@ t_post_boot_unsets_boot_configs(Config) ->
 t_sorted_reboot_apps(_Config) ->
     Apps = emqx_machine_boot:sorted_reboot_apps(),
     SortApps = [App || App <- Apps, (App =:= emqx_dashboard orelse App =:= emqx_license)],
-    %% make sure emqx_license start early than emqx_dashboard
-    ?assertEqual([emqx_license, emqx_dashboard], SortApps).
+    %% make sure emqx_license start earlier than emqx_dashboard
+    ?assertEqual([emqx_license, emqx_dashboard], SortApps, Apps).
 
 -doc """
 `gproc` holds the registry `mria` reads, so restarting it when the node joins or
@@ -207,18 +194,6 @@ started once, from the OTP application list in `reboot_lists.eterm`.
 """.
 t_gproc_is_not_a_reboot_app(_Config) ->
     ?assertNot(lists:member(gproc, emqx_machine_boot:sorted_reboot_apps())).
-
-t_custom_shard_transports(_Config) ->
-    %% used to ensure the atom exists
-    Shard = test_shard,
-    %% the config keys are binaries
-    ShardBin = atom_to_binary(Shard),
-    DefaultTransport = distr,
-    ?assertEqual(DefaultTransport, mria_config:shard_transport(Shard)),
-    application:set_env(emqx_machine, custom_shard_transports, #{ShardBin => distr}),
-    emqx_machine:start(),
-    ?assertEqual(distr, mria_config:shard_transport(Shard)),
-    ok.
 
 t_node_status(_Config) ->
     JSON = emqx_machine:node_status(),

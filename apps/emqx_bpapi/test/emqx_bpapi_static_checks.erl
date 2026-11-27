@@ -47,8 +47,8 @@
 %% Applications and modules we wish to ignore in the analysis:
 -define(IGNORED_APPS,
     "gen_rpc, recon, redbug, observer_cli, snabbkaffe,"
-    " ekka, mria, amqp_client, rabbit_common, esaml, ra,"
-    " proper, ranch"
+    " classy, mria, amqp_client, rabbit_common, esaml, ra,"
+    " proper, ranch, familiar"
 ).
 -define(IGNORED_MODULES, "emqx_rpc").
 -define(FORCE_DELETED_MODULES, [
@@ -165,8 +165,6 @@
     % passed in the args, it's futile to try to statically
     % check it
     "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2,"
-    %% Reason: `emqx_machine' should not depend on `emqx', where the `bpapi' modules live.
-    " emqx_machine_replicant_health_probe:get_core_custom_infos/0,"
     %% Reason: avoid requiring the user to do manual intervention on older (pre-6.0) nodes
     %% before rolling upgrade.
     " emqx_conf_app:upgrade_remote_raw_config/2"

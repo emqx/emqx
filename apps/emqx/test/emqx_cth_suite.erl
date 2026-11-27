@@ -2,63 +2,65 @@
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Common Test Helper / Running test suites
-%%
-%% The purpose of this module is to run application-level, integration
-%% tests in an isolated fashion.
-%%
-%% Isolation is this context means that each testrun does not leave any
-%% persistent state accessible to following testruns. The goal is to
-%% make testruns completely independent of each other, of the order in
-%% which they are executed, and of the testrun granularity, i.e. whether
-%% they are executed individually or as part of a larger suite. This
-%% should help to increase reproducibility and reduce the risk of false
-%% positives.
-%%
-%% Isolation is achieved through the following measures:
-%% * Each testrun completely terminates and unload all applications
-%%   started during the testrun.
-%% * Each testrun is executed in a separate directory, usually under
-%%   common_test's private directory, where all persistent state should
-%%   be stored.
-%% * Additionally, each cleans out few bits of persistent state that
-%%   survives the above measures, namely persistent VM terms related
-%%   to configuration and authentication (see `clean_suite_state/0`).
-%%
-%% Integration test in this context means a test that works with applications
-%% as a whole, and needs to start and stop them as part of the test run.
-%% For this, there's an abstraction called _appspec_ that describes how to
-%% configure and start an application.
-%%
-%% The module also provides a set of default appspecs for some applications
-%% that hide details and quirks of how to start them, to make it easier to
-%% write test suites.
-%%
-%% Most of the time, you just need to:
-%% 1. Describe the appspecs for the applications you want to test.
-%% 2. Call `emqx_cth_suite:start/2` to start the applications before the testrun
-%%    (e.g. in `init_per_suite/1` / `init_per_group/2`), providing the appspecs
-%%    and unique work dir for the testrun (e.g. `work_dir/1`). Save the result
-%%    in a context.
-%% 3. Call `emqx_cth_suite:stop/1` to stop the applications after the testrun
-%%    finishes (e.g. in `end_per_suite/1` / `end_per_group/2`), providing the
-%%    result from step 2.
 -module(emqx_cth_suite).
 
+-moduledoc """
+# Common Test Helper / Running test suites
+
+The purpose of this module is to run application-level, integration
+tests in an isolated fashion.
+
+Isolation is this context means that each testrun does not leave any
+persistent state accessible to following testruns. The goal is to
+make testruns completely independent of each other, of the order in
+which they are executed, and of the testrun granularity, i.e. whether
+they are executed individually or as part of a larger suite. This
+should help to increase reproducibility and reduce the risk of false
+positives.
+
+Isolation is achieved through the following measures:
+* Each testrun completely terminates and unload all applications
+  started during the testrun.
+* Each testrun is executed in a separate directory, usually under
+  common_test's private directory, where all persistent state should
+  be stored.
+* Additionally, each cleans out few bits of persistent state that
+  survives the above measures, namely persistent VM terms related
+  to configuration and authentication (see `clean_suite_state/0`).
+
+Integration test in this context means a test that works with applications
+as a whole, and needs to start and stop them as part of the test run.
+For this, there's an abstraction called _appspec_ that describes how to
+configure and start an application.
+
+The module also provides a set of default appspecs for some applications
+that hide details and quirks of how to start them, to make it easier to
+write test suites.
+
+Most of the time, you just need to:
+1. Describe the appspecs for the applications you want to test.
+2. Call `emqx_cth_suite:start/2` to start the applications before the testrun
+   (e.g. in `init_per_suite/1` / `init_per_group/2`), providing the appspecs
+   and unique work dir for the testrun (e.g. `work_dir/1`). Save the result
+   in a context.
+3. Call `emqx_cth_suite:stop/1` to stop the applications after the testrun
+   finishes (e.g. in `end_per_suite/1` / `end_per_group/2`), providing the
+   result from step 2.
+""".
+
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("classy/include/classy.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("stdlib/include/assert.hrl").
+-include("emqx_machine_rl.hrl").
 
--export([start/2]).
--export([stop/1]).
+-export([start/2, start/3, stop/1]).
 
--export([work_dir/1]).
--export([work_dir/2]).
--export([clean_work_dir/1]).
+-export([work_dir/1, work_dir/2, clean_work_dir/1, maybe_clean_work_dir/2]).
 
 -export([load_apps/1]).
--export([start_apps/2]).
--export([start_app/2]).
--export([start_app/3]).
--export([stop_apps/1]).
+-export([start_apps/2, start_app/2, start_app/3, stop_apps/1]).
 
 -export([default_config/2]).
 -export([merge_appspec/2]).
@@ -88,6 +90,8 @@
             ct:pal(?MODULE, IMPORTANCE, FMT, ARGS, [{heading, ?MODULE_STRING}])
     end
 ).
+
+-define(rest_started, emqx_cth_suite_start_result).
 
 %%
 
@@ -133,9 +137,23 @@
     after_start => hookfun(_) | false
 }.
 
-%% @doc Start applications with a clean slate.
-%% Provided appspecs will be merged with defaults defined in `default_appspec/1`.
--spec start([appname() | appspec()], SuiteOpts) ->
+start(Apps, SuiteOpts) ->
+    start(infinity, Apps, SuiteOpts).
+
+-doc """
+Start applications with a clean slate.
+Provided appspecs will be merged with defaults defined in `default_appspec/1`.
+
+This function attempts to start applications in a way similar to
+emqx_machine, utilizing the classy run_level logic.
+
+
+NOTE: The return value is the list of *system* apps, i.e. ones not
+managed by classy. That includes mria, classy and their dependencies.
+The rest of "business" apps don't appear in the list, as they are
+managed by `on_run_level` hook.
+""".
+-spec start(timeout(), [appname() | appspec()], SuiteOpts) ->
     StartedApps :: [appname()]
 when
     SuiteOpts :: #{
@@ -145,27 +163,94 @@ when
         %% or `work_dir/2` (if used in a testcase) should be fine here.
         work_dir := file:name()
     }.
-start(Apps, SuiteOpts = #{work_dir := WorkDir}) ->
+start(WaitStarted, Apps, SuiteOpts = #{work_dir := WorkDir}) ->
     emqx_common_test_helpers:clear_screen(),
     % 1. Prepare appspec instructions
     AppSpecs = [mk_appspec(App, SuiteOpts) || App <- Apps],
     % 2. Load every app so that stuff scanning attributes of loaded modules works
     ok = lists:foreach(fun load_appspec/1, AppSpecs),
     % 3. Verify that we're running with a clean state.
-    ok = filelib:ensure_dir(filename:join(WorkDir, foo)),
+    ok = filelib:ensure_path(WorkDir),
     ok = verify_clean_suite_state(SuiteOpts),
-    % 4. Setup isolated mnesia directory
-    ok = emqx_common_test_helpers:load(mnesia),
-    ok = application:set_env(mnesia, dir, filename:join([WorkDir, mnesia])),
+    %% FIXME: why is it here?
     ok = application:set_env(emqx_durable_storage, db_data_dir, filename:join([WorkDir, ds])),
-    % 5. Start ekka separately.
-    % For some reason it's designed to be started in non-regular way, so we have to track
-    % applications started in the process manually.
-    EkkaSpecs = [{App, proplists:get_value(App, AppSpecs, #{})} || App <- [gen_rpc, mria, ekka]],
-    EkkaApps = start_apps(EkkaSpecs, SuiteOpts),
-    % 6. Start apps following instructions.
-    RestSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, EkkaSpecs)],
-    EkkaApps ++ start_appspecs(RestSpecs).
+    % 4. Separate applications into "system" and "managed" groups.
+    % "Managed" applications are not started immediately, but instead
+    % passed to classy hook that manages them depending on the run
+    % level:
+    SystemSpecs = [
+        {App, proplists:get_value(App, AppSpecs, #{})}
+     || App <- [gen_rpc, classy, mria]
+    ],
+    % 5. Configure system apps. NOTE: we cannot configure all apps
+    % here, as some pre-config hooks rely on mria.
+    [configure_app(App, AppSpec) || {App, AppSpec} <- SystemSpecs],
+    ManagedSpecs = [AppSpec || AppSpec <- AppSpecs, not lists:member(AppSpec, SystemSpecs)],
+    % 6. Pre-boot. Start system apps:
+    SysApps = emqx_machine:start_sys_apps(WorkDir),
+    classy:on_run_level(
+        on_run_level(ManagedSpecs),
+        #{prio => 0, timeout => infinity}
+    ),
+    % 7. Boot business apps:
+    ok = classy:start_system(),
+    wait_business_apps(WaitStarted),
+    SysApps.
+
+on_run_level(RestSpecs) ->
+    fun(Action, Level) ->
+        ?tp(
+            info,
+            test_run_level_change,
+            #{
+                Action => Level,
+                peers => classy:nodes(all),
+                node => node()
+            }
+        ),
+        case {Action, Level} of
+            {enter, ?emqx_rl_boot} ->
+                Result = ?tp_span(
+                    info,
+                    test_starting_business_apps,
+                    #{node => node(), specs => RestSpecs, peers => classy:nodes(all)},
+                    unsafe_start_appspecs(RestSpecs)
+                ),
+                optvar:set(?rest_started, Result);
+            {leave, ?emqx_rl_boot} ->
+                maybe
+                    {ok, Started} ?= optvar:peek(?rest_started),
+                    ?tp_span(
+                        info,
+                        test_stopping_business_apps,
+                        #{node => node(), apps => Started, peers => classy:nodes(all)},
+                        stop_apps(Started)
+                    )
+                end,
+                %% Wake the testcase process waiting for apps:
+                optvar:set(?rest_started, {error, stopping}),
+                optvar:unset(?rest_started);
+            _ ->
+                ok
+        end
+    end.
+
+-spec wait_business_apps(timeout()) -> ok.
+wait_business_apps(Timeout) ->
+    _ = emqx_machine:wait_cluster_ready(Timeout),
+    case optvar:read(?rest_started, Timeout) of
+        {ok, Apps} when is_list(Apps) ->
+            wait_for_emqx_rl_ready(Timeout),
+            ok;
+        {ok, {error, stopping}} ->
+            exit(cth_suite_boot_aborted);
+        timeout when Timeout =:= 0 ->
+            %% Handle cases when apps are started async-ly, e.g. in
+            %% cluster suites:
+            ok;
+        timeout ->
+            exit(cth_suite_boot_timeout)
+    end.
 
 load_apps(Apps) ->
     lists:foreach(fun load_appspec/1, [mk_appspec(App, #{}) || App <- Apps]).
@@ -184,18 +269,50 @@ load_app_deps(App) ->
             ok
     end.
 
-start_apps(Apps, SuiteOpts) ->
-    start_appspecs([mk_appspec(App, SuiteOpts) || App <- Apps]).
+wait_for_emqx_rl_ready(infinity) ->
+    wait_for_emqx_rl_ready(999_999_999);
+wait_for_emqx_rl_ready(Timeout) ->
+    ?retry(
+        100,
+        Timeout div 100,
+        ?assert(classy:run_level() >= ?emqx_rl_ready)
+    ).
 
+-doc """
+Start applications without checking for system/business type of start.
+
+The danger of using this function is that classy's run level logic
+which should stop apps when node joins or leaves the cluster doesn't
+activate. It means some applications can keep running while they
+shouldn't.
+""".
+start_apps(Apps, SuiteOpts) ->
+    unsafe_start_appspecs([mk_appspec(App, SuiteOpts) || App <- Apps]).
+
+-doc """
+Unsafe API that starts unconditionally applications outside of classy's
+run level framework. Applications started this way don't get restarted
+when the node leaves or joins the cluster.
+""".
 start_app(App, StartOpts) ->
     start_app(App, StartOpts, #{}).
 
 start_app(App, StartOpts, SuiteOpts) ->
-    start_appspecs([mk_appspec({App, StartOpts}, SuiteOpts)]).
+    unsafe_start_appspecs([mk_appspec({App, StartOpts}, SuiteOpts)]).
 
-start_appspecs(AppSpecs) ->
+unsafe_start_appspecs(AppSpecs) ->
     lists:flatmap(
-        fun({App, Spec}) -> start_appspec(App, Spec) end,
+        fun({App, Spec}) ->
+            configure_app(App, Spec),
+            case maybe_start(App, Spec) of
+                {ok, Started} ->
+                    ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
+                    _ = maybe_after_start(App, Spec),
+                    Started;
+                {error, Reason} ->
+                    error({failed_to_start_app, App, Reason})
+            end
+        end,
         AppSpecs
     ).
 
@@ -211,19 +328,17 @@ init_spec(Opts = #{}) ->
 init_spec(Config) when is_list(Config); is_binary(Config) ->
     #{config => [Config, "\n"]}.
 
-start_appspec(App, StartOpts) ->
+-doc """
+Prepare the application to start (configure and run pre-hooks).
+Load the application and set its environment.
+""".
+configure_app(App, StartOpts) ->
     _ = log_appspec(App, StartOpts),
+    _ = emqx_common_test_helpers:load(App),
     _ = maybe_before_start(App, StartOpts),
     _ = maybe_configure_app(App, StartOpts),
     _ = maybe_override_env(App, StartOpts),
-    case maybe_start(App, StartOpts) of
-        {ok, Started} ->
-            ?PAL(?STD_IMPORTANCE, "Started applications: ~0p", [Started]),
-            _ = maybe_after_start(App, StartOpts),
-            Started;
-        {error, Reason} ->
-            error({failed_to_start_app, App, Reason})
-    end.
+    ok.
 
 log_appspec(App, StartOpts) when map_size(StartOpts) > 0 ->
     Fmt = lists:flatmap(
@@ -248,18 +363,18 @@ maybe_configure_app(_App, #{config := false}) ->
     ok;
 maybe_configure_app(_App, AppConfig = #{schema_mod := SchemaModule}) when is_atom(SchemaModule) ->
     #{config := Config} = AppConfig,
-    configure_app(SchemaModule, Config);
+    do_configure_app(SchemaModule, Config);
 maybe_configure_app(App, #{config := Config}) ->
     case app_schema(App) of
         {ok, SchemaModule} ->
-            configure_app(SchemaModule, Config);
+            do_configure_app(SchemaModule, Config);
         {error, Reason} ->
             error({failed_to_configure_app, App, Reason})
     end;
 maybe_configure_app(_App, #{}) ->
     ok.
 
-configure_app(SchemaModule, Config) ->
+do_configure_app(SchemaModule, Config) ->
     _ = emqx_config:create_tables(),
     Rendered = render_config(Config),
     ok = emqx_config:init_load(SchemaModule, Rendered),
@@ -321,10 +436,6 @@ merge_config(_C, false) ->
 merge_config(C1, C2) ->
     [render_config(C1), "\n", render_config(C2)].
 
-default_appspec(ekka, _SuiteOpts) ->
-    #{
-        start => fun start_ekka/0
-    };
 default_appspec(emqx, SuiteOpts) ->
     #{
         override_env => [{data_dir, maps:get(work_dir, SuiteOpts, "data")}],
@@ -450,11 +561,17 @@ clean_work_dir(WorkDir) ->
             error({unsafe_workdir, WorkDir})
     end.
 
-%%
+maybe_clean_work_dir(WorkDirKey, Config) ->
+    maybe
+        WorkDir = proplists:get_value(WorkDirKey, Config, undefined),
+        true ?= is_list(WorkDir) orelse is_binary(WorkDir),
+        ok ?= proplists:get_value(tc_status, Config, undefined),
+        clean_work_dir(WorkDir)
+    else
+        _ -> ct:pal("NOT cleaning the workdir")
+    end.
 
-start_ekka() ->
-    ok = emqx_common_test_helpers:start_ekka(),
-    {ok, [mnesia, ekka]}.
+%%
 
 inhibit_config_loader(_App, #{config := Config}) when Config /= false ->
     ok = emqx_app:set_config_loader(?MODULE);
@@ -463,15 +580,27 @@ inhibit_config_loader(_App, #{}) ->
 
 %%
 
--spec stop(_StartedApps :: [appname()]) ->
+-doc """
+A safe way to stop applications that imitates behavior of emqx_machine.
+""".
+-spec stop(_StartedSysApps :: [appname()]) ->
     ok.
-stop(Apps) ->
-    ok = stop_apps(Apps),
+stop(SysApps) ->
+    try
+        classy:stop_system()
+    catch
+        _:_ -> ok
+    end,
+    stop_apps(SysApps),
     clean_suite_state().
 
+-doc """
+This function stops applications bypassing `classy`'s run level mechanism.
+""".
 -spec stop_apps(_StartedApps :: [appname()]) ->
     ok.
 stop_apps(Apps) ->
+    ct:pal("Stopping applications: ~p", [Apps]),
     ok = lists:foreach(fun application:stop/1, lists:reverse(Apps)),
     ok = lists:foreach(fun application:unload/1, Apps).
 
@@ -482,7 +611,16 @@ verify_clean_suite_state(#{work_dir_dirty := true}) ->
     %% Use with care.
     ok;
 verify_clean_suite_state(#{work_dir := WorkDir}) ->
-    {ok, []} = file:list_dir(WorkDir),
+    {ok, Files} = file:list_dir(WorkDir),
+    %% Some files are allowed in the working directory, like log
+    %% files. Check if any file doesn't match the exception:
+    true = lists:all(
+        fun
+            ("erlang.log") -> true;
+            (_) -> false
+        end,
+        Files
+    ),
     false = emqx_schema_hooks:any_injections(),
     [] = emqx_config:get_root_names(),
     ok.

@@ -10,6 +10,7 @@
 -export([get_override_config_file/0]).
 -export([sync_data_from_node/0]).
 -export([unset_config_loaded/0]).
+-export([create_tables/0, wait_for_tables/0]).
 
 -ifdef(TEST).
 -export([sync_cluster_conf/0]).
@@ -26,9 +27,22 @@
 
 -elvis([{elvis_style, no_invalid_dynamic_calls, disable}]).
 
+create_tables() ->
+    maybe
+        {ok, _} ?= emqx_cluster_rpc:create_tables(),
+        {ok, _} ?= emqx_config:create_tables(),
+        ok
+    end.
+
+%% Note: this function is called before application start, as it's
+%% registered at run level ?emqx_rl_mria_ready
+wait_for_tables() ->
+    maybe
+        ok ?= emqx_cluster_rpc:wait_for_tables(),
+        emqx_config:wait_for_tables()
+    end.
+
 start(_StartType, _StartArgs) ->
-    ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
-    _ = emqx_config:create_tables(),
     ensure_allowed_namespaced_root_keys(),
     try
         ok = init_conf()
@@ -43,9 +57,11 @@ start(_StartType, _StartArgs) ->
     ok = warn_if_no_trusted_certs(),
     {ok, Sup} = emqx_conf_sup:start_link(),
     emqx_conf_cli:load(),
-    {ok, Sup}.
+    Hook = classy:on_run_level(fun emqx_conf_sup:on_run_level/2, 0),
+    {ok, Sup, Hook}.
 
-stop(_State) ->
+stop(Hook) ->
+    classy_hook:unhook(Hook),
     emqx_config:clear_all_invalid_namespaced_configs(),
     emqx_conf_cli:unload(),
     ok.
@@ -149,10 +165,9 @@ init_load(TnxId) ->
     end.
 
 init_conf() ->
-    emqx_cluster_rpc:wait_for_cluster_rpc(),
+    ok = emqx_cluster_rpc:wait_for_tables(),
     {ok, TnxId} = sync_cluster_conf(),
-    ok = init_load(TnxId),
-    ok.
+    ok = init_load(TnxId).
 
 cluster_nodes() ->
     mria:cluster_nodes(cores) -- [node()].
