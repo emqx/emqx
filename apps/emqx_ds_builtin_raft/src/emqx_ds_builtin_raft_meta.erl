@@ -11,8 +11,6 @@
 
 -compile(inline).
 
--export([print_status/3]).
-
 -behaviour(gen_server).
 
 %% API:
@@ -263,7 +261,9 @@ my_shards(DB) ->
     [Shard || #?SHARD_TAB{shard = {_, Shard}, replica_set = RS} <- Recs, lists:member(Site, RS)].
 
 allocate_shards(DB) ->
-    case mria:transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/2, [this_site(), DB]) of
+    case
+        mria:sync_transaction(?RLOG_SHARD, fun ?MODULE:allocate_shards_trans/2, [this_site(), DB])
+    of
         {atomic, Shards} ->
             {ok, Shards};
         {aborted, {shards_already_allocated, Shards}} ->
@@ -1067,7 +1067,7 @@ gen_shards(NShards) ->
     [integer_to_binary(I) || I <- lists:seq(0, NShards - 1)].
 
 transaction(Fun, Args) ->
-    case mria:transaction(?RLOG_SHARD, Fun, Args) of
+    case mria:sync_transaction(?RLOG_SHARD, Fun, Args) of
         {atomic, Result} ->
             Result;
         {aborted, Reason} ->
