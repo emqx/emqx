@@ -20,6 +20,7 @@
 -export([
     init/2,
     handle_in/2,
+    handle_udp_proxy_in/2,
     handle_frame_error/2,
     handle_deliver/2,
     handle_timeout/3,
@@ -65,6 +66,7 @@
 -type reply() ::
     {outgoing, coap_message()}
     | {outgoing, [coap_message()]}
+    | {udp_proxy, commit | reject}
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
@@ -175,6 +177,27 @@ handle_in(Msg, Channel0) ->
             check_auth_state(Msg, Channel);
         _ ->
             call_session(handle_response, Msg, Channel)
+    end.
+
+%% A message from a UDP source that is not the current downlink of this channel.
+%% Only a request carries the client ID and token that check_auth_state/2 can
+%% verify, so other messages are dropped. The source can send them once one of
+%% its requests has been accepted and the downlink has moved to it.
+-spec handle_udp_proxy_in(coap_message() | {frame_error, any()}, channel()) ->
+    {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: term(), channel()}
+    | {shutdown, Reason :: term(), replies(), channel()}.
+handle_udp_proxy_in(Msg, Channel) ->
+    case emqx_coap_message:is_request(Msg) of
+        true ->
+            handle_in(Msg, Channel);
+        false ->
+            ?SLOG(debug, #{
+                msg => "drop_coap_message_from_non_downlink_udp_source",
+                message => emqx_coap_frame:format(Msg)
+            }),
+            {ok, Channel}
     end.
 
 handle_frame_error(Reason, Channel) ->
@@ -405,7 +428,7 @@ check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
 check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
     case is_create_connection_request(Msg) of
         true ->
-            call_session(handle_request, Msg, Channel);
+            with_udp_proxy_decision(reject, call_session(handle_request, Msg, Channel));
         false ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
             case get_query_value(<<"token">>, URIQuery) of
@@ -415,7 +438,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
                         msg => "token_required_in_conn_mode",
                         message => emqx_coap_frame:redact(Msg)
                     }),
-                    missing_token_or_clientid_reply(Msg, Channel);
+                    with_udp_proxy_decision(reject, missing_token_or_clientid_reply(Msg, Channel));
                 _ ->
                     check_token(Msg, Channel)
             end
@@ -465,20 +488,31 @@ check_token(
         false ->
             case {ReqClientId, ReqToken} of
                 {ClientId, Token} when ReqClientId =/= undefined, ReqToken =/= undefined ->
-                    call_session(handle_request, Msg, Channel);
+                    with_udp_proxy_decision(commit, call_session(handle_request, Msg, Channel));
                 {ClientId, ReqToken1} when
                     ReqClientId =/= undefined, ReqToken1 =/= undefined, ReqToken1 =/= Token
                 ->
                     %% Same clientid with mismatched token should be rejected directly.
-                    invalid_token_reply(Msg, Channel);
+                    with_udp_proxy_decision(reject, invalid_token_reply(Msg, Channel));
                 {ReqClientId1, ReqToken1} when
                     ReqClientId1 =/= undefined,
                     ReqToken1 =/= undefined,
                     ReqClientId1 =/= ClientId
                 ->
-                    try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
+                    case Token of
+                        undefined ->
+                            %% No client has connected on this channel yet, so it
+                            %% can resume the session of the client that the
+                            %% request names.
+                            try_takeover_with_token(Msg, ReqClientId1, ReqToken1, Channel);
+                        _ ->
+                            %% This channel already serves another client. It
+                            %% keeps that client, also when the token is valid
+                            %% for the client ID in the request.
+                            with_udp_proxy_decision(reject, invalid_token_reply(Msg, Channel))
+                    end;
                 _ ->
-                    missing_token_or_clientid_reply(Msg, Channel)
+                    with_udp_proxy_decision(reject, missing_token_or_clientid_reply(Msg, Channel))
             end
     end.
 
@@ -510,13 +544,22 @@ takeover_and_handle_request(Msg, ReqClientId, ReqToken, ResumeClientInfo, Channe
                 token = ReqToken
             },
             NChannel = ensure_connected(Channel0),
-            call_session(handle_request, Msg, NChannel);
+            with_udp_proxy_decision(commit, call_session(handle_request, Msg, NChannel));
         {ok, #{present := false}} ->
             ok = maybe_unregister_channel(ReqClientId),
-            invalid_token_reply(Msg, Channel);
+            with_udp_proxy_decision(reject, invalid_token_reply(Msg, Channel));
         _ ->
-            invalid_token_reply(Msg, Channel)
+            with_udp_proxy_decision(reject, invalid_token_reply(Msg, Channel))
     end.
+
+with_udp_proxy_decision(Decision, {ok, Channel}) ->
+    {ok, {udp_proxy, Decision}, Channel};
+with_udp_proxy_decision(Decision, {ok, Reply, Channel}) when is_tuple(Reply) ->
+    {ok, [{udp_proxy, Decision}, Reply], Channel};
+with_udp_proxy_decision(Decision, {ok, Replies, Channel}) when is_list(Replies) ->
+    {ok, [{udp_proxy, Decision} | Replies], Channel};
+with_udp_proxy_decision(_Decision, Shutdown) ->
+    Shutdown.
 
 merge_takeover_clientinfo(ReqClientId, ClientInfo0, ResumeClientInfo) ->
     BaseClientInfo = ClientInfo0#{clientid => ReqClientId},

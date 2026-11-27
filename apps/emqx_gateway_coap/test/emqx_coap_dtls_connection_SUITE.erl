@@ -210,3 +210,91 @@ t_partial_token_params_rejected(_Config) ->
 
     er_coap_channel:close(Channel),
     er_coap_dtls_socket:close(Sock).
+
+-doc """
+A channel that already serves a client refuses a request that names another
+client ID, also when the request carries the valid token of that client.  Both
+clients keep their channels.
+""".
+t_connected_channel_refuses_request_for_other_client(_Config) ->
+    {ok, Sock1, Channel1} = dtls_connect(),
+    {ok, Sock2, Channel2} = dtls_connect(),
+    try
+        Token1 = connection(Channel1, <<"client1">>),
+        Token2 = connection(Channel2, <<"client2">>),
+        [Pid1] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        [Pid2] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>),
+        URI1 = publish_uri(<<"client1">>, Token1),
+        URI2 = publish_uri(<<"client2">>, Token2),
+        Req = emqx_coap_SUITE:make_req(post, <<"x">>),
+
+        ?assertMatch({error, unauthorized, _}, emqx_coap_SUITE:do_request(Channel2, URI1, Req)),
+
+        ?assertEqual([Pid1], emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)),
+        ?assertEqual([Pid2], emqx_gateway_cm_registry:lookup_channels(coap, <<"client2">>)),
+        ?assertMatch(
+            #{clientinfo := #{clientid := <<"client2">>}}, emqx_gateway_conn:info(Pid2)
+        ),
+        ?assertMatch({ok, changed, _}, emqx_coap_SUITE:do_request(Channel1, URI1, Req)),
+        ?assertMatch({ok, changed, _}, emqx_coap_SUITE:do_request(Channel2, URI2, Req))
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client2">>),
+        er_coap_channel:close(Channel2),
+        er_coap_dtls_socket:close(Sock2),
+        er_coap_channel:close(Channel1),
+        er_coap_dtls_socket:close(Sock1)
+    end.
+
+-doc """
+A client that opens a new DTLS session resumes with its client ID and token:
+the new channel has no client of its own yet, so it takes the session over.
+""".
+t_token_resumes_on_new_dtls_session(_Config) ->
+    {ok, Sock1, Channel1} = dtls_connect(),
+    Token = connection(Channel1, <<"client1">>),
+    [Pid1] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+    er_coap_channel:close(Channel1),
+    er_coap_dtls_socket:close(Sock1),
+
+    {ok, Sock2, Channel2} = dtls_connect(),
+    try
+        Req = emqx_coap_SUITE:make_req(post, <<"x">>),
+        ?assertMatch(
+            {ok, changed, _},
+            emqx_coap_SUITE:do_request(Channel2, publish_uri(<<"client1">>, Token), Req)
+        ),
+        [Pid2] = emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>),
+        ?assertNotEqual(Pid1, Pid2),
+        ?assertMatch(
+            #{clientinfo := #{clientid := <<"client1">>}}, emqx_gateway_conn:info(Pid2)
+        )
+    after
+        _ = catch emqx_gateway_cm:kick_session(coap, <<"client1">>),
+        er_coap_channel:close(Channel2),
+        er_coap_dtls_socket:close(Sock2)
+    end.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+dtls_connect() ->
+    er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [{verify, verify_none}]).
+
+connection(Channel, ClientId) ->
+    URI = emqx_coap_SUITE:compose_uri(
+        ?MQTT_PREFIX ++ "/connection",
+        #{"clientid" => ClientId, "username" => <<"admin">>, "password" => <<"public">>},
+        false
+    ),
+    {ok, created, #coap_content{payload = Token}} =
+        emqx_coap_SUITE:do_request(Channel, URI, emqx_coap_SUITE:make_req(post)),
+    binary_to_list(Token).
+
+publish_uri(ClientId, Token) ->
+    emqx_coap_SUITE:compose_uri(
+        "coaps://127.0.0.1/ps/coap/dtls_takeover",
+        #{"clientid" => ClientId, "token" => Token},
+        false
+    ).

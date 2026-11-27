@@ -40,6 +40,7 @@
 -type reply() ::
     {outgoing, emqx_gateway_frame:frame()}
     | {outgoing, [emqx_gateway_frame:frame()]}
+    | {udp_proxy, commit | reject}
     | {event, conn_state() | updated}
     | {close, Reason :: atom()}.
 
@@ -54,6 +55,22 @@
     | {ok, replies(), channel()}
     | {shutdown, Reason :: any(), channel()}
     | {shutdown, Reason :: any(), replies(), channel()}.
+
+%% @doc Handle a frame that arrives through a UDP proxy which is not the
+%% current downlink of the connection. The connection calls it instead of
+%% `handle_in/2' when the listener sets `defer_udp_proxy_takeover'.
+%% The replies carry `{udp_proxy, commit}' when the connection may switch its
+%% downlink to that proxy. Without that reply the downlink does not change.
+-callback handle_udp_proxy_in(
+    emqx_gateway_frame:frame() | {frame_error, any()},
+    channel()
+) ->
+    {ok, channel()}
+    | {ok, replies(), channel()}
+    | {shutdown, Reason :: any(), channel()}
+    | {shutdown, Reason :: any(), replies(), channel()}.
+
+-optional_callbacks([handle_udp_proxy_in/2]).
 
 %% @doc Handle the outgoing messages dispatched from PUB/SUB system
 -callback handle_deliver(list(emqx_types:deliver()), channel()) ->

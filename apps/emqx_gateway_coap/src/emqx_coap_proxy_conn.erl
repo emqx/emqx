@@ -16,7 +16,8 @@
 initialize(_Opts) ->
     emqx_coap_frame:initial_parse_state(#{}).
 
-find_or_create(CId, Transport, Peer, Opts) ->
+find_or_create(ProxyCId, Transport, Peer, Opts) ->
+    CId = logical_connection_id(ProxyCId),
     case emqx_gateway_cm_registry:lookup_channels(coap, CId) of
         [Pid] ->
             {ok, Pid};
@@ -29,13 +30,26 @@ get_connection_id(_Transport, Peer, State, Data) ->
     case parse_incoming(Data, [], ParseState) of
         {[#coap_message{} = Msg | _] = Packets, NState} ->
             {CId, NBoundCId} = choose_cid(Msg, BoundCId, Peer),
-            {ok, CId, Packets, merge_state(NState, NBoundCId)};
+            {ok, proxy_connection_id(CId, Peer), Packets, merge_state(NState, NBoundCId)};
         _Error ->
             invalid
     end.
 
 peer_id(Peer) ->
     {peer, Peer}.
+
+proxy_connection_id({peer, _} = CId, _Peer) ->
+    CId;
+proxy_connection_id(CId, Peer) ->
+    %% esockd_udp_proxy_db:attach/2 stops the proxy already registered with the
+    %% same ID.  Scope candidates by peer until the gateway connection validates
+    %% the token and switches its persistent downlink socket.
+    {coap_udp_proxy, Peer, CId}.
+
+logical_connection_id({coap_udp_proxy, _Peer, CId}) ->
+    CId;
+logical_connection_id(CId) ->
+    CId.
 
 split_state(#{parse_state := ParseState, cid := BoundCId}) ->
     {ParseState, BoundCId};
@@ -69,6 +83,11 @@ normalize_clientid(ClientId) when is_list(ClientId) ->
 normalize_clientid(_Other) ->
     undefined.
 
+%% A UDP source stays with the first client ID it names for as long as its
+%% proxy lives. esockd attaches the proxy to the channel of the ID returned
+%% here and watches that channel, and the channel checks the request only
+%% afterwards. So a later request that names another client ID must not move
+%% the proxy: it goes to the bound channel, which refuses it.
 select_cid(undefined, undefined, Peer) ->
     {peer_id(Peer), undefined};
 select_cid(undefined, BoundCId, _Peer) ->
