@@ -82,12 +82,12 @@ t_heal_on_core_partition(Config) ->
 
 %% This testcase verifies that replicants attempt to heal channel registry after mria re-bootstrap.
 t_heal_on_replicant_bootstrap(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    [C1, C2, R1, _] = Nodes = emqx_cth_cluster:start(Cluster),
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            Cluster = proplists:get_value(cluster, Config),
             NClients = 10,
-            [C1, C2, R1, _] = Nodes = emqx_cth_cluster:start(Cluster),
             #{shards_in_sync := Shards} = erpc:call(R1, mria_rlog, status, []),
             erpc:call(
                 R1,
@@ -190,12 +190,12 @@ t_heal_shared_sub_on_core_partition(Config) ->
 %% This testcase verifies that the clients of a replicant write their
 %% shared subscriptions to the cluster again after mria re-bootstrap.
 t_heal_shared_sub_on_replicant_bootstrap(Config) ->
+    Cluster = proplists:get_value(cluster, Config),
+    [C1, C2, R1, _] = Nodes = emqx_cth_cluster:start(Cluster),
     ?check_trace(
         #{timetrap => 30_000},
         begin
-            Cluster = proplists:get_value(cluster, Config),
             NClients = 10,
-            [C1, C2, R1, _] = Nodes = emqx_cth_cluster:start(Cluster),
             #{shards_in_sync := Shards} = erpc:call(R1, mria_rlog, status, []),
             %% Connect a number of clients to R1:
             Clients = [connect(R1) || _ <- lists:seq(1, NClients)],
