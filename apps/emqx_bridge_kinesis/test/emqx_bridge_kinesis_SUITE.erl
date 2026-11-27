@@ -378,6 +378,21 @@ mock_metadata_credentials(Result) ->
         end
     ).
 
+%% LocalStack keeps the streams of an access key ID that is not a 12-digit number in its
+%% default account and region.
+stream_arn(StreamName) ->
+    <<"arn:aws:kinesis:us-east-1:000000000000:stream/", StreamName/binary>>.
+
+with_stream_arn(TCConfig, StreamARN) ->
+    emqx_bridge_v2_testlib:proplist_update(TCConfig, action_config, fun(Old) ->
+        #{<<"parameters">> := Params} = Old,
+        Old#{
+            <<"parameters">> => (maps:without([<<"stream_name">>], Params))#{
+                <<"stream_arn">> => StreamARN
+            }
+        }
+    end).
+
 assert_body_contains(Body, Pattern) ->
     Encoded = emqx_utils_json:encode(Body),
     ?assertEqual(match, re:run(Encoded, Pattern, [{capture, none}]), #{body => Body}).
@@ -1304,4 +1319,97 @@ t_metadata_credentials_refresh_failure(_TCConfig) ->
         emqx_bridge_kinesis_connector_client:query(Pid, [{<<"data">>, <<"key">>}], ?STREAM_NAME)
     ),
     gen_server:stop(Pid),
+    ok.
+
+%% Checks that an action can identify the stream by its ARN, both for the writes and for the
+%% health check.
+t_stream_arn(TCConfig0) ->
+    ShardIt = get_shard_iterator(TCConfig0),
+    TCConfig = with_stream_arn(TCConfig0, stream_arn(?STREAM_NAME)),
+    ok = meck:new(erlcloud_httpc, [passthrough]),
+    on_exit(fun() -> meck:unload(erlcloud_httpc) end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    Record = wait_record(ShardIt, TCConfig0),
+    Data = proplists:get_value(<<"Data">>, Record),
+    ?assertMatch(#{<<"payload">> := Payload}, emqx_utils_json:decode(Data)),
+    StreamARN = stream_arn(?STREAM_NAME),
+    Requests = [
+        {proplists:get_value("x-amz-target", Headers), emqx_utils_json:decode(Body)}
+     || {_Pid, {erlcloud_httpc, request, [_URL, post, Headers, Body | _]}, _Result} <-
+            meck:history(erlcloud_httpc),
+        lists:member(proplists:get_value("x-amz-target", Headers), [
+            "Kinesis_20131202.PutRecord",
+            "Kinesis_20131202.PutRecords",
+            "Kinesis_20131202.DescribeStream",
+            "Kinesis_20131202.DescribeStreamSummary"
+        ])
+    ],
+    ?assertMatch(
+        [_ | _], [R || {"Kinesis_20131202.PutRecord" ++ _, _} = R <- Requests], #{reqs => Requests}
+    ),
+    ?assertMatch(
+        [_ | _],
+        [R || {"Kinesis_20131202.DescribeStreamSummary", _} = R <- Requests],
+        #{reqs => Requests}
+    ),
+    lists:foreach(
+        fun({Target, Json}) ->
+            ?assertNotEqual("Kinesis_20131202.DescribeStream", Target),
+            ?assertMatch(#{<<"StreamARN">> := StreamARN}, Json),
+            ?assertNot(maps:is_key(<<"StreamName">>, Json))
+        end,
+        Requests
+    ),
+    ok.
+
+%% Checks that the action health check reports a stream ARN that does not exist.
+t_stream_arn_unhealthy(TCConfig0) ->
+    TCConfig = with_stream_arn(TCConfig0, stream_arn(<<"no_such_stream">>)),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+        }},
+        create_action_api(TCConfig, #{})
+    ),
+    ok.
+
+%% Checks that exactly one of the stream name and the stream ARN is set, and that the ARN has
+%% the shape of a Kinesis stream ARN.
+t_stream_validation(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    lists:foreach(
+        fun({Parameters, Pattern}) ->
+            TCConfig1 = emqx_bridge_v2_testlib:proplist_update(
+                TCConfig, action_config, fun(Old) ->
+                    Params0 = maps:get(<<"parameters">>, Old),
+                    Params = maps:merge(maps:without([<<"stream_name">>], Params0), Parameters),
+                    Old#{<<"parameters">> => Params}
+                end
+            ),
+            {400, Body} = create_action_api(TCConfig1, #{}),
+            assert_body_contains(Body, Pattern)
+        end,
+        [
+            {
+                #{<<"stream_name">> => ?STREAM_NAME, <<"stream_arn">> => stream_arn(?STREAM_NAME)},
+                <<"cannot be set together">>
+            },
+            {#{}, <<"one of stream_name and stream_arn must be set">>},
+            {
+                #{<<"stream_arn">> => <<"000000000000:stream/stream0">>},
+                <<"must be a Kinesis stream ARN">>
+            },
+            {
+                #{<<"stream_arn">> => <<"arn:aws:sqs:us-east-1:000000000000:stream/stream0">>},
+                <<"must be a Kinesis stream ARN">>
+            }
+        ]
+    ),
     ok.

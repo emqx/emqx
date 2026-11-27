@@ -292,7 +292,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:erlavro),
     do: {:erlavro, github: "emqx/erlavro", tag: "2.11.2-emqx-1", override: true}
 
-  def common_dep(:erlcloud), do: {:erlcloud, github: "emqx/erlcloud", tag: "3.8.3.3"}
+  def common_dep(:erlcloud),
+    do: {:erlcloud, github: "emqx/erlcloud", ref: "840a2b593c2d9337fbfdccfb97c4ffd718f48e99"}
 
   # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
   def common_dep(:murmerl3),

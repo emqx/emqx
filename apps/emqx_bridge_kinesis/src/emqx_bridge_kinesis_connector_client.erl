@@ -63,18 +63,19 @@ connection_status(Pid) ->
             {error, timeout}
     end.
 
--spec connection_status(pid(), binary()) ->
+-spec connection_status(pid(), erlcloud_kinesis:stream()) ->
     {ok, ?status_connected} | {error, timeout | unhealthy_target | term()}.
-connection_status(Pid, StreamName) ->
+connection_status(Pid, Stream) ->
     try
-        gen_server:call(Pid, {connection_status, StreamName}, ?HEALTH_CHECK_TIMEOUT)
+        gen_server:call(Pid, {connection_status, Stream}, ?HEALTH_CHECK_TIMEOUT)
     catch
         exit:{timeout, _} ->
             {error, timeout}
     end.
 
-query(Pid, Records, StreamName) ->
-    gen_server:call(Pid, {query, Records, StreamName}, infinity).
+-spec query(pid(), [record()], erlcloud_kinesis:stream()) -> term().
+query(Pid, Records, Stream) ->
+    gen_server:call(Pid, {query, Records, Stream}, infinity).
 
 %% @doc Checks that credentials can be obtained, when they are not configured statically.
 -spec check_credentials(emqx_bridge_kinesis_impl_producer:config_connector()) ->
@@ -109,11 +110,11 @@ init(#{instance_id := InstanceId} = Config) ->
     %% Leave checking the connection to health checks
     {ok, State}.
 
-handle_call({connection_status, StreamName}, _From, #{aws_config := AWSConfig0} = State) ->
+handle_call({connection_status, Stream}, _From, #{aws_config := AWSConfig0} = State) ->
     Status =
         maybe
             {ok, AWSConfig} ?= resolve_aws_config(AWSConfig0),
-            get_status(StreamName, AWSConfig)
+            get_status(Stream, AWSConfig)
         end,
     {reply, Status, State};
 handle_call(connection_status, _From, #{aws_config := AWSConfig0} = State) ->
@@ -124,8 +125,8 @@ handle_call(connection_status, _From, #{aws_config := AWSConfig0} = State) ->
             {ok, ?status_connected}
         end,
     {reply, Status, State};
-handle_call({query, Records, StreamName}, _From, #{aws_config := AWSConfig} = State) ->
-    Result = do_query(StreamName, Records, AWSConfig),
+handle_call({query, Records, Stream}, _From, #{aws_config := AWSConfig} = State) ->
+    Result = do_query(Stream, Records, AWSConfig),
     {reply, Result, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
@@ -187,8 +188,10 @@ resolve_aws_config(AWSConfig) ->
             {error, {failed_to_obtain_credentials, Reason}}
     end.
 
-get_status(StreamName, AWSConfig) ->
-    case erlcloud_kinesis:describe_stream(StreamName, 1, AWSConfig) of
+%% A resource-based policy on a stream can grant `DescribeStreamSummary', but not
+%% `DescribeStream', to a principal in another account.
+get_status(Stream, AWSConfig) ->
+    case describe_stream(Stream, AWSConfig) of
         {ok, _} ->
             {ok, ?status_connected};
         {error, {<<"ResourceNotFoundException">>, _}} ->
@@ -197,16 +200,21 @@ get_status(StreamName, AWSConfig) ->
             {error, Error}
     end.
 
--spec do_query(binary(), [record()], aws_config()) ->
+describe_stream({stream_arn, _} = Stream, AWSConfig) ->
+    erlcloud_kinesis:describe_stream_summary(Stream, AWSConfig);
+describe_stream(Stream, AWSConfig) ->
+    erlcloud_kinesis:describe_stream(Stream, 1, AWSConfig).
+
+-spec do_query(erlcloud_kinesis:stream(), [record()], aws_config()) ->
     {ok, jsx:json_term() | binary()}
     | {error, {recoverable_error, term()}}
     | {error, {unrecoverable_error, term()}}
     | {error, term()}.
-do_query(StreamName, Records, AWSConfig0) ->
+do_query(Stream, Records, AWSConfig0) ->
     case resolve_aws_config(AWSConfig0) of
         {ok, AWSConfig} ->
             try
-                execute(put_record, {StreamName, Records}, AWSConfig)
+                execute(put_record, {Stream, Records}, AWSConfig)
             catch
                 _Type:Reason ->
                     {error, {unrecoverable_error, {invalid_request, Reason}}}
@@ -215,15 +223,15 @@ do_query(StreamName, Records, AWSConfig0) ->
             {error, {recoverable_error, Reason}}
     end.
 
--spec execute(put_record, {binary(), [record()]}, aws_config()) ->
+-spec execute(put_record, {erlcloud_kinesis:stream(), [record()]}, aws_config()) ->
     {ok, jsx:json_term() | binary()}
     | {error, term()}.
-execute(put_record, {StreamName, [{Data, PartitionKey}] = Record}, AWSConfig) ->
-    Result = erlcloud_kinesis:put_record(StreamName, PartitionKey, Data, AWSConfig),
+execute(put_record, {Stream, [{Data, PartitionKey}] = Record}, AWSConfig) ->
+    Result = erlcloud_kinesis:put_record(Stream, PartitionKey, Data, AWSConfig),
     ?tp(kinesis_put_record, #{records => Record, result => Result}),
     Result;
-execute(put_record, {StreamName, Items}, AWSConfig) when is_list(Items) ->
-    Result = erlcloud_kinesis:put_records(StreamName, Items, AWSConfig),
+execute(put_record, {Stream, Items}, AWSConfig) when is_list(Items) ->
+    Result = erlcloud_kinesis:put_records(Stream, Items, AWSConfig),
     ?tp(kinesis_put_record, #{records => Items, result => Result}),
     Result.
 
