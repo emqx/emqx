@@ -1427,6 +1427,113 @@ t_delete_trusted_cert_referenced_bundle(_TCConfig) ->
     ok.
 
 -doc """
+Verifies that a repeated CA merge writes the file to a node where the first
+merge failed, although the node that serves the API already has the new
+certificate.
+""".
+t_merge_ca_certs_retry_repairs_nodes() ->
+    [{matrix, true}].
+t_merge_ca_certs_retry_repairs_nodes(matrix) ->
+    [[?cluster]];
+t_merge_ca_certs_retry_repairs_nodes(TCConfig) when is_list(TCConfig) ->
+    [N1, N2] = get_config(nodes, TCConfig),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    Bundle = <<"retry_bundle">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle, ?FILE_KIND_CA, CA1)),
+
+    ok = fail_cert_writes_on(N2),
+    ?assertMatch({500, _}, merge_ca_global(Bundle, CA2)),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA2), ca_ders_on(N1, Bundle)),
+    ?assertEqual(cert_ders(CA1), ca_ders_on(N2, Bundle)),
+    ok = restore_cert_writes_on(N2),
+
+    ?assertEqual({200, #{<<"added">> => 0, <<"total">> => 2}}, merge_ca_global(Bundle, CA2)),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA2), ca_ders_on(N2, Bundle)),
+    assert_same_bundles(?global_ns, TCConfig),
+    ok.
+
+-doc """
+Verifies that a repeated removal of a CA certificate writes the file to a node
+where the first removal failed, and still returns `404`.
+""".
+t_delete_trusted_cert_retry_repairs_nodes() ->
+    [{matrix, true}].
+t_delete_trusted_cert_retry_repairs_nodes(matrix) ->
+    [[?cluster]];
+t_delete_trusted_cert_retry_repairs_nodes(TCConfig) when is_list(TCConfig) ->
+    [N1, N2] = get_config(nodes, TCConfig),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    #{cert_pem := CA2} = gen_cert(#{key => ec, issuer => root}),
+    Bundle = <<"retry_bundle">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle, ?FILE_KIND_CA, <<CA1/binary, CA2/binary>>)),
+
+    ok = fail_cert_writes_on(N2),
+    ?assertMatch({500, _}, delete_trusted_cert_global(Bundle, fingerprint(CA1))),
+    ?assertEqual(cert_ders(CA2), ca_ders_on(N1, Bundle)),
+    ?assertEqual(cert_ders(CA1) ++ cert_ders(CA2), ca_ders_on(N2, Bundle)),
+    ok = restore_cert_writes_on(N2),
+
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle, fingerprint(CA1))),
+    ?assertEqual(cert_ders(CA2), ca_ders_on(N2, Bundle)),
+    assert_same_bundles(?global_ns, TCConfig),
+    ok.
+
+-doc """
+Verifies that a repeated removal of the last CA certificate deletes the `ca`
+file on a node where the first removal failed.
+""".
+t_delete_last_trusted_cert_retry_repairs_nodes() ->
+    [{matrix, true}].
+t_delete_last_trusted_cert_retry_repairs_nodes(matrix) ->
+    [[?cluster]];
+t_delete_last_trusted_cert_retry_repairs_nodes(TCConfig) when is_list(TCConfig) ->
+    [N1, N2] = get_config(nodes, TCConfig),
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+    Bundle = <<"retry_bundle">>,
+    ?assertMatch({204, _}, upload_file_global(Bundle, ?FILE_KIND_CA, CA1)),
+    ?assertMatch({204, _}, upload_file_global(Bundle, ?FILE_KIND_KEY_PASSWORD, <<"secret">>)),
+
+    ok = fail_cert_writes_on(N2),
+    ?assertMatch({500, _}, delete_trusted_cert_global(Bundle, fingerprint(CA1))),
+    ?assertEqual(no_ca_file, ca_ders_on(N1, Bundle)),
+    ?assertEqual(cert_ders(CA1), ca_ders_on(N2, Bundle)),
+    ok = restore_cert_writes_on(N2),
+
+    ?assertMatch({404, _}, delete_trusted_cert_global(Bundle, fingerprint(CA1))),
+    ?assertEqual(no_ca_file, ca_ders_on(N2, Bundle)),
+    assert_same_bundles(?global_ns, TCConfig),
+    ok.
+
+%% Makes every managed-cert write and delete that `Node' receives fail.
+fail_cert_writes_on(Node) ->
+    on_exit(fun() -> catch restore_cert_writes_on(Node) end),
+    ?ON(Node, begin
+        ok = meck:new(emqx_managed_certs, [passthrough, no_link]),
+        ok = meck:expect(emqx_managed_certs, add_managed_files_v1, fun(_Ns, _Bundle, Files) ->
+            {error, maps:map(fun(_Kind, _Contents) -> {error, eio} end, Files)}
+        end),
+        ok = meck:expect(emqx_managed_certs, delete_managed_file_v1, fun(_Ns, _Bundle, _Kind) ->
+            {error, eio}
+        end)
+    end).
+
+restore_cert_writes_on(Node) ->
+    ?ON(Node, meck:unload(emqx_managed_certs)).
+
+ca_ders_on(Node, Bundle) ->
+    ?ON(Node, begin
+        {ok, Files} = emqx_managed_certs:list_managed_files(?global_ns, Bundle),
+        case Files of
+            #{?FILE_KIND_CA := #{path := Path}} ->
+                {ok, PEM} = file:read_file(Path),
+                [Der || {'Certificate', Der, _} <- public_key:pem_decode(PEM)];
+            #{} ->
+                no_ca_file
+        end
+    end).
+
+-doc """
 Verifies that we take into account managed certs when constructing the
 `emqx_cert_expiry_at` prometheus gauge.
 """.

@@ -48,6 +48,10 @@ file_mode(Path) ->
     {ok, #file_info{mode = Mode}} = file:read_file_info(Path),
     Mode band 8#7777.
 
+file_inode(Path) ->
+    {ok, #file_info{inode = Inode}} = file:read_file_info(Path),
+    Inode.
+
 gen_ca_pem() ->
     #{cert_pem := PEM} = emqx_cth_tls:gen_cert_pem(#{key => ec, issuer => root}),
     PEM.
@@ -198,6 +202,23 @@ t_write_keeps_file_mode(_TCConfig) ->
     ?assertEqual(8#600, file_mode(KeyPath)),
     ?assertEqual(<<"key 3">>, read_file(Ns, Bundle, "key.pem")),
     ?assertEqual(["key.pem"], list_dir(Ns, Bundle)),
+    ok.
+
+-doc """
+Verifies that a file which already holds the given content is not written
+again, and that a file with other content is replaced.
+""".
+t_same_content_not_rewritten(_TCConfig) ->
+    Ns = <<"ns1">>,
+    Bundle = <<"same_content">>,
+    KeyPath = filename:join(emqx_managed_certs:dir(Ns, Bundle), "key.pem"),
+    ?assertEqual(ok, emqx_managed_certs:add_managed_files_v1(Ns, Bundle, #{key => <<"key 1">>})),
+    Inode1 = file_inode(KeyPath),
+    ?assertEqual(ok, emqx_managed_certs:add_managed_files_v1(Ns, Bundle, #{key => <<"key 1">>})),
+    ?assertEqual(Inode1, file_inode(KeyPath)),
+    ?assertEqual(ok, emqx_managed_certs:add_managed_files_v1(Ns, Bundle, #{key => <<"key 2">>})),
+    ?assertNotEqual(Inode1, file_inode(KeyPath)),
+    ?assertEqual(<<"key 2">>, read_file(Ns, Bundle, "key.pem")),
     ok.
 
 -doc """

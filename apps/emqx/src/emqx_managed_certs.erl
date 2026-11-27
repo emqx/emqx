@@ -224,7 +224,8 @@ replaced or removed: it can be a mount point, where renaming over it or
 deleting it fails outright.
 
 Kinds the caller does not pass are left as they are, so writing a key and a
-chain into a bundle that already holds a `ca' keeps that `ca'.
+chain into a bundle that already holds a `ca' keeps that `ca'. A file that
+already holds the given content is not written again.
 
 Local only: unlike `add_managed_files/3', nothing is sent to the other nodes.
 """.
@@ -246,8 +247,10 @@ already in the file are skipped. The current file content is kept byte for byte
 and the new certificates are appended to it.
 
 The node that runs this function reads the current file, and sends the merged
-file to all nodes with `add_managed_files/3`, like any other upload. Concurrent
-writes to the same file are not serialized: the last one wins.
+file to all nodes with `add_managed_files/3`, like any other upload. The file
+is sent also when no certificate is new, so a retry after a failure on some
+nodes brings those nodes up to date. Concurrent writes to the same file are
+not serialized: the last one wins.
 """.
 -spec merge_ca_certs(maybe_namespace(), bundle_name(), binary()) ->
     {ok, #{added := non_neg_integer(), total := non_neg_integer()}}
@@ -272,6 +275,12 @@ bytes. The other entries of the file are kept in order.
 When no certificate is left, the `ca` file is deleted: a file that holds no
 certificate is not a valid `cacertfile`. This is refused while a configuration
 refers to the bundle, like deleting the `ca` file directly.
+
+When the certificate is not in the file on this node, the file of this node is
+still sent to all nodes before `cert_not_found` is returned. A retry after a
+failure on some nodes then brings those nodes up to date. When this node has
+no `ca` file and a configuration refers to the bundle, the other nodes are left
+as they are.
 """.
 -spec delete_ca_cert(maybe_namespace(), bundle_name(), binary()) ->
     {ok, #{total := non_neg_integer()}}
@@ -288,10 +297,36 @@ delete_ca_cert(Namespace, BundleName, Fingerprint) ->
         {ok, Existing} ?= read_ca_file(filename(Namespace, BundleName, ?FILE_KIND_CA)),
         Entries = public_key:pem_decode(Existing),
         Remaining = [E || E <- Entries, not is_cert_with_fingerprint(E, Fingerprint)],
-        true ?= length(Remaining) < length(Entries) orelse {error, cert_not_found},
+        case length(Remaining) < length(Entries) of
+            true -> remove_ca_entry(Namespace, BundleName, Remaining);
+            false -> repair_ca_file(Namespace, BundleName, Existing)
+        end
+    end.
+
+remove_ca_entry(Namespace, BundleName, Remaining) ->
+    maybe
         ok ?= write_remaining_ca_entries(Namespace, BundleName, Remaining),
         {ok, #{total => length([E || {'Certificate', _, _} = E <- Remaining])}}
     end.
+
+%% The certificate is not in the local file. The call can be a retry after a
+%% removal that failed on other nodes, so the local file is sent to all nodes
+%% before `cert_not_found' is returned.
+repair_ca_file(Namespace, BundleName, Existing) ->
+    case sync_ca_file(Namespace, BundleName, Existing) of
+        ok -> {error, cert_not_found};
+        {error, _} = Error -> Error
+    end.
+
+sync_ca_file(Namespace, BundleName, <<>>) ->
+    %% No `ca' file on this node. While a configuration refers to the bundle,
+    %% the file is not deleted on the other nodes.
+    case find_references(Namespace, BundleName) of
+        [] -> delete_managed_file(Namespace, BundleName, ?FILE_KIND_CA);
+        [_ | _] -> ok
+    end;
+sync_ca_file(Namespace, BundleName, Existing) ->
+    add_managed_files(Namespace, BundleName, #{?FILE_KIND_CA => Existing}).
 
 is_cert_with_fingerprint({'Certificate', Der, _}, Fingerprint) ->
     crypto:hash(sha256, Der) =:= Fingerprint;
@@ -327,8 +362,10 @@ do_merge_ca_certs(Namespace, BundleName, NewCerts) ->
         {ok, Result}
     end.
 
-append_ca_certs(_Namespace, _BundleName, _Existing, []) ->
-    ok;
+%% With no new certificate, the local file is still sent to all nodes. The call
+%% can be a retry after a write that failed on other nodes.
+append_ca_certs(Namespace, BundleName, Existing, []) ->
+    add_managed_files(Namespace, BundleName, #{?FILE_KIND_CA => Existing});
 append_ca_certs(Namespace, BundleName, Existing, Certs) ->
     Appended = public_key:pem_encode([{'Certificate', Der, not_encrypted} || Der <- Certs]),
     Merged = iolist_to_binary([with_trailing_newline(Existing), Appended]),
@@ -401,12 +438,18 @@ ensure_dir(Dir) ->
 %% another. The directory is never replaced: it can be a mount point.
 %% Returns the failed kinds with their errors.
 write_files_staged(Dir, Namespace, BundleName, Files) ->
-    Staged = maps:map(
-        fun(Kind, Contents) ->
+    Staged = maps:fold(
+        fun(Kind, Contents, Acc) ->
             Path = filename:join(Dir, filename:basename(filename(Namespace, BundleName, Kind))),
-            Tmp = tmp_filename(Path),
-            {Path, Tmp, write_tmp_file(Path, Tmp, Contents)}
+            case has_contents(Path, Contents) of
+                true ->
+                    Acc;
+                false ->
+                    Tmp = tmp_filename(Path),
+                    Acc#{Kind => {Path, Tmp, write_tmp_file(Path, Tmp, Contents)}}
+            end
         end,
+        #{},
         Files
     ),
     case maps:filter(fun(_Kind, {_Path, _Tmp, Res}) -> Res =/= ok end, Staged) of
@@ -416,6 +459,13 @@ write_files_staged(Dir, Namespace, BundleName, Files) ->
             maps:foreach(fun(_Kind, {_Path, Tmp, _Res}) -> _ = file:delete(Tmp) end, Staged),
             {error, maps:map(fun(_Kind, {_Path, _Tmp, Res}) -> Res end, Failed)}
     end.
+
+%% A file that already holds `Contents' is not written again, so a repeated
+%% write does not change the file or its modification time.
+has_contents(Path, Contents) when is_binary(Contents) ->
+    file:read_file(Path) =:= {ok, Contents};
+has_contents(_Path, _Contents) ->
+    false.
 
 %% The temporary file is made owner-only before any content is written to it.
 %% Before the rename, it gets the mode of the file that it replaces. A new file

@@ -42,7 +42,8 @@ emqx_mgmt_api_certs {
             The current file content is kept, and the new certificates are appended to it.
             Other files in the bundle are not changed.
             Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
-            To confirm the result, repeat the request: it reports `added: 0` when the file already holds every certificate.~"""
+            To confirm the result, repeat the request: it reports `added: 0` when the file already holds every certificate.
+            A repeated request also writes the file to the nodes where the previous request failed.~"""
         label: "Add Trusted CA Certificates"
     }
 
@@ -71,7 +72,8 @@ emqx_mgmt_api_certs {
             When no certificate is left, the `ca` file is deleted.
             Deleting the last certificate fails while a configuration refers to the bundle.
             Requests which change the same bundle at the same time are not serialized, and one of them may be dropped.
-            To confirm the result, repeat the request: it returns `404` when the certificate is already gone.~"""
+            To confirm the result, repeat the request: it returns `404` when the certificate is already gone.
+            A repeated request also writes the file to the nodes where the previous request failed.~"""
         label: "Remove Trusted CA Certificate"
     }
 
