@@ -16,6 +16,7 @@
     status/1,
     subscribe_channel/2,
     unsubscribe_channel/5,
+    delete_channel_from_handler_index/4,
     config/4
 ]).
 
@@ -295,6 +296,18 @@ unsubscribe_remote_topic(
         false ->
             ok
     end.
+
+delete_channel_from_handler_index(
+    IngressConfig, ChannelId, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+) ->
+    lists:foreach(
+        fun(#{remote := #{topic := RemoteTopic}} = Ingress) ->
+            delete_from_handler_index(
+                Ingress, RemoteTopic, ChannelId, SubscriptionIdToHandlerIndex, TopicToHandlerIndex
+            )
+        end,
+        maps:get(ingress_list, IngressConfig, [])
+    ).
 
 config(
     #{ingress_list := IngressList} = Conf,
