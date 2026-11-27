@@ -79,12 +79,14 @@ fold_iter(Fun, Acc, Iter) ->
 
 %% @doc Match given topic against the index and return the first match, or `false` if
 %% no match is found.
+%% Binary topics must be valid MQTT topic names, see `emqx_trie_topic:match/2`.
 -spec match(emqx_types:topic(), t(ID, _Record)) -> match(ID) | false.
 match(Topic, Gbt) ->
     emqx_trie_search:match(Topic, make_nextf(Gbt)).
 
 %% @doc Match given topic against the index and return _all_ matches.
 %% If `unique` option is given, return only unique matches by record ID.
+%% Binary topics must be valid MQTT topic names, see `emqx_trie_topic:matches/3`.
 -spec matches(emqx_types:topic(), t(ID, _Record), emqx_trie_search:opts()) -> [match(ID)].
 matches(Topic, Gbt, Opts) ->
     emqx_trie_search:matches(Topic, make_nextf(Gbt), Opts).
