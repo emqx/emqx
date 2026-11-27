@@ -45,29 +45,18 @@ discover_tool_modules() ->
 %% Builder tool types stay registered, so that stored builder tool
 %% definitions pass config validation. The registry creates their runtime
 %% instances only when the plugin configuration enables builder tools.
--spec is_enabled(module()) -> boolean().
-is_enabled(Module) ->
-    not lists:member(Module, builder_tool_modules()) orelse builder_tools_enabled().
+-spec is_enabled(binary()) -> boolean().
+is_enabled(Type) ->
+    not is_builder_type(Type) orelse builder_tools_enabled().
+
+%% Builder tools read and modify the Agent configuration. Their types use
+%% the `agent__` prefix.
+-spec is_builder_type(binary()) -> boolean().
+is_builder_type(<<"agent__", _/binary>>) -> true;
+is_builder_type(_) -> false.
 
 builder_tools_enabled() ->
     emqx_agent_config:parsed_config([enable_builder_tools], false) =:= true.
-
-builder_tool_modules() ->
-    [
-        emqx_agent_tool_create_pipeline,
-        emqx_agent_tool_create_tool,
-        emqx_agent_tool_delete_pipeline,
-        emqx_agent_tool_delete_pipeline_step,
-        emqx_agent_tool_delete_tool,
-        emqx_agent_tool_insert_pipeline_step,
-        emqx_agent_tool_query_connections,
-        emqx_agent_tool_query_pipelines,
-        emqx_agent_tool_query_providers,
-        emqx_agent_tool_query_tools,
-        emqx_agent_tool_update_pipeline,
-        emqx_agent_tool_update_pipeline_step,
-        emqx_agent_tool_update_tool
-    ].
 
 app_modules() ->
     case application:get_key(emqx_agent, modules) of

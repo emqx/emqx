@@ -16,7 +16,8 @@
     statuses/0,
     register_type/2,
     unregister_type/1,
-    resolve_type/1
+    resolve_type/1,
+    types/0
 ]).
 
 %% gen_server callbacks
@@ -86,6 +87,11 @@ resolve_type(Type) when is_binary(Type) ->
         [{Type, Module}] -> Module;
         [] -> throw(unknown_type)
     end.
+
+-doc "List the registered tool types.".
+-spec types() -> [tool_type()].
+types() ->
+    lists:sort([Type || {Type, _Module} <- ets:tab2list(?TYPE_TAB)]).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -177,7 +183,7 @@ reconcile_tool({Type, ToolId}, ToolConfig) ->
     ok = drop_runtime(Type, ToolId),
     case resolve_type_safe(Type) of
         {ok, Module} ->
-            case emqx_agent_tool:is_enabled(Module) of
+            case emqx_agent_tool:is_enabled(Type) of
                 true -> create_runtime(Type, ToolId, Module, ToolConfig);
                 false -> put_status(Type, ToolId, disabled, null)
             end;
