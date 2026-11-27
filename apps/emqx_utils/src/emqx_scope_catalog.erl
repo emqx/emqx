@@ -39,7 +39,7 @@ Catalog of generic scopes shared by API keys and dashboard login
 users. Each entry has a `name` (the stable identifier stored in
 records) and a `desc` (i18n description handle for the UI).
 
-The `$denied` scope is excluded — it is internal-only.
+The `$deny_api_key` scope is excluded — it is internal-only.
 """.
 -spec common_scope_catalog() ->
     [#{name := binary(), desc := term()}].

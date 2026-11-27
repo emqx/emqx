@@ -360,7 +360,7 @@ find_by_api_key(ApiKey) ->
 %% the same way, so no path is re-matched here.
 -spec check_scopes(map(), map()) -> ok | {error, unauthorized_role}.
 check_scopes(Extra, HandlerInfo) ->
-    case is_denied_handler(HandlerInfo) of
+    case is_deny_api_key_handler(HandlerInfo) of
         true ->
             {error, unauthorized_role};
         false ->
@@ -404,13 +404,13 @@ check_handler_in_scopes(HandlerInfo, Scopes) ->
             end
     end.
 
-%% @doc Check if a handler belongs to a denied scope.
-is_denied_handler(HandlerInfo) ->
+%% @doc Check if a handler is declared `$deny_api_key'.
+is_deny_api_key_handler(HandlerInfo) ->
     case emqx_mgmt_api_key_scopes:handler_scopes(HandlerInfo) of
         undefined ->
             false;
         Declared ->
-            lists:any(fun emqx_mgmt_api_key_scopes:is_denied_scope/1, Declared)
+            lists:any(fun emqx_mgmt_api_key_scopes:is_deny_api_key_scope/1, Declared)
     end.
 
 get_scopes(#{scopes := Scopes}) when is_list(Scopes) ->
