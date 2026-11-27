@@ -40,6 +40,7 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
+-include_lib("kernel/include/file.hrl").
 -include("emqx_managed_certs.hrl").
 -include("emqx_config.hrl").
 
@@ -404,8 +405,7 @@ write_files_staged(Dir, Namespace, BundleName, Files) ->
         fun(Kind, Contents) ->
             Path = filename:join(Dir, filename:basename(filename(Namespace, BundleName, Kind))),
             Tmp = tmp_filename(Path),
-            %% `sync': the content must be on disk before the rename makes it visible.
-            {Path, Tmp, file:write_file(Tmp, Contents, [sync])}
+            {Path, Tmp, write_tmp_file(Path, Tmp, Contents)}
         end,
         Files
     ),
@@ -415,6 +415,35 @@ write_files_staged(Dir, Namespace, BundleName, Files) ->
         Failed ->
             maps:foreach(fun(_Kind, {_Path, Tmp, _Res}) -> _ = file:delete(Tmp) end, Staged),
             {error, maps:map(fun(_Kind, {_Path, _Tmp, Res}) -> Res end, Failed)}
+    end.
+
+%% The temporary file is made owner-only before any content is written to it.
+%% Before the rename, it gets the mode of the file that it replaces. A new file
+%% gets the mode that the process umask gives, as with `file:write_file/2'.
+write_tmp_file(Path, Tmp, Contents) ->
+    maybe
+        {ok, Fd} ?= file:open(Tmp, [write, exclusive, raw, binary]),
+        Written =
+            try
+                maybe
+                    {ok, #file_info{mode = NewFileMode}} ?= file:read_file_info(Tmp),
+                    ok ?= file:change_mode(Tmp, 8#600),
+                    ok ?= file:write(Fd, Contents),
+                    %% The content must be on disk before the rename makes it visible.
+                    ok ?= file:sync(Fd),
+                    {ok, NewFileMode}
+                end
+            after
+                file:close(Fd)
+            end,
+        {ok, DefaultMode} ?= Written,
+        file:change_mode(Tmp, target_mode(Path, DefaultMode))
+    end.
+
+target_mode(Path, DefaultMode) ->
+    case file:read_file_info(Path) of
+        {ok, #file_info{mode = Mode}} -> Mode band 8#7777;
+        {error, _} -> DefaultMode band 8#7777
     end.
 
 rename_staged([], Errors) when map_size(Errors) =:= 0 ->

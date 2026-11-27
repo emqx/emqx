@@ -7,6 +7,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include("emqx_config.hrl").
 
@@ -42,6 +43,10 @@ read_file(Namespace, Bundle, Filename) ->
     Path = filename:join(emqx_managed_certs:dir(Namespace, Bundle), Filename),
     {ok, Contents} = file:read_file(Path),
     Contents.
+
+file_mode(Path) ->
+    {ok, #file_info{mode = Mode}} = file:read_file_info(Path),
+    Mode band 8#7777.
 
 gen_ca_pem() ->
     #{cert_pem := PEM} = emqx_cth_tls:gen_cert_pem(#{key => ec, issuer => root}),
@@ -168,6 +173,31 @@ t_write_failure_changes_nothing(_TCConfig) ->
     ?assertEqual(["ca.pem", "key.pem"], list_dir(Ns, Bundle)),
     ?assertEqual(<<"old ca">>, read_file(Ns, Bundle, "ca.pem")),
     ?assertEqual(<<"old key">>, read_file(Ns, Bundle, "key.pem")),
+    ok.
+
+-doc """
+Verifies that replacing a file keeps its mode, and that a new file gets the
+same mode as one written with `file:write_file/2`.
+""".
+t_write_keeps_file_mode(_TCConfig) ->
+    Ns = <<"ns1">>,
+    Bundle = <<"file_mode">>,
+    Dir = emqx_managed_certs:dir(Ns, Bundle),
+    ok = filelib:ensure_path(Dir),
+    Reference = filename:join(Dir, "reference"),
+    ok = file:write_file(Reference, <<"reference">>),
+    DefaultMode = file_mode(Reference),
+    ok = file:delete(Reference),
+    ?assertEqual(ok, emqx_managed_certs:add_managed_files_v1(Ns, Bundle, #{key => <<"key 1">>})),
+    KeyPath = filename:join(Dir, "key.pem"),
+    ?assertEqual(DefaultMode, file_mode(KeyPath)),
+    ok = file:change_mode(KeyPath, 8#600),
+    ?assertEqual(ok, emqx_managed_certs:add_managed_files_v1(Ns, Bundle, #{key => <<"key 2">>})),
+    ?assertEqual(8#600, file_mode(KeyPath)),
+    ?assertEqual(ok, emqx_managed_certs:install_files(Ns, Bundle, #{key => <<"key 3">>})),
+    ?assertEqual(8#600, file_mode(KeyPath)),
+    ?assertEqual(<<"key 3">>, read_file(Ns, Bundle, "key.pem")),
+    ?assertEqual(["key.pem"], list_dir(Ns, Bundle)),
     ok.
 
 -doc """
