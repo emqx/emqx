@@ -109,9 +109,9 @@ init([#{conninfo := OldConnInfo, clientinfo := #{clientid := ClientId} = OldClie
     end.
 
 handle_call(kick, _From, Channel) ->
-    {stop, kicked, ok, Channel};
+    {stop, {shutdown, kicked}, ok, Channel};
 handle_call(discard, _From, Channel) ->
-    {stop, discarded, ok, Channel};
+    {stop, {shutdown, discarded}, ok, Channel};
 handle_call(
     {takeover, 'begin'},
     _From,

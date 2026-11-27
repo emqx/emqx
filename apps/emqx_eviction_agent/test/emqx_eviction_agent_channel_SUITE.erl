@@ -100,30 +100,32 @@ t_start_infinite_expire(_Config) ->
         emqx_eviction_agent_channel:start_supervised(Opts)
     ).
 
+-doc """
+A kicked channel stops with a `shutdown` reason, so that OTP writes no error
+report for it. The `session.terminated` hook still gets the reason `kicked`.
+""".
 t_kick(_Config) ->
-    erlang:process_flag(trap_exit, true),
-
-    _ = emqtt_connect(?CLIENT_ID, false),
-    Opts = evict_session_opts(?CLIENT_ID),
-
-    {ok, Pid} = emqx_eviction_agent_channel:start_supervised(Opts),
-
     ?assertEqual(
-        ok,
-        emqx_eviction_agent_channel:call(Pid, kick)
+        #{
+            stop_reason => {shutdown, kicked},
+            session_hook => {'session.terminated', kicked},
+            otp_reports => []
+        },
+        stepdown(?CLIENT_ID, kick)
     ).
 
+-doc """
+A discarded channel stops with a `shutdown` reason, so that OTP writes no error
+report for it. The `session.discarded` hook still runs.
+""".
 t_discard(_Config) ->
-    erlang:process_flag(trap_exit, true),
-
-    _ = emqtt_connect(?CLIENT_ID, false),
-    Opts = evict_session_opts(?CLIENT_ID),
-
-    {ok, Pid} = emqx_eviction_agent_channel:start_supervised(Opts),
-
     ?assertEqual(
-        ok,
-        emqx_eviction_agent_channel:call(Pid, discard)
+        #{
+            stop_reason => {shutdown, discarded},
+            session_hook => 'session.discarded',
+            otp_reports => []
+        },
+        stepdown(?CLIENT_ID, discard)
     ).
 
 t_stop(_Config) ->
@@ -204,6 +206,52 @@ t_get_connected_client_count(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+stepdown(ClientId, Req) ->
+    %% The linked client exits when the channel takes its session over.
+    erlang:process_flag(trap_exit, true),
+    _ = emqtt_connect(ClientId, false),
+    {ok, Pid} = emqx_eviction_agent_channel:start_supervised(evict_session_opts(ClientId)),
+    MRef = monitor(process, Pid),
+    TestPid = self(),
+    ok = emqx_hooks:add('session.terminated', {?MODULE, on_session_terminated, [TestPid]}, 0),
+    ok = emqx_hooks:add('session.discarded', {?MODULE, on_session_discarded, [TestPid]}, 0),
+    try
+        Reports = emqx_cth_log_capture:capture(error, fun() ->
+            ?assertEqual(ok, emqx_eviction_agent_channel:call(Pid, Req)),
+            receive
+                {'DOWN', MRef, process, Pid, StopReason} ->
+                    TestPid ! {stop_reason, Pid, StopReason}
+            after 5000 ->
+                ct:fail(channel_did_not_stop)
+            end
+        end),
+        #{
+            stop_reason => received(stop_reason, Pid),
+            session_hook => received(session_hook, Pid),
+            %% Reports from `gen_server`, `proc_lib` and `supervisor`.
+            otp_reports => [R || #{label := _} = R <- Reports]
+        }
+    after
+        emqx_hooks:del('session.terminated', {?MODULE, on_session_terminated}),
+        emqx_hooks:del('session.discarded', {?MODULE, on_session_discarded})
+    end.
+
+%% The hooks run in the process which terminates the session.
+on_session_terminated(_ClientInfo, Reason, _SessionInfo, TestPid) ->
+    TestPid ! {session_hook, self(), {'session.terminated', Reason}},
+    ok.
+
+on_session_discarded(_ClientInfo, _SessionInfo, TestPid) ->
+    TestPid ! {session_hook, self(), 'session.discarded'},
+    ok.
+
+received(Tag, Pid) ->
+    receive
+        {Tag, Pid, Value} -> Value
+    after 0 ->
+        ct:fail({not_received, Tag})
+    end.
 
 evict_session_opts(ClientId) ->
     maps:with(
