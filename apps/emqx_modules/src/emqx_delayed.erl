@@ -151,12 +151,15 @@ on_message_publish(
                 end
         end,
     PubMsg = Msg#message{topic = Topic1},
-    Headers = PubMsg#message.headers,
-    case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
-        ok -> ok;
-        {error, Error} -> ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error})
-    end,
-    {stop, PubMsg#message{headers = Headers#{allow_publish => false}}};
+    Headers =
+        case store(#delayed_message{key = {PubAt, Id}, delayed = Delayed, msg = PubMsg}) of
+            ok ->
+                #{allow_publish => false, delayed_publish_accepted => true};
+            {error, Error} ->
+                ?SLOG(error, #{msg => "store_delayed_message_fail", error => Error}),
+                #{allow_publish => false}
+        end,
+    {stop, emqx_message:set_headers(Headers, PubMsg)};
 on_message_publish(Msg) ->
     {ok, Msg}.
 
