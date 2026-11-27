@@ -2,9 +2,9 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% Tests for the Kafka producer connector client options. A minimal fake Kafka
-%% broker is used to observe the
-%% actual requests and to let messages be produced end to end.
+%% Tests for the Kafka connector client options. A minimal fake Kafka broker is
+%% used to observe the actual requests; producer cases also produce messages end
+%% to end.
 -module(emqx_bridge_kafka_connector_opts_SUITE).
 
 -compile(nowarn_export_all).
@@ -17,6 +17,7 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(CONNECTOR_TYPE, kafka_producer).
+-define(CONSUMER_CONNECTOR_TYPE, kafka_consumer).
 -define(ACTION_TYPE, kafka_producer).
 
 -define(API_PRODUCE, 0).
@@ -40,7 +41,13 @@ all() ->
         t_omitted_client_id,
         t_same_client_id_two_connectors,
         t_update_client_id,
-        t_reconnect_after_broker_close
+        t_reconnect_after_broker_close,
+        t_consumer_default_client_id,
+        t_consumer_client_id,
+        t_consumer_empty_client_id,
+        t_consumer_update_client_id,
+        t_consumer_same_client_id_two_connectors,
+        t_consumer_client_id_too_long
     ].
 
 init_per_suite(TCConfig) ->
@@ -376,6 +383,78 @@ t_reconnect_after_broker_close(TCConfig) ->
     ok.
 
 %%------------------------------------------------------------------------------
+%% Consumer connector cases
+%%------------------------------------------------------------------------------
+
+t_consumer_default_client_id(TCConfig) ->
+    TC = consumer_tc(TCConfig),
+    ?assertMatch({201, _}, create_connector_api(TC, #{})),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TC),
+    Expected = atom_to_binary(emqx_bridge_kafka_impl_consumer:make_client_id(ConnResId), utf8),
+    assert_client_id(wait_api_versions(), Expected),
+    ok.
+
+t_consumer_client_id(TCConfig) ->
+    ClientId = <<"consumer-client-id">>,
+    TC = consumer_tc(TCConfig),
+    ?assertMatch({201, _}, create_connector_api(TC, #{<<"kafka_client_id">> => ClientId})),
+    wait_connector_connected(TC),
+    assert_client_id(wait_api_versions(), ClientId),
+    {200, Connector} = get_connector_api(TC),
+    ?assertEqual(ClientId, maps:get(<<"kafka_client_id">>, Connector)),
+    ok.
+
+t_consumer_empty_client_id(TCConfig) ->
+    TC = consumer_tc(TCConfig),
+    ?assertMatch({201, _}, create_connector_api(TC, #{<<"kafka_client_id">> => <<>>})),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TC),
+    Expected = atom_to_binary(emqx_bridge_kafka_impl_consumer:make_client_id(ConnResId), utf8),
+    assert_client_id(wait_api_versions(), Expected),
+    ok.
+
+t_consumer_update_client_id(TCConfig) ->
+    ClientId1 = <<"first-consumer-client-id">>,
+    ClientId2 = <<"second-consumer-client-id">>,
+    TC = consumer_tc(TCConfig),
+    ?assertMatch({201, _}, create_connector_api(TC, #{<<"kafka_client_id">> => ClientId1})),
+    assert_client_id(wait_api_versions(), ClientId1),
+    flush_requests(),
+    ?assertMatch({200, _}, update_connector_api(TC, #{<<"kafka_client_id">> => ClientId2})),
+    assert_client_id(wait_api_versions(), ClientId2),
+    flush_requests(),
+    ConnResId = emqx_bridge_v2_testlib:connector_resource_id(TC),
+    Expected = atom_to_binary(emqx_bridge_kafka_impl_consumer:make_client_id(ConnResId), utf8),
+    ?assertMatch({200, _}, update_connector_api(TC, #{})),
+    assert_client_id(wait_api_versions(), Expected),
+    ok.
+
+t_consumer_same_client_id_two_connectors(TCConfig) ->
+    ClientId = <<"shared-consumer-client-id">>,
+    TC1 = consumer_tc(TCConfig, <<"consumer_one">>),
+    TC2 = consumer_tc(TCConfig, <<"consumer_two">>),
+    ?assertMatch({201, _}, create_connector_api(TC1, #{<<"kafka_client_id">> => ClientId})),
+    assert_client_id(wait_api_versions(), ClientId),
+    flush_requests(),
+    ?assertMatch({201, _}, create_connector_api(TC2, #{<<"kafka_client_id">> => ClientId})),
+    assert_client_id(wait_api_versions(), ClientId),
+    ClientId1 = emqx_bridge_kafka_impl_consumer:make_client_id(
+        emqx_bridge_v2_testlib:connector_resource_id(TC1)
+    ),
+    ClientId2 = emqx_bridge_kafka_impl_consumer:make_client_id(
+        emqx_bridge_v2_testlib:connector_resource_id(TC2)
+    ),
+    ?assertNotEqual(ClientId1, ClientId2),
+    ?assert(is_pid(whereis(ClientId1))),
+    ?assert(is_pid(whereis(ClientId2))),
+    ok.
+
+t_consumer_client_id_too_long(TCConfig) ->
+    TC = consumer_tc(TCConfig),
+    TooLong = binary:copy(<<"a">>, 32731),
+    ?assertMatch({400, _}, create_connector_api(TC, #{<<"kafka_client_id">> => TooLong})),
+    ok.
+
+%%------------------------------------------------------------------------------
 %% Request collection and assertions
 %%------------------------------------------------------------------------------
 
@@ -497,6 +576,39 @@ action_config(ActionName) ->
 bootstrap_hosts(Host, Port) ->
     iolist_to_binary([Host, ":", integer_to_binary(Port)]).
 
+consumer_tc(TCConfig) ->
+    consumer_tc(TCConfig, ?config(connector_name, TCConfig)).
+
+consumer_tc(TCConfig, Name) ->
+    Broker = ?config(broker, TCConfig),
+    {Host, Port} = emqx_bridge_kafka_fake_broker:bootstrap_address(Broker),
+    ConnectorConfig = emqx_bridge_kafka_testlib:source_connector_config(#{
+        <<"bootstrap_hosts">> => bootstrap_hosts(Host, Port),
+        <<"ssl">> => #{<<"enable">> => false},
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"60s">>}
+    }),
+    replace(TCConfig, [
+        {connector_type, ?CONSUMER_CONNECTOR_TYPE},
+        {connector_name, Name},
+        {connector_config, ConnectorConfig}
+    ]).
+
+wait_api_versions() ->
+    Pred = fun(Requests) -> has_api_key(?API_API_VERSIONS, Requests) end,
+    case wait_requests_soft(Pred, ?WAIT_TIMEOUT, []) of
+        {ok, Requests} ->
+            Requests;
+        {timeout, Requests} ->
+            ct:fail({no_api_versions, Requests})
+    end.
+
+get_connector_api(TCConfig) ->
+    Name = ?config(connector_name, TCConfig),
+    Type = ?config(connector_type, TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 replace(TCConfig, Overrides) ->
     Kept = lists:foldl(
         fun({Key, _}, Acc) -> lists:keydelete(Key, 1, Acc) end,
@@ -526,13 +638,14 @@ action_metrics(TCConfig) ->
 
 wait_connector_connected(TCConfig) ->
     Name = ?config(connector_name, TCConfig),
+    Type = ?config(connector_type, TCConfig),
     ?retry(
         200,
         100,
         begin
             {200, #{<<"status">> := Status}} =
                 emqx_bridge_v2_testlib:simplify_result(
-                    emqx_bridge_v2_testlib:get_connector_api(?CONNECTOR_TYPE, Name)
+                    emqx_bridge_v2_testlib:get_connector_api(Type, Name)
                 ),
             ?assertEqual(<<"connected">>, Status)
         end

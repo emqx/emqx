@@ -249,4 +249,4 @@ connector_config_fields() ->
                 FieldSchema
         end,
         emqx_bridge_kafka:kafka_connector_config_fields()
-    ).
+    ) ++ emqx_bridge_kafka:consumer_client_options_fields().
