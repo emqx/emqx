@@ -1,16 +1,20 @@
-# emqx-rule-udf protocol, version 1 (draft)
+# emqx-rule-udf protocol, version 2 (draft)
 
 This document specifies the HTTP protocol between EMQX and a function server.
 A function server runs user-defined functions that EMQX rule SQL calls by name.
 Any language can implement a function server or a client from this document.
+
+The client stores and names the functions. The server checks and runs them. The
+server keeps no durable state: it keeps loaded functions only as a cache, and a
+call carries the function when the server does not have it.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be interpreted
 as described in RFC 2119.
 
 ## 1. Terms
 
-- **Client**: the program that uploads and calls functions. EMQX is a client.
-- **Server**: the program that stores and runs functions.
+- **Client**: the program that stores and calls functions. EMQX is a client.
+- **Server**: the program that checks and runs functions.
 - **Function**: a named unit of user code. It has a name, a runtime and a source.
 - **Runtime**: the identifier of the language and calling convention that the
   server uses to run a source, for example `python3`. See section 7.
@@ -72,32 +76,31 @@ knows the version of its own copy of a function without asking the server.
 Returns `200` with `{"status": "ok"}` when the server can accept requests. It
 needs no authentication and MUST NOT return other data.
 
-### 5.2 `GET /v1/info`
+### 5.2 `GET /v2/info`
 
 Returns the protocol version, the runtimes and the limits of the server.
 
 ```json
 {
-  "protocol": "emqx-rule-udf/1",
-  "server": "emqx-rule-udf-wasm-server/0.1.0",
+  "protocol": "emqx-rule-udf/2",
+  "server": "emqx-rule-udf-wasm-server/0.3.0",
   "runtimes": [{"name": "python3", "version": "3.14.7"}],
   "limits": {
     "max_source_bytes": 65536,
     "max_request_bytes": 1048576,
     "max_response_bytes": 1048576,
-    "max_functions": 64,
     "call_timeout_ms": 1000
   }
 }
 ```
 
-- `protocol` MUST be `emqx-rule-udf/1` for this version of the protocol.
+- `protocol` MUST be `emqx-rule-udf/2` for this version of the protocol.
 - `limits` is for information. A client MUST still handle the errors in
   section 6.
 
-### 5.3 `PUT /v1/functions/{name}`
+### 5.3 `POST /v2/validate`
 
-Creates a function, or replaces its source.
+Checks a function. The client sends it before it saves a function.
 
 Request:
 
@@ -108,80 +111,58 @@ Request:
 Response `200`:
 
 ```json
-{"name": "str_upper", "runtime": "python3", "sha256": "<version>", "changed": true}
+{"sha256": "<version>"}
 ```
 
-- The server MUST check and load the source before it returns `200`. After a
-  `200`, a call to the function MUST NOT fail because of the source alone.
-- When the check or the load fails, the server MUST return an error and MUST
-  keep the previous version of the function, if there is one.
-- When the server already has the same version, it MUST return `200` with
-  `"changed": false` and change nothing. A client can therefore send the same
-  `PUT` again without side effects.
-- A call that arrives while the server replaces a function MUST run either the
-  previous version or the new version.
+- The server MUST check the source as it does before it loads it for a call
+  (section 5.4), and return the same errors. After a `200`, a call with this
+  function MUST NOT fail because of the source alone.
+- The server MUST NOT keep anything: a later call still carries the function
+  when the server does not have it loaded.
+- `sha256` is the version (section 4). A client SHOULD check that it equals
+  its own.
 
-### 5.4 `GET /v1/functions`
+### 5.4 `POST /v2/call`
 
-```json
-{"functions": [{"name": "str_upper", "runtime": "python3", "sha256": "<version>"}]}
-```
-
-The server MAY add other fields to each item.
-
-### 5.5 `GET /v1/functions/{name}`
-
-Returns the same fields as one item of `GET /v1/functions`, and `source`.
-
-### 5.6 `DELETE /v1/functions/{name}`
-
-Deletes the function. Returns `200` with `{"deleted": "<name>"}`, or
-`404 FUNCTION_NOT_FOUND`.
-
-### 5.7 `POST /v1/functions/{name}/call`
-
-Calls the function.
+Calls a function.
 
 Request:
 
 ```json
-{"args": ["hello"]}
-```
-
-Optional request header:
-
-```
-UDF-Function-Sha256: <version>
+{"name": "str_upper", "sha256": "<version>", "args": ["hello"]}
 ```
 
 Response `200`:
 
 ```json
-{"result": "HELLO", "sha256": "<version>"}
+{"result": "HELLO"}
 ```
 
+- `name` is the name of the function (section 4). The server uses it in logs
+  and error messages only.
+- `sha256` is the version of the function to run.
 - `args` MUST be a JSON array. The server passes its items to the function, in
   order, as positional arguments.
 - `result` is the JSON value that the function returns. It MAY be `null`.
-- `sha256` is the version that ran the call.
-- When the request has `UDF-Function-Sha256` and the server has a different
-  version, the server MUST NOT run the call. It MUST return
-  `409 SHA256_MISMATCH`.
+- When the server does not have this version loaded, it MUST return
+  `404 FUNCTION_NOT_FOUND`, and MUST NOT run the call.
 - The request MAY carry the function, so that any instance of the server can
   run it:
 
   ```json
-  {"args": ["hello"], "function": {"runtime": "python3", "source": "def handle(s): ..."}}
+  {"name": "str_upper", "sha256": "<version>", "args": ["hello"],
+   "function": {"runtime": "python3", "source": "def handle(s): ..."}}
   ```
 
-  Such a request MUST have `UDF-Function-Sha256`, and the version of `function`
-  (section 4) MUST equal it, or the server returns `400 BAD_REQUEST`. When the
-  server does not have this version, it MUST check and load `function` as
-  `PUT /v1/functions/{name}` does, with the same errors, and then run the call.
-  The function stays loaded for later calls.
+  The version of `function` MUST equal `sha256`, or the server returns
+  `400 BAD_REQUEST`. When the server does not have this version loaded, it MUST
+  check and load `function`, and then run the call. The server MAY keep the
+  loaded function for later calls, and MAY drop it at any time.
+- Functions with the same version are the same function: the server MAY run
+  calls to different names with one loaded copy.
 - The server MUST accept concurrent calls, to the same function and to
   different functions. It MAY limit concurrency and return `503 UNAVAILABLE`.
-- A call MUST NOT see data from a call to a different function.
+- A call MUST NOT see data from a call to a function with another version.
 
 ## 6. Errors
 
@@ -194,17 +175,15 @@ An error response has a status code from the table below and this body:
 - `code` MUST be one of the codes in the table.
 - `message` is text for people. A client MUST NOT parse it.
 - The server MAY add other fields, for example `problems` (a list of strings)
-  for `INVALID_SOURCE`, or `sha256` for `SHA256_MISMATCH`.
+  for `INVALID_SOURCE`.
 
 | Status | Code | Meaning | Client action |
 |---|---|---|---|
 | 400 | `BAD_REQUEST` | The request is malformed. | Fail. |
 | 401 | `UNAUTHORIZED` | The token is missing or wrong. | Fail. |
 | 404 | `NOT_FOUND` | The path does not exist. | Fail. |
-| 404 | `FUNCTION_NOT_FOUND` | The server does not have the function. | Upload, then retry once. |
+| 404 | `FUNCTION_NOT_FOUND` | The server does not have this version loaded. | Repeat the call once with `function`. |
 | 405 | `METHOD_NOT_ALLOWED` | The path does not accept the method. | Fail. |
-| 409 | `SHA256_MISMATCH` | The server has a different version. | Upload, then retry once. |
-| 409 | `TOO_MANY_FUNCTIONS` | The server has its maximum number of functions. | Fail. |
 | 411 | `LENGTH_REQUIRED` | `Content-Length` is missing. | Fail. |
 | 413 | `TOO_LARGE` | The body is larger than the server limit. | Fail. |
 | 422 | `UNSUPPORTED_RUNTIME` | The server does not have the runtime. | Fail. |
@@ -219,13 +198,13 @@ An error response has a status code from the table below and this body:
 retry a call that failed with `FUNCTION_ERROR`, `WORKER_FAILED` or `TIMEOUT`:
 the function can have caused the failure, and a retry doubles its cost.
 
-When the server has no function under the name, it MUST return
+When the server does not have the version that a call names, it MUST return
 `FUNCTION_NOT_FOUND`, not `NOT_FOUND`.
 
 ## 7. Runtimes
 
 A runtime identifier names a language and a calling convention. The server
-lists its runtimes in `GET /v1/info`. This version of the protocol defines one
+lists its runtimes in `GET /v2/info`. This version of the protocol defines one
 runtime.
 
 ### 7.1 `python3`
@@ -236,7 +215,7 @@ runtime.
 - JSON values map to Python values as `json.loads` maps them. The return value
   MUST be a value that `json.dumps` accepts.
 - The server MAY limit the modules that the source can import. It MUST report
-  such a limit as `INVALID_SOURCE` at upload.
+  such a limit as `INVALID_SOURCE`.
 
 New runtimes, for example `javascript`, get their own section in a later
 version of this document. A server MAY offer other runtimes. It SHOULD name them
@@ -266,15 +245,14 @@ with binary keys.
 
 A client SHOULD do these things:
 
-- Upload a function when it is created or changed. Keep the source: the
-  server does not need to keep it.
-- Send `UDF-Function-Sha256` on every call. Behind a load balancer, this makes
-  sure that a call never runs an old version on one instance of the server.
-- On `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH`, repeat the call once with
-  `function` in the body (section 5.7). The repeated call loads and runs the
-  function in one request, so it works when a load balancer sends it to another
-  instance than the first call. A server that restarts loses no data this way,
-  and the instances behind a load balancer need no shared storage.
+- Validate a function when it is created or changed (section 5.3), and keep it
+  only when the server accepts it. Keep the source: the server does not keep it.
+- Send a call without `function` first. On `FUNCTION_NOT_FOUND`, repeat the
+  call once with `function` in the body (section 5.4). The repeated call loads
+  and runs the function in one request, so it works when a load balancer sends
+  it to another instance than the first call. A server that restarts loses no
+  data this way, and the instances behind a load balancer need no shared
+  storage.
 - Set a request timeout a little longer than the server call timeout.
 
 ## 10. Security
@@ -283,7 +261,8 @@ A client SHOULD do these things:
   function from the host: no file system, network, processes or environment
   that the function does not need.
 - A server MUST isolate functions from each other. One function MUST NOT read
-  or change the state, arguments or results of another function.
+  or change the state, arguments or results of a function with another
+  version.
 - A server SHOULD limit the CPU time, memory and output size of each call.
 - Arguments carry message data. Use TLS between the client and the server.
 - The token gives the right to run code on the server. Store it as a secret.

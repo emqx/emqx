@@ -16,6 +16,8 @@
 
 -record(?PROGRAM_TAB, {
     name :: binary(),
+    %% The language the source is in, for example `<<"python3">>'. The function
+    %% server lists the runtimes it can run (`PROTOCOL.md', section 7).
     runtime :: binary(),
     source :: binary(),
     sha256 :: binary(),

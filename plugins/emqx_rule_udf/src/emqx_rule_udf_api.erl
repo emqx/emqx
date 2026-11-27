@@ -7,14 +7,14 @@
 Plugin API, under `/api/v5/plugin_api/emqx_rule_udf/`:
 
 - `GET ui`: the program editor page.
-- `GET server`: the state of the function server (`GET /v1/info`).
+- `GET server`: the state of the function server (`GET /v2/info`).
 - `GET programs`: all programs, without the source.
 - `GET programs/{name}`: one program, with the source.
 - `PUT programs/{name}`: create or replace a program. Body: `{"source", "runtime"}`.
 - `DELETE programs/{name}`: delete a program.
 - `POST programs/{name}/call`: run a program once. Body: `{"args": [...]}`.
 
-`PUT`, `DELETE` and `POST` change or run code, so they need the global
+Every method but `GET` changes or runs code, so it needs the global
 administrator. The dashboard lets viewers send `GET` to plugin APIs.
 """.
 
@@ -25,32 +25,49 @@ administrator. The dashboard lets viewers send `GET` to plugin APIs.
 
 -define(ROLE_ADMIN, <<"administrator">>).
 
-handle(get, [<<"ui">>], _Request, _Context) ->
+handle(get, Path, Request, _Context) ->
+    handle_get(Path, Request);
+handle(Method, Path, Request, Context) ->
+    case is_global_admin(Context) of
+        true ->
+            handle_change(Method, Path, Request, Context);
+        false ->
+            error_json(
+                403,
+                <<"FORBIDDEN">>,
+                <<"only the global administrator can change or run programs">>
+            )
+    end.
+
+handle_get([<<"ui">>], _Request) ->
     {ok, 200,
         #{
             <<"content-type">> => <<"text/html; charset=utf-8">>,
             <<"cache-control">> => <<"no-store">>
         },
         ui_html()};
-handle(get, [<<"server">>], _Request, _Context) ->
+handle_get([<<"server">>], _Request) ->
     case emqx_rule_udf_client:server_info() of
         {ok, Info} -> ok_json(#{reachable => true, info => Info});
         {error, Reason} -> ok_json(#{reachable => false, error => format_reason(Reason)})
     end;
-handle(get, [<<"programs">>], _Request, _Context) ->
+handle_get([<<"programs">>], _Request) ->
     ok_json(#{programs => [summary(P) || P <- emqx_rule_udf_store:list()]});
-handle(get, [<<"programs">>, Name], _Request, _Context) ->
+handle_get([<<"programs">>, Name], _Request) ->
     case emqx_rule_udf_store:lookup(Name) of
         {ok, P} -> ok_json(with_source(P));
         {error, not_found} -> not_found(Name)
     end;
-handle(put, [<<"programs">>, Name], Request, Context) ->
-    with_admin(Context, fun() -> put_program(Name, Request, Context) end);
-handle(delete, [<<"programs">>, Name], _Request, Context) ->
-    with_admin(Context, fun() -> delete_program(Name) end);
-handle(post, [<<"programs">>, Name, <<"call">>], Request, Context) ->
-    with_admin(Context, fun() -> call_program(Name, Request) end);
-handle(_Method, _Path, _Request, _Context) ->
+handle_get(_Path, _Request) ->
+    {error, not_found}.
+
+handle_change(put, [<<"programs">>, Name], Request, Context) ->
+    put_program(Name, Request, Context);
+handle_change(delete, [<<"programs">>, Name], _Request, _Context) ->
+    delete_program(Name);
+handle_change(post, [<<"programs">>, Name, <<"call">>], Request, _Context) ->
+    call_program(Name, Request);
+handle_change(_Method, _Path, _Request, _Context) ->
     {error, not_found}.
 
 %%--------------------------------------------------------------------
@@ -63,8 +80,8 @@ put_program(Name, Request, Context) ->
         ok ?= check_name(Name),
         {ok, Source} ?= get_source(Body),
         {ok, Runtime} ?= get_runtime(Body),
-        %% The server checks and loads the source. Save only what it accepts.
-        {ok, _Sha256} ?= upload(Name, Runtime, Source),
+        %% Save only what the function server accepts.
+        {ok, _Sha256} ?= validate(Runtime, Source),
         {ok, Program} = emqx_rule_udf_store:put(Name, Runtime, Source, actor_name(Context)),
         ok_json(with_source(Program))
     end.
@@ -72,8 +89,6 @@ put_program(Name, Request, Context) ->
 delete_program(Name) ->
     case emqx_rule_udf_store:delete(Name) of
         ok ->
-            %% The server may also lose it on restart; a failure here is harmless.
-            _ = emqx_rule_udf_client:delete(Name),
             ok_json(#{deleted => Name});
         {error, not_found} ->
             not_found(Name)
@@ -109,14 +124,14 @@ get_source(#{<<"source">> := Source}) when is_binary(Source) ->
 get_source(_) ->
     error_json(400, <<"BAD_REQUEST">>, <<"'source' must be a string">>).
 
-%% The function server decides which runtimes exist (`GET /v1/info`).
+%% The function server decides which runtimes exist (`GET /v2/info`).
 get_runtime(#{<<"runtime">> := Runtime}) when is_binary(Runtime), Runtime =/= <<>> ->
     {ok, Runtime};
 get_runtime(_) ->
     error_json(400, <<"BAD_REQUEST">>, <<"'runtime' must be a non-empty string">>).
 
-upload(Name, Runtime, Source) ->
-    case emqx_rule_udf_client:upload(Name, Runtime, Source) of
+validate(Runtime, Source) ->
+    case emqx_rule_udf_client:validate(Runtime, Source) of
         {ok, _} = Ok -> Ok;
         {error, Reason} -> server_error(Reason)
     end.
@@ -124,18 +139,6 @@ upload(Name, Runtime, Source) ->
 %%--------------------------------------------------------------------
 %% Authorization
 %%--------------------------------------------------------------------
-
-with_admin(Context, Fun) ->
-    case is_global_admin(Context) of
-        true ->
-            Fun();
-        false ->
-            error_json(
-                403,
-                <<"FORBIDDEN">>,
-                <<"only the global administrator can change or run programs">>
-            )
-    end.
 
 is_global_admin(#{auth_meta := #{actor := #{role := ?ROLE_ADMIN, namespace := ?global_ns}}}) ->
     true;
@@ -162,7 +165,7 @@ summary(#?PROGRAM_TAB{} = P) ->
 with_source(#?PROGRAM_TAB{source = Source} = P) ->
     (summary(P))#{source => Source}.
 
-%% Errors from the function server keep their emqx-rule-udf/1 code. A 4xx reply,
+%% Errors from the function server keep their emqx-rule-udf/2 code. A 4xx reply,
 %% except 401, keeps its status. Anything else becomes 502: a 401 from this
 %% API would look like an expired dashboard session.
 server_error(#{status := Status, code := Code, message := Msg} = E) ->

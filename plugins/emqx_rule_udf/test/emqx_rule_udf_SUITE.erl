@@ -87,7 +87,7 @@ t_health_check_reports_server_reachable(Config) ->
     ?assertMatch(
         {200, #{
             <<"reachable">> := true,
-            <<"info">> := #{<<"protocol">> := <<"emqx-rule-udf/1">>}
+            <<"info">> := #{<<"protocol">> := <<"emqx-rule-udf/2">>}
         }},
         api(get, ["server"])
     ).
@@ -168,19 +168,24 @@ t_function_error_is_returned(_Config) ->
     {200, _} = save(Name, <<"def handle(x):\n    return x / 0\n">>),
     ?assertMatch({422, #{<<"code">> := <<"FUNCTION_ERROR">>}}, call(Name, [1])).
 
-t_program_is_sent_again_when_server_lost_it(Config) ->
-    Name = <<"reupload.py">>,
-    {200, _} = save(Name, ?UPPER_SRC),
-    %% The server forgets all functions on restart: simulate that.
-    ?assertEqual(200, server_request(Config, delete, "/v1/functions/" ++ binary_to_list(Name))),
-    ?assertEqual(404, server_request(Config, get, "/v1/functions/" ++ binary_to_list(Name))),
+t_first_call_sends_the_program(Config) ->
+    %% A source that no earlier run can have left in the server cache.
+    Src = iolist_to_binary([
+        "# ", integer_to_list(erlang:system_time(nanosecond)), "\n", ?UPPER_SRC
+    ]),
+    Name = <<"first-call.py">>,
+    {200, #{<<"sha256">> := Sha256}} = save(Name, Src),
+    %% Saving only checks the program: the server does not keep it.
+    CallBody = #{<<"name">> => Name, <<"sha256">> => Sha256, <<"args">> => [<<"x">>]},
+    ?assertEqual(404, server_call(Config, CallBody)),
     ?assertEqual(<<"ABC">>, emqx_rule_udf_client:call(Name, [<<"abc">>])),
-    ?assertEqual(200, server_request(Config, get, "/v1/functions/" ++ binary_to_list(Name))).
+    %% The call carried the program, and the server keeps it loaded.
+    ?assertEqual(200, server_call(Config, CallBody)).
 
 t_call_works_when_no_instance_keeps_the_program(Config) ->
     %% Behind a load balancer, each request may reach an instance that does not
-    %% have the program. The proxy simulates that: it deletes the program on the
-    %% server before it forwards a request for it.
+    %% have the program. The proxy simulates that: it answers every call that
+    %% does not carry the program with FUNCTION_NOT_FOUND.
     {ok, ProxyURL} = start_proxy(Config, #{forget => true}),
     try
         {204, _} = set_server(Config, #{<<"url">> => ProxyURL}),
@@ -207,7 +212,7 @@ t_https_trusts_node_trusted_certs(Config) ->
         %% A changed config restarts the pool, which reads the trusted CAs.
         {204, _} = set_server(Config, #{<<"url">> => ProxyURL, <<"pool_size">> => 3}),
         ?assertMatch(
-            {ok, #{<<"protocol">> := <<"emqx-rule-udf/1">>}}, emqx_rule_udf_client:server_info()
+            {ok, #{<<"protocol">> := <<"emqx-rule-udf/2">>}}, emqx_rule_udf_client:server_info()
         )
     after
         restore_trusted_certs(Previous),
@@ -392,11 +397,12 @@ api(Method, Path, Body) ->
 str(B) when is_binary(B) -> binary_to_list(B);
 str(S) -> S.
 
-%% A direct request to the function server, as an operator would send it.
-server_request(Config, Method, Path) ->
-    URL = server_url(Config) ++ Path,
+%% A call sent to the function server directly, without the plugin.
+server_call(Config, Body) ->
+    URL = server_url(Config) ++ "/v2/call",
     Headers = [{"authorization", "Bearer " ++ binary_to_list(?SERVER_TOKEN)}],
-    {ok, {{_, Status, _}, _, _}} = httpc:request(Method, {URL, Headers}, [], []),
+    Request = {URL, Headers, "application/json", emqx_utils_json:encode(Body)},
+    {ok, {{_, Status, _}, _, _}} = httpc:request(post, Request, [], []),
     Status.
 
 server_url(Config) ->
@@ -437,8 +443,8 @@ set_server(Config, Changes) ->
         put, ?config(plugin_name_vsn, Config), Conf#{<<"server">> := maps:merge(Server, Changes)}
     ).
 
-%% An HTTP proxy to the function server. With `forget', it deletes a function
-%% before it forwards a request for it. With `tls', it serves HTTPS. With
+%% An HTTP proxy to the function server. With `forget', it answers a call that
+%% does not carry the function as a server that does not have it loaded. With `tls', it serves HTTPS. With
 %% `call_reply', it answers every call with that 200 body.
 start_proxy(Config, Opts) ->
     State = #{
@@ -479,22 +485,23 @@ gen_tls_files(Dir) ->
 init(Req0, #{call_reply := Reply} = State) when is_binary(Reply) ->
     {ok, cowboy_req:reply(200, #{<<"content-type">> => <<"application/json">>}, Reply, Req0),
         State};
-init(Req0, #{server_url := ServerURL, forget := Forget} = State) ->
+init(Req0, #{forget := Forget} = State) ->
     Path = binary_to_list(cowboy_req:path(Req0)),
     {ok, Body, Req} = cowboy_req:read_body(Req0),
-    Headers = [
-        {binary_to_list(K), binary_to_list(V)}
-     || {K, V} <- maps:to_list(cowboy_req:headers(Req)),
-        lists:member(K, [<<"authorization">>, <<"udf-function-sha256">>])
-    ],
-    case string:split(Path, "/", all) of
-        ["", "v1", "functions", Name | _] when Forget ->
-            {ok, _} = httpc:request(
-                delete, {ServerURL ++ "/v1/functions/" ++ Name, Headers}, [], []
-            );
-        _ ->
-            ok
-    end,
+    case Forget andalso Path =:= "/v2/call" andalso emqx_utils_json:decode(Body) of
+        #{<<"function">> := _} -> forward(Req, Path, Body, State);
+        #{} -> {ok, not_loaded_reply(Req), State};
+        false -> forward(Req, Path, Body, State)
+    end.
+
+not_loaded_reply(Req) ->
+    Body = emqx_utils_json:encode(#{
+        <<"code">> => <<"FUNCTION_NOT_FOUND">>, <<"message">> => <<"not loaded">>
+    }),
+    cowboy_req:reply(404, #{<<"content-type">> => <<"application/json">>}, Body, Req).
+
+forward(Req, Path, Body, #{server_url := ServerURL} = State) ->
+    Headers = [{"authorization", binary_to_list(cowboy_req:header(<<"authorization">>, Req))}],
     Method = binary_to_atom(string:lowercase(cowboy_req:method(Req))),
     Request =
         case Body of

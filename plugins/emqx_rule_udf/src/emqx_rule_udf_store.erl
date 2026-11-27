@@ -6,7 +6,7 @@
 -moduledoc """
 Stores the programs in a `mria` table, which replicates them to every node.
 
-The table is the source of truth: the hot path and the uploads read it. Each node
+The table is the source of truth: the hot path reads it. Each node
 also keeps a copy of every program as a file in
 `<data_dir>/plugins/emqx_rule_udf/programs/<name>`. The node that writes a program
 refreshes its own files at once. Every node checks its files against the table
@@ -76,7 +76,7 @@ delete(Name) ->
 programs_dir() ->
     filename:join([emqx:data_dir(), "plugins", "emqx_rule_udf", "programs"]).
 
--doc "Accept a program name that matches the emqx-rule-udf/1 name rule (`PROTOCOL.md`, section 4).".
+-doc "Accept a program name that matches the emqx-rule-udf/2 name rule (`PROTOCOL.md`, section 4).".
 -spec validate_name(term()) -> ok | {error, binary()}.
 validate_name(Name) when is_binary(Name) ->
     case re:run(Name, ?NAME_RE, [{capture, none}]) of

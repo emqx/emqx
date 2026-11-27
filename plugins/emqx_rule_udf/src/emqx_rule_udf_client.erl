@@ -4,17 +4,19 @@
 -module(emqx_rule_udf_client).
 
 -moduledoc """
-Client of an emqx-rule-udf/1 function server (see `PROTOCOL.md`).
+Client of an emqx-rule-udf/2 function server (see `PROTOCOL.md`).
+
+EMQX stores and names the programs. The server checks them (`validate/2`) and
+runs them, and keeps loaded programs only as a cache.
 
 `call/2` and `try_call/2` are the hot path. They run in the process that
 evaluates the rule. They read the client settings from `persistent_term` and the
-program from `emqx_rule_udf_store`, and send `POST /v1/functions/{name}/call` through
-an `ehttpc` pool.
+program from `emqx_rule_udf_store`, and send `POST /v2/call` through an `ehttpc`
+pool.
 
-After a `FUNCTION_NOT_FOUND` or `SHA256_MISMATCH` reply, the call is repeated
-once with the program in its body. The server loads it and runs the call in one
-request, so this works when a load balancer sends the two requests to different
-instances.
+After a `FUNCTION_NOT_FOUND` reply, the call is repeated once with the program
+in its body. The server loads it and runs the call in one request, so this works
+when a load balancer sends the two requests to different instances.
 
 The `gen_server` owns the HTTP pool, which it restarts when the plugin config
 changes.
@@ -29,8 +31,7 @@ changes.
 -export([
     start_link/0,
     update_config/1,
-    upload/3,
-    delete/1,
+    validate/2,
     server_info/0,
     version/2
 ]).
@@ -72,8 +73,7 @@ try_call(Name, Args) ->
     maybe
         {ok, Client} ?= client(),
         {ok, Program} ?= lookup(Name),
-        {ok, Body} ?= encode_call(#{<<"args">> => Args}),
-        call_with_program(Client, Program, Args, Body)
+        call_with_program(Client, Program, Args)
     end.
 
 client() ->
@@ -97,24 +97,24 @@ encode_call(Request) ->
     end.
 
 %% Send the call without the program. When the server does not have this
-%% version, send it once more with the program.
-call_with_program(Client, #?PROGRAM_TAB{name = Name, sha256 = Sha256} = Program, Args, Body) ->
-    case do_call(Client, Name, Sha256, Body) of
-        {error, #{code := Code}} when
-            Code =:= <<"FUNCTION_NOT_FOUND">>; Code =:= <<"SHA256_MISMATCH">>
-        ->
-            #?PROGRAM_TAB{runtime = Runtime, source = Source} = Program,
-            Function = #{<<"runtime">> => Runtime, <<"source">> => Source},
-            {ok, Body2} = encode_call(#{<<"args">> => Args, <<"function">> => Function}),
-            do_call(Client, Name, Sha256, Body2);
-        Other ->
-            Other
+%% version loaded, send it once more with the program.
+call_with_program(Client, #?PROGRAM_TAB{name = Name, sha256 = Sha256} = Program, Args) ->
+    Call = #{<<"name">> => Name, <<"sha256">> => Sha256, <<"args">> => Args},
+    maybe
+        {ok, Body} ?= encode_call(Call),
+        case do_call(Client, Body) of
+            {error, #{code := <<"FUNCTION_NOT_FOUND">>}} ->
+                #?PROGRAM_TAB{runtime = Runtime, source = Source} = Program,
+                Function = #{<<"runtime">> => Runtime, <<"source">> => Source},
+                {ok, Body2} = encode_call(Call#{<<"function">> => Function}),
+                do_call(Client, Body2);
+            Other ->
+                Other
+        end
     end.
 
-do_call(Client, Name, Sha256, Body) ->
-    Path = [<<"/v1/functions/">>, Name, <<"/call">>],
-    Headers = [{<<"udf-function-sha256">>, Sha256}],
-    case request(Client, post, Path, Headers, Body) of
+do_call(Client, Body) ->
+    case request(Client, post, <<"/v2/call">>, Body) of
         {ok, 200, #{<<"result">> := Result}} ->
             {ok, Result};
         {ok, 200, Other} ->
@@ -145,48 +145,36 @@ update_config(RawConfig) ->
     end.
 
 -doc """
-Upload a program to the function server. The server checks and loads it before
-it replies, so `{ok, Sha256}` means that calls can run it.
+Ask the function server to check a program. The server keeps nothing, so
+`{ok, Sha256}` only means that a call can load and run it.
 """.
--spec upload(binary(), binary(), binary()) -> {ok, binary()} | {error, map()}.
-upload(Name, Runtime, Source) ->
+-spec validate(binary(), binary()) -> {ok, binary()} | {error, map()}.
+validate(Runtime, Source) ->
     maybe
         {ok, Client} ?= client(),
         Body = emqx_utils_json:encode(#{<<"runtime">> => Runtime, <<"source">> => Source}),
-        {ok, 200, Resp} ?= request(Client, put, [<<"/v1/functions/">>, Name], [], Body),
+        {ok, 200, Resp} ?= request(Client, post, <<"/v2/validate">>, Body),
         Sha256 = version(Runtime, Source),
         case maps:get(<<"sha256">>, Resp, undefined) of
             Sha256 ->
                 {ok, Sha256};
             Other ->
-                %% Client and server disagree on the version rule. Every pinned
-                %% call would fail with SHA256_MISMATCH.
+                %% Client and server disagree on the version rule. Every call
+                %% would need the program in its body.
                 {error, #{reason => version_mismatch, local => Sha256, server => Other}}
         end
     end.
 
--doc "Delete a program from the function server. A missing program is not an error.".
--spec delete(binary()) -> ok | {error, map()}.
-delete(Name) ->
-    maybe
-        {ok, Client} ?= client(),
-        {ok, 200, _} ?= request(Client, delete, [<<"/v1/functions/">>, Name], [], undefined),
-        ok
-    else
-        {error, #{code := <<"FUNCTION_NOT_FOUND">>}} -> ok;
-        {error, _} = Error -> Error
-    end.
-
--doc "Send `GET /v1/info` to the function server and return the decoded body.".
+-doc "Send `GET /v2/info` to the function server and return the decoded body.".
 -spec server_info() -> {ok, map()} | {error, map()}.
 server_info() ->
     maybe
         {ok, Client} ?= client(),
-        {ok, 200, Info} ?= request(Client, get, <<"/v1/info">>, [], undefined),
+        {ok, 200, Info} ?= request(Client, get, <<"/v2/info">>, undefined),
         {ok, Info}
     end.
 
--doc "Return the emqx-rule-udf/1 version of a program (`PROTOCOL.md`, section 4).".
+-doc "Return the emqx-rule-udf/2 version of a program (`PROTOCOL.md`, section 4).".
 -spec version(binary(), binary()) -> binary().
 version(Runtime, Source) ->
     binary:encode_hex(crypto:hash(sha256, [Runtime, $\n, Source]), lowercase).
@@ -386,10 +374,10 @@ wrap_token(Token) -> emqx_secret:wrap(Token).
 %% HTTP
 %%--------------------------------------------------------------------
 
--spec request(client(), get | put | post | delete, iodata(), list(), binary() | undefined) ->
+-spec request(client(), get | post, binary(), binary() | undefined) ->
     {ok, 200, map()} | {error, map()}.
-request(#{base_path := Base, token := Token, timeout := Timeout}, Method, Path, Headers0, Body) ->
-    Headers = auth_header(Token) ++ [{<<"content-type">>, <<"application/json">>} | Headers0],
+request(#{base_path := Base, token := Token, timeout := Timeout}, Method, Path, Body) ->
+    Headers = auth_header(Token) ++ [{<<"content-type">>, <<"application/json">>}],
     FullPath = iolist_to_binary([Base, Path]),
     Req =
         case Body of
