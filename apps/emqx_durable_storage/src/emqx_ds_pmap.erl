@@ -292,6 +292,8 @@ This function should be called in a transaction context.
 -spec tx_destroy(collection_id(), pmap(_, _) | pmap_name()) -> ok.
 tx_destroy(CollectionId, #pmap{name = Name}) ->
     tx_destroy(CollectionId, Name);
+tx_destroy(CollectionId, #pset{name = Name}) ->
+    tx_destroy(CollectionId, Name);
 tx_destroy(CollectionId, Name) when is_binary(Name) ->
     emqx_ds:tx_del_topic(pmap_topic(Name, CollectionId, '+')).
 
@@ -577,9 +579,14 @@ del(
     }
 ) ->
     case Data of
-        #{Key := Val} ->
+        #{Key := Val0} ->
+            Val = Val0 band (bnot ?pset_ram),
             Pmap#pset{
-                data = Data#{Key => Val band (bnot ?pset_ram)},
+                data =
+                    case Val of
+                        0 -> maps:remove(Key, Data);
+                        _ -> Data#{Key => Val}
+                    end,
                 size =
                     case ?pset_live(Val) of
                         true -> Size - 1;

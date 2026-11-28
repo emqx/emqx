@@ -1586,20 +1586,8 @@ tx_write({Topic, Time, Value}) ->
 Mark the region of the storage matching the topic filter and the time range as dirty,
 without writing or deleting anything.
 
-The mark affects only the conflict tracking of the optimistic transaction manager:
-the marked region is tracked as a single unit,
-so the transactions that READ or verify preconditions
-on the overlapping range after this transaction commits are aborted,
-as they would be if the individual keys were updated.
-The transaction that creates the mark is not conflict-checked against the region,
-and a transaction that only WRITES into the region
-is not aborted by the marks of the other transactions:
-concurrent writers are ordered by their commit serials.
-
-In builtin backends this function can be used to optimize memory usage:
-if a transaction updates multiple keys matching a common topic filter,
-it may be wise to mark the entire topic filter as dirty
-to avoid tracking conflicts for the individual keys.
+This API is meant to optimize tracking of conflicts between transactions
+that update (write or delete) a large number of keys matching a common topic.
 
 """.
 -doc #{title => <<"Transactions">>, since => <<"6.0.5">>}.
