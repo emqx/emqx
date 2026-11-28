@@ -947,6 +947,52 @@ node_role_conf(Role0) ->
     {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
     ConfMap.
 
+secret_file_allow_list_test_() ->
+    Check = fun(Patterns) ->
+        Conf = iolist_to_binary(
+            io_lib:format(
+                "node {cookie = \"cookie\", data_dir = \".\", secret_file_allow_list = ~s}",
+                [Patterns]
+            )
+        ),
+        check_secret_file_allow_list(Conf)
+    end,
+    [
+        {"every path is allowed by default", fun() ->
+            ?assertEqual(
+                [<<"**">>],
+                check_secret_file_allow_list(<<"node {cookie = \"cookie\", data_dir = \".\"}">>)
+            )
+        end},
+        {"patterns", fun() ->
+            ?assertEqual(
+                [<<"/run/secrets/**">>, <<"**/*.pw">>, <<"**">>],
+                Check("[\"/run/secrets/**\", \"**/*.pw\", \"**\"]")
+            )
+        end},
+        {"an empty list", fun() ->
+            ?assertEqual([], Check("[]"))
+        end},
+        {"a pattern that is not an absolute path", fun() ->
+            ?assertThrow(
+                {emqx_conf_schema, [
+                    #{
+                        kind := validation_error,
+                        path := "node.secret_file_allow_list",
+                        reason := #{invalid_patterns := [<<"secrets/*">>, <<"*">>]}
+                    }
+                ]},
+                Check("[\"/run/secrets/*\", \"secrets/*\", \"*\"]")
+            )
+        end}
+    ].
+
+%% The checked value of `node.secret_file_allow_list' for the config `Conf'.
+check_secret_file_allow_list(Conf) ->
+    {ok, ConfMap} = hocon:binary(Conf, #{format => richmap}),
+    {_AppEnvs, Checked} = hocon_tconf:map_translate(emqx_conf_schema, ConfMap, #{format => richmap}),
+    hocon_maps:get("node.secret_file_allow_list", hocon_maps:ensure_plain(Checked)).
+
 validate_cookie_test_() ->
     [
         {"empty cookie", fun() ->

@@ -1963,3 +1963,397 @@ t_namespaced_load_on_restart(TCConfig) ->
     ?assertMatch({ok, _, _}, ?ON(N1, emqx_resource:get_instance(ConnResId))),
 
     ok.
+
+-doc """
+A `file://` secret reads its file only when a pattern in `node.secret_file_allow_list`
+matches the path. Otherwise the connector starts with an empty secret. The config is
+saved in both cases. A probe fails with an error instead, and starts nothing.
+""".
+t_secret_file_allow_list(TCConfig) ->
+    #{dir := Dir, inside := Inside, outside := Outside, content := Content} =
+        setup_secret_files(?FUNCTION_NAME, TCConfig),
+    set_secret_file_allow_list([iolist_to_binary([Dir, "/*"])], TCConfig),
+    reset_denied_alarm(TCConfig),
+    ?assertMatch(
+        {201, _},
+        create(?CONNECTOR_TYPE, <<"allowed">>, kafka_connector_with_password(Inside), TCConfig)
+    ),
+    ?assertEqual([Content], start_passwords(<<"allowed">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertMatch(
+        {201, _},
+        create(?CONNECTOR_TYPE, <<"denied">>, kafka_connector_with_password(Outside), TCConfig)
+    ),
+    %% Each call below reads the secret again. There is still one alarm.
+    ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    [#{message := AlarmMessage}] = denied_alarms(TCConfig),
+    ?assertMatch({_, _}, binary:match(AlarmMessage, <<"error log">>)),
+    ?assertMatch({_, _}, binary:match(AlarmMessage, <<"Deactivate it manually">>)),
+    %% Nothing clears the alarm but the operator. The next denied read raises it again.
+    ?assertMatch({204, _}, force_deactivate_denied_alarm(TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertEqual([Content], start_passwords(<<"allowed">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ?assertEqual([<<>>], start_passwords(<<"denied">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
+    %% The config keeps the value as it was set.
+    ?assertEqual(
+        Outside,
+        ?ON(
+            ?config(node, TCConfig),
+            emqx:get_raw_config([connectors, kafka_producer, <<"denied">>, authentication, password])
+        )
+    ),
+    reset_start_history(TCConfig),
+    {400, #{<<"code">> := <<"TEST_FAILED">>, <<"message">> := Message}} =
+        probe(?CONNECTOR_TYPE, kafka_connector_with_password(Outside), TCConfig),
+    <<"file://", OutsidePath/binary>> = Outside,
+    ?assertMatch({_, _}, binary:match(Message, OutsidePath)),
+    ?assertMatch({_, _}, binary:match(Message, <<"node.secret_file_allow_list">>)),
+    ?assertEqual([], start_passwords(all, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
+    ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, kafka_connector_with_password(Inside), TCConfig)),
+    ?assertEqual([Content], start_passwords(all, TCConfig)),
+    ok.
+
+-doc """
+A connector in a namespace does not read `file://` secrets. It starts with an empty
+secret, also when `node.secret_file_allow_list` allows the file. The same applies after
+an update. A probe fails with an error instead, and starts nothing. A connector in the
+global namespace reads the same file.
+""".
+t_namespaced_secret_file(TCConfig) ->
+    #{inside := File, content := Content} = setup_secret_files(?FUNCTION_NAME, TCConfig),
+    TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(<<"ns1">>, TCConfig)} | TCConfig],
+    WithFile = kafka_connector_with_password(File),
+    WithPlain = kafka_connector_with_password(<<"plain">>),
+    reset_denied_alarm(TCConfig),
+    ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_global">>, WithFile, TCConfig)),
+    ?assertEqual([Content], start_passwords(<<"in_global">>, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    %% From here to the end of the probes, nothing reads the file.
+    Spy = start_file_read_spy(TCConfig),
+    ?assertMatch({201, _}, create(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    %% Update
+    reset_start_history(TCConfig),
+    ?assertMatch({200, _}, update(?CONNECTOR_TYPE, <<"in_ns1">>, WithPlain, TCConfigNS1)),
+    ?assertEqual([<<"plain">>], start_passwords(<<"in_ns1">>, TCConfig)),
+    reset_start_history(TCConfig),
+    reset_denied_alarm(TCConfig),
+    ?assertMatch({200, _}, update(?CONNECTOR_TYPE, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertEqual([<<>>], start_passwords(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    %% Probe
+    reset_start_history(TCConfig),
+    reset_denied_alarm(TCConfig),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe(?CONNECTOR_TYPE, WithFile, TCConfigNS1)
+    ),
+    ?assertEqual([], start_passwords(all, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithPlain, TCConfigNS1)),
+    ?assertEqual([<<"plain">>], start_passwords(all, TCConfig)),
+    ?assertEqual([], secret_file_reads(Spy, File, TCConfig)),
+    reset_denied_alarm(TCConfig),
+    reset_start_history(TCConfig),
+    ?assertMatch({204, _}, probe(?CONNECTOR_TYPE, WithFile, TCConfig)),
+    ?assertEqual([Content], start_passwords(all, TCConfig)),
+    ok.
+
+-doc """
+An action in a namespace does not read `file://` secrets either: its connector gets an
+empty secret in the action config. An action in the global namespace reads the file.
+A probe of an action fails with an error when the action cannot read the file.
+""".
+t_namespaced_action_secret_file(TCConfig) ->
+    #{inside := File, content := Content} = setup_secret_files(?FUNCTION_NAME, TCConfig),
+    TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(<<"ns1">>, TCConfig)} | TCConfig],
+    %% Of the action types, only this one has a secret in the action config.
+    Type = <<"snowflake">>,
+    ConnectorConfig = #{
+        <<"server">> => <<"org-account.snowflakecomputing.com">>,
+        <<"account">> => <<"org-account">>,
+        <<"dsn">> => <<"snowflake">>,
+        <<"username">> => <<"user">>,
+        <<"password">> => <<"plain">>
+    },
+    ActionConfig = #{
+        <<"type">> => Type,
+        <<"connector">> => <<"conn">>,
+        <<"parameters">> => #{
+            <<"mode">> => <<"aggregated">>,
+            <<"aggregation">> => #{
+                <<"container">> => #{<<"type">> => <<"csv">>},
+                <<"time_interval">> => <<"1h">>,
+                <<"max_records">> => 1000
+            },
+            <<"private_key">> => File,
+            <<"database">> => <<"db">>,
+            <<"schema">> => <<"public">>,
+            <<"stage">> => <<"stage">>,
+            <<"pipe">> => <<"pipe">>,
+            <<"pipe_user">> => <<"user">>
+        }
+    },
+    ?assertMatch({201, _}, create(Type, <<"conn">>, ConnectorConfig, TCConfig)),
+    ?assertMatch({201, _}, create(Type, <<"conn">>, ConnectorConfig, TCConfigNS1)),
+    ?assertMatch(
+        {201, _}, create_action(ActionConfig#{<<"name">> => <<"in_global">>}, TCConfig)
+    ),
+    ?assertMatch(
+        {201, _}, create_action(ActionConfig#{<<"name">> => <<"in_ns1">>}, TCConfigNS1)
+    ),
+    ?assertEqual([Content], channel_private_keys(<<"in_global">>, TCConfig)),
+    ?assertEqual([<<>>], channel_private_keys(<<"in_ns1">>, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    %% Probe
+    reset_start_history(TCConfig),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe_action(ActionConfig, TCConfigNS1)
+    ),
+    ?assertEqual([], channel_private_keys(all, TCConfig)),
+    ?assertMatch({204, _}, probe_action(ActionConfig, TCConfig)),
+    ?assertEqual([Content], channel_private_keys(all, TCConfig)),
+    reset_start_history(TCConfig),
+    set_secret_file_allow_list([<<"/no/such/dir/*">>], TCConfig),
+    <<"file://", Path/binary>> = File,
+    {400, #{<<"code">> := <<"TEST_FAILED">>, <<"message">> := Message}} =
+        probe_action(ActionConfig, TCConfig),
+    ?assertMatch({_, _}, binary:match(Message, Path)),
+    ?assertEqual([], channel_private_keys(all, TCConfig)),
+    reset_denied_alarm(TCConfig),
+    ok.
+
+-doc """
+A schema validator reads the file of a `file://` secret only in an update or a probe
+of the global config. For a namespace, no step reads the file: not the check of the
+request body, not the update, not a probe. The validator of this connector type looks
+at the value of its secret.
+""".
+t_secret_file_in_validator(TCConfig) ->
+    #{inside := File} = setup_secret_files(?FUNCTION_NAME, TCConfig),
+    <<"file://", Path/binary>> = File,
+    TCConfigNS1 = [{auth_header, ensure_namespaced_api_key(<<"ns1">>, TCConfig)} | TCConfig],
+    Type = <<"gcp_pubsub_producer">>,
+    WithFile = #{
+        <<"authentication">> => #{
+            <<"type">> => <<"service_account_json">>,
+            <<"service_account_json">> => File
+        }
+    },
+    %% The file does not have a service account in it.
+    Spy1 = start_file_read_spy(TCConfig),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                <<"value">> := <<"******">>
+            }
+        }},
+        create(Type, <<"in_global">>, WithFile, TCConfig)
+    ),
+    ?assertMatch([_ | _], secret_file_reads(Spy1, File, TCConfig)),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"not a json">>,
+                <<"value">> := <<"******">>
+            }
+        }},
+        probe(Type, WithFile, TCConfig)
+    ),
+    reset_denied_alarm(TCConfig),
+    Spy2 = start_file_read_spy(TCConfig),
+    ?assertMatch({201, _}, create(Type, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertMatch({200, _}, update(Type, <<"in_ns1">>, WithFile, TCConfigNS1)),
+    ?assertMatch(
+        {400, #{
+            <<"code">> := <<"TEST_FAILED">>,
+            <<"message">> := <<"A connector, an action or a source in a namespace", _/binary>>
+        }},
+        probe(Type, WithFile, TCConfigNS1)
+    ),
+    ?assertEqual([], secret_file_reads(Spy2, File, TCConfig)),
+    ?assertMatch([_], denied_alarms(TCConfig)),
+    reset_denied_alarm(TCConfig),
+    %% With a service account in the file, the global config takes it.
+    ServiceAccount = #{
+        <<"type">> => <<"service_account">>,
+        <<"project_id">> => <<"project">>,
+        <<"private_key_id">> => <<"key-id">>,
+        <<"private_key">> => <<"key">>,
+        <<"client_email">> => <<"test@project.iam.gserviceaccount.com">>
+    },
+    ok = file:write_file(Path, emqx_utils_json:encode(ServiceAccount)),
+    ?assertMatch({201, _}, create(Type, <<"in_global">>, WithFile, TCConfig)),
+    ?assertEqual([], denied_alarms(TCConfig)),
+    ok.
+
+%% Start to record the files that the node of the test reads.
+start_file_read_spy(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(Node, emqx_common_test_helpers:start_file_read_spy()).
+
+%% Stop the spy, and return the reads of the file of `FileRef' since the spy started.
+secret_file_reads(Spy, <<"file://", Path/binary>>, TCConfig) ->
+    Node = ?config(node, TCConfig),
+    Reads = ?ON(Node, emqx_common_test_helpers:stop_file_read_spy(Spy)),
+    [Read || Read <- Reads, Read =:= binary_to_list(Path)].
+
+%% The active alarms for a denied read of a secret file, on the node of the test.
+denied_alarms(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    [
+        Alarm
+     || #{name := secret_file_read_denied} = Alarm <-
+            ?ON(Node, emqx_alarm:get_alarms(activated))
+    ].
+
+reset_denied_alarm(TCConfig) ->
+    Nodes =
+        case ?config(cluster_nodes, TCConfig) of
+            undefined -> [?config(node, TCConfig)];
+            ClusterNodes -> ClusterNodes
+        end,
+    lists:foreach(
+        fun(Node) -> ok = ?ON(Node, emqx_alarm:ensure_deactivated(secret_file_read_denied)) end,
+        Nodes
+    ).
+
+%% Deactivate the alarm as an operator does.
+force_deactivate_denied_alarm(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["alarms", "force_deactivate"]),
+            body => #{<<"name">> => <<"secret_file_read_denied">>},
+            auth_header => AuthHeader
+        })
+    end).
+
+create_action(Config, TCConfig) ->
+    Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["actions"]),
+            body => Config,
+            auth_header => AuthHeader
+        })
+    end).
+
+probe_action(Config, TCConfig) ->
+    Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["actions_probe"]),
+            body => Config#{<<"name">> => <<"probed">>},
+            auth_header => AuthHeader
+        })
+    end).
+
+%% The private keys that the connector implementation gets with the config of an action,
+%% as it reads them. `ActionNameOrAll' is the action name, or `all' for each action.
+channel_private_keys(ActionNameOrAll, TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(
+        Node,
+        lists:usort([
+            emqx_secret:unwrap(PrivateKey)
+         || {_Pid,
+                {_, on_add_channel, [
+                    _ResId, _State, ChanId, #{parameters := #{private_key := PrivateKey}}
+                ]},
+                _} <-
+                meck:history(?CONNECTOR_IMPL),
+            ActionNameOrAll =:= all orelse binary:match(ChanId, ActionNameOrAll) =/= nomatch
+        ])
+    ).
+
+kafka_connector_with_password(Password) ->
+    ?KAFKA_CONNECTOR_BASE#{
+        <<"authentication">> => #{
+            <<"mechanism">> => <<"plain">>,
+            <<"username">> => <<"user">>,
+            <<"password">> => Password
+        }
+    }.
+
+%% Write one secret file inside a directory and one outside of it.
+%% Returns the directory and both `file://' values.
+setup_secret_files(TestCase, TCConfig) ->
+    Base = filename:join(?config(priv_dir, TCConfig), TestCase),
+    Dir = filename:join(Base, "secrets"),
+    InsideFile = filename:join(Dir, "password.txt"),
+    OutsideFile = filename:join(Base, "password.txt"),
+    Content = <<"file-secret">>,
+    ok = filelib:ensure_dir(InsideFile),
+    ok = file:write_file(InsideFile, Content),
+    ok = file:write_file(OutsideFile, Content),
+    #{
+        dir => Dir,
+        inside => iolist_to_binary(["file://", InsideFile]),
+        outside => iolist_to_binary(["file://", OutsideFile]),
+        content => Content
+    }.
+
+%% `node.secret_file_allow_list' is read-only, so the test puts the value in the
+%% config of the node directly.
+set_secret_file_allow_list(Patterns, TCConfig) ->
+    Node = ?config(node, TCConfig),
+    KeyPath = [node, secret_file_allow_list],
+    Old = ?ON(Node, emqx_config:get(KeyPath)),
+    ?ON(Node, emqx_config:put(KeyPath, Patterns)),
+    on_exit(fun() -> ?ON(Node, emqx_config:put(KeyPath, Old)) end),
+    ok.
+
+probe(Type, Config, TCConfig) ->
+    Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    ?ON(Node, begin
+        AuthHeader = auth_header(TCConfig),
+        emqx_bridge_v2_testlib:simple_request(#{
+            method => post,
+            url => emqx_mgmt_api_test_util:api_path(["connectors_probe"]),
+            body => Config#{<<"type">> => Type, <<"name">> => <<"probed">>},
+            auth_header => AuthHeader
+        })
+    end).
+
+reset_start_history(TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(Node, meck:reset(?CONNECTOR_IMPL)).
+
+%% The passwords that the connector implementation gets when it starts, as it reads them.
+%% `NameOrAll' is the connector name, or `all' for each started connector.
+start_passwords(NameOrAll, TCConfig) ->
+    Node = ?config(node, TCConfig),
+    ?ON(
+        Node,
+        lists:usort([
+            emqx_secret:unwrap(Password)
+         || {_Pid, {_, on_start, [ResId, #{authentication := #{password := Password}}]}, _} <-
+                meck:history(?CONNECTOR_IMPL),
+            NameOrAll =:= all orelse binary:match(ResId, NameOrAll) =/= nomatch
+        ])
+    ).

@@ -64,7 +64,7 @@ fields(connector_config) ->
             emqx_schema_secret:mk(
                 #{
                     required => true,
-                    validator => fun account_key_validator/1,
+                    validator => fun account_key_validator/2,
                     desc => ?DESC("account_key")
                 }
             )},
@@ -159,13 +159,17 @@ validate_account_key(Val) ->
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 
-account_key_validator(Val) ->
-    case emqx_secret:unwrap(Val) of
-        <<"******">> ->
+account_key_validator(Val, Opts) ->
+    case emqx_schema_secret:unwrap_in_validator(Val, Opts) of
+        file ->
+            %% A `file://` secret whose file is not read in this check. The connector
+            %% validates the key when it starts.
+            ok;
+        {value, <<"******">>} ->
             %% The frontend sends obfuscated values when updating a connector...  So we
             %% cannot distinguish an obfuscated value from an user explicitly setting this
             %% field to this value.
             ok;
-        Key ->
+        {value, Key} ->
             validate_account_key(Key)
     end.

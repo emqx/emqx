@@ -234,6 +234,25 @@ t_parse(_Config) ->
         )
     ).
 
+-doc """
+The license file is not read as a `file://` secret, so `node.secret_file_allow_list`
+does not apply to `license.key`. The list needs no pattern for the license file.
+""".
+t_file_key_and_secret_file_allow_list(Config) ->
+    File = filename:join(?config(priv_dir, Config), "license.lic"),
+    ok = file:write_file(File, sample_license()),
+    Key = iolist_to_binary(["file://", File]),
+    AllowList = emqx_config:get([node, secret_file_allow_list]),
+    ok = emqx_config:put([node, secret_file_allow_list], []),
+    try
+        %% A secret cannot read the file.
+        ?assertEqual(<<>>, emqx_secret_loader:file(File)),
+        %% The license key still can.
+        ?assertMatch({ok, #{source := Key}}, emqx_license_parser:parse(Key, public_key_pem()))
+    after
+        emqx_config:put([node, secret_file_allow_list], AllowList)
+    end.
+
 t_dump(_Config) ->
     {ok, License} = emqx_license_parser:parse(sample_license(), public_key_pem()),
 

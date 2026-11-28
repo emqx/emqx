@@ -329,7 +329,7 @@ t_dryrun_timeout(Config) when is_list(Config) ->
     ct:timetrap(15_000),
     %% Cache cleaner is triggered when the process initiating the dry run dies.
     Pid = spawn_link(fun() ->
-        Res = emqx_connector_resource:create_dry_run(Type, Conf),
+        Res = emqx_connector_resource:create_dry_run(?global_ns, Type, Conf),
         ?assertEqual({error, timeout}, Res),
         ok
     end),

@@ -10,6 +10,9 @@
 -include("emqx_connector.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%% For the existing `binary_to_atom/2` call in this module.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -export([
     connector_to_resource_type/1,
     resource_id/3,
@@ -22,8 +25,10 @@
 
 -export([
     create/5,
-    create_dry_run/2,
     create_dry_run/3,
+    create_dry_run/4,
+    check_secret_files/3,
+    deny_secret_files/3,
     recreate/5,
     remove/3,
     restart/3,
@@ -44,6 +49,11 @@
 %% Some connectors (e.g., Kafka producer/wolff) have some timeouts of 5 s when tearing
 %% down unresponsive processes.
 -define(STOP_TIMEOUT, 10_000).
+
+-define(NAMESPACED_SECRET_FILE_HINT, <<
+    "A connector, an action or a source in a namespace cannot use a 'file://' secret. "
+    "Set the value directly."
+>>).
 
 -callback connector_config(ParsedConfig, Context) ->
     ParsedConfig
@@ -142,7 +152,8 @@ create(Namespace, Type, Name, Conf0, Opts) ->
     }),
     TypeBin = bin(Type),
     ResourceId = resource_id(Namespace, Type, Name),
-    Conf = Conf0#{connector_type => TypeBin, connector_name => Name},
+    Conf1 = deny_secret_files(Namespace, log_meta(TypeBin, Name), Conf0),
+    Conf = Conf1#{connector_type => TypeBin, connector_name => Name},
     _ = emqx_alarm:ensure_deactivated(ResourceId),
     {ok, _Data} = emqx_resource:create_local(
         ResourceId,
@@ -204,8 +215,9 @@ get_channels(Namespace, Type, Name) ->
     ConnResId = resource_id(Namespace, Type, Name),
     emqx_resource:get_channels(ConnResId).
 
-recreate(Namespace, Type, Name, Conf, Opts) ->
+recreate(Namespace, Type, Name, Conf0, Opts) ->
     TypeBin = bin(Type),
+    Conf = deny_secret_files(Namespace, log_meta(TypeBin, Name), Conf0),
     emqx_resource:recreate_local(
         resource_id(Namespace, Type, Name),
         ?MODULE:connector_to_resource_type(Type),
@@ -213,10 +225,10 @@ recreate(Namespace, Type, Name, Conf, Opts) ->
         parse_opts(Conf, Opts)
     ).
 
-create_dry_run(Type, Conf) ->
-    create_dry_run(Type, Conf, fun(_) -> ok end).
+create_dry_run(Namespace, Type, Conf) ->
+    create_dry_run(Namespace, Type, Conf, fun(_) -> ok end).
 
-create_dry_run(Type, Conf0, Callback) ->
+create_dry_run(Namespace, Type, Conf0, Callback) ->
     %% Already type checked, no need to catch errors
     TypeBin = bin(Type),
     TypeAtom = safe_atom(Type),
@@ -228,22 +240,22 @@ create_dry_run(Type, Conf0, Callback) ->
     Conf1 = maps:without([<<"name">>], Conf0),
     RawConf = #{<<"connectors">> => #{TypeBin => #{<<"temp_name">> => Conf1}}},
     try
+        CheckOpts = emqx_schema_secret:check_opts(Namespace),
         CheckedConf1 =
             hocon_tconf:check_plain(
                 emqx_connector_schema,
                 RawConf,
-                #{atom_key => true, required => false}
+                CheckOpts#{atom_key => true, required => false}
             ),
         CheckedConf2 = get_temp_conf(TypeAtom, CheckedConf1),
         CheckedConf = CheckedConf2#{connector_type => TypeBin, connector_name => TmpName},
-        case emqx_connector_ssl:convert_certs(TmpPath, CheckedConf) of
-            {error, Reason} ->
-                {error, Reason};
-            {ok, ConfNew} ->
-                ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
-                emqx_resource:create_dry_run_local(
-                    TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
-                )
+        maybe
+            ok ?= check_secret_files(Namespace, log_meta(TypeBin, TmpName), CheckedConf2),
+            {ok, ConfNew} ?= emqx_connector_ssl:convert_certs(TmpPath, CheckedConf),
+            ParseConf = parse_confs(bin(Type), TmpName, ConfNew),
+            emqx_resource:create_dry_run_local(
+                TmpName, ?MODULE:connector_to_resource_type(Type), ParseConf, Callback
+            )
         end
     catch
         %% validation errors
@@ -252,6 +264,84 @@ create_dry_run(Type, Conf0, Callback) ->
     after
         _ = file:del_dir_r(emqx_tls_lib:pem_dir(TmpPath))
     end.
+
+log_meta(Type, Name) ->
+    #{config_root => connectors, type => Type, name => Name}.
+
+-doc """
+Check the `file://` secrets in the config of a dry run.
+
+A dry run has a caller that waits for the result. So it fails with an error when a
+secret in `Conf` cannot read its file, instead of running with an empty secret. An
+error log names the files and the alarm is raised, as outside of a dry run.
+
+- In a namespace, no `file://` secret is allowed.
+- In the global namespace, the secret loader decides which files can be read.
+""".
+-spec check_secret_files(?global_ns | binary(), map(), map()) -> ok | {error, binary()}.
+check_secret_files(Namespace, LogMeta, Conf) ->
+    case emqx_schema_secret:file_sources(Conf) of
+        [] ->
+            ok;
+        Sources when is_binary(Namespace) ->
+            log_namespaced_secret_files(Namespace, LogMeta, Sources),
+            {error, ?NAMESPACED_SECRET_FILE_HINT};
+        Sources when Namespace =:= ?global_ns ->
+            Denied = [
+                Report
+             || Source <- Sources,
+                {error, Report} <- [emqx_secret_loader:check({file, Source})]
+            ],
+            lists:foreach(
+                fun(Report) ->
+                    ?SLOG(error, maps:merge(LogMeta, Report#{msg => "secret_file_read_denied"}))
+                end,
+                Denied
+            ),
+            case Denied of
+                [] ->
+                    ok;
+                _ ->
+                    emqx_secret_loader:raise_denied_alarm(),
+                    {error, denied_message(Denied)}
+            end
+    end.
+
+denied_message(Denied) ->
+    iolist_to_binary(
+        lists:join(<<" ">>, [
+            <<"The 'file://' secret cannot read '", Path/binary, "'. ", Hint/binary>>
+         || #{path := Path, hint := Hint} <- Denied
+        ])
+    ).
+
+-doc """
+Make a connector, an action or a source of a namespace load no secret from a file.
+
+Each `file://` secret in `Conf` is replaced with an empty secret, an error log
+names the files, and the alarm is raised. `Conf` of the global namespace is
+returned as it is: for it, the secret loader decides which files can be read.
+""".
+-spec deny_secret_files(?global_ns | binary(), map(), Conf) -> Conf when Conf :: map().
+deny_secret_files(?global_ns, _LogMeta, Conf) ->
+    Conf;
+deny_secret_files(Namespace, LogMeta, Conf0) when is_binary(Namespace) ->
+    case emqx_schema_secret:deny_file_sources(Conf0) of
+        {Conf, []} ->
+            Conf;
+        {Conf, Sources} ->
+            log_namespaced_secret_files(Namespace, LogMeta, Sources),
+            Conf
+    end.
+
+log_namespaced_secret_files(Namespace, LogMeta, Sources) ->
+    ?SLOG(error, LogMeta#{
+        msg => "namespaced_secret_file_read_denied",
+        namespace => Namespace,
+        paths => [Path || <<"file://", Path/binary>> <- Sources],
+        hint => ?NAMESPACED_SECRET_FILE_HINT
+    }),
+    emqx_secret_loader:raise_denied_alarm().
 
 get_temp_conf(TypeAtom, CheckedConf) ->
     case CheckedConf of

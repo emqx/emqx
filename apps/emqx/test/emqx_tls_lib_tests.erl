@@ -417,6 +417,35 @@ do_test_file_validations(Context) ->
                     )
                 )
             end)},
+        {"valid encrypted keyfile with the password in a file",
+            ?_test(begin
+                #{key := Key} = MkKit(#{name => "filepassword"}),
+                PasswordFile = filename:join("/tmp", ?MODULE_STRING ++ "-password-" ++ os:getpid()),
+                ok = file:write_file(PasswordFile, [Password, "\n"]),
+                SSL = #{
+                    <<"keyfile">> => Key,
+                    <<"password">> => iolist_to_binary(["file://", PasswordFile])
+                },
+                try
+                    Reads = emqx_common_test_helpers:file_reads(fun() ->
+                        {ok, _} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", SSL)
+                    end),
+                    ?assert(lists:member(PasswordFile, Reads)),
+                    %% For a config of a namespace, the file is not read. The key
+                    %% cannot be decoded then.
+                    NamespaceReads = emqx_common_test_helpers:file_reads(fun() ->
+                        {error, #{
+                            reason := bad_password_or_invalid_keyfile,
+                            which_option := <<"keyfile">>
+                        }} = emqx_secret_loader:in_namespace(<<"ns1">>, fun() ->
+                            emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir("/tmp", SSL)
+                        end)
+                    end),
+                    ?assertNot(lists:member(PasswordFile, NamespaceReads))
+                after
+                    file:delete(PasswordFile)
+                end
+            end)},
         {"valid encrypted keyfile with incorrect password",
             ?_test(begin
                 #{key := Key, keyfile_path := KeyfilePath} = MkKit(#{name => "corruptkey"}),

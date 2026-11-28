@@ -180,3 +180,40 @@ consumer_ack_deadline_test_() ->
             check_source(#{<<"parameters">> => #{<<"ack_deadline">> => <<"10s">>}})
         )
     ].
+
+%% The validator reads the file of a `file://' secret only in a check of the global
+%% config. In each other check it accepts the secret as it is.
+service_account_json_file_secret_test() ->
+    File = filename:join("/tmp", ?MODULE_STRING ++ "-" ++ os:getpid()),
+    FileRef = iolist_to_binary(["file://", File]),
+    Secret = emqx_schema_secret:convert_secret(FileRef, #{}),
+    Validate = fun(Opts) ->
+        emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator(Secret, Opts)
+    end,
+    Global = emqx_schema_secret:check_opts(global),
+    ok = file:write_file(File, <<"not a json">>),
+    try
+        NoReads = emqx_common_test_helpers:file_reads(fun() ->
+            ok = Validate(#{}),
+            ok = Validate(#{maybe_obfuscated => true}),
+            ok = Validate(emqx_schema_secret:check_opts(<<"ns1">>)),
+            %% The whole connector config, as it is checked at boot, for the body of
+            %% an API request and in a dry run.
+            #{} = emqx_bridge_gcp_pubsub_producer_SUITE:connector_config(#{
+                <<"authentication">> => #{
+                    <<"type">> => <<"service_account_json">>,
+                    <<"service_account_json">> => FileRef
+                }
+            })
+        end),
+        ?assertEqual([], NoReads),
+        Reads = emqx_common_test_helpers:file_reads(fun() ->
+            {error, "not a json"} = Validate(Global)
+        end),
+        ?assertEqual([File], Reads),
+        ServiceAccount = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+        ok = file:write_file(File, emqx_utils_json:encode(ServiceAccount)),
+        ?assertEqual(ok, Validate(Global))
+    after
+        file:delete(File)
+    end.

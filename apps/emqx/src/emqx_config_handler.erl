@@ -5,6 +5,9 @@
 %% And there are a top level config handler maintains the overall config map.
 -module(emqx_config_handler).
 
+%% Config keys are converted to atoms on purpose, see `atom/1`.
+-elvis([{elvis_style, no_common_caveats_call, disable}]).
+
 -include("logger.hrl").
 -include("emqx.hrl").
 -include("emqx_schema.hrl").
@@ -258,10 +261,10 @@ deep_put_handler([Key0 | KeyPath], Handlers, Mod) ->
 %% [k1, ?, ?], [k1, ?, k2] is not allow.
 check_handler_conflict(Handlers) ->
     Keys = filter_top_level_handlers(Handlers),
-    case lists:member(?WKEY, Keys) of
-        true when length(Keys) =:= 1 -> ok;
-        true -> {error, {conflict, Keys}};
-        false -> ok
+    case {lists:member(?WKEY, Keys), Keys} of
+        {true, [_]} -> ok;
+        {true, _} -> {error, {conflict, Keys}};
+        {false, _} -> ok
     end.
 
 filter_top_level_handlers(Handlers) ->
@@ -290,7 +293,13 @@ safe_handle_update_request(ConfInfo) ->
             {error, {config_update_crashed, Reason}}
     end.
 
+handle_update_request(#conf_info{namespace = Namespace} = ConfInfo) when is_binary(Namespace) ->
+    %% No step of the update reads a file for a secret of a namespace config.
+    emqx_secret_loader:in_namespace(Namespace, fun() -> do_handle_update_request(ConfInfo) end);
 handle_update_request(ConfInfo) ->
+    do_handle_update_request(ConfInfo).
+
+do_handle_update_request(ConfInfo) ->
     maybe
         {ok, NewRawConf, OverrideConf, Opts} ?=
             process_update_request(ConfInfo),
@@ -365,7 +374,10 @@ check_and_save_configs(ConfInfo, NewRawConf, OverrideConf, Opts) ->
     } = ConfInfo,
     Schema = schema(SchemaModule, ConfKeyPath),
     Kind = maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
-    {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf),
+    %% In this check a validator can read the file of a `file://` secret, when the
+    %% check is for the global config.
+    CheckOpts = emqx_schema_secret:check_opts(ConfInfo#conf_info.namespace),
+    {AppEnvs, NewConf} = emqx_config:check_config(Schema, NewRawConf, CheckOpts),
     OldConf = get_root(ConfKeyPath, ConfInfo#conf_info.namespace),
     PostUpCtx = #{old_conf => OldConf, new_conf => NewConf, app_envs => AppEnvs},
     case do_post_config_update(ConfInfo, PostUpCtx) of

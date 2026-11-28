@@ -1088,18 +1088,20 @@ COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
 # Tracks whether the cookie was sourced from a 'file://' URL (see below).
 COOKIE_FROM_FILE='no'
+# The 'file://' URL that the cookie was sourced from.
+COOKIE_FILE_URL=''
 # Resolve 'file://' cookie sources only during boot. The resolution reads the
 # referenced file (possibly a write-once FIFO) and must happen before
 # 'erl -setcookie'. Maintenance commands (ctl/remote_console/stop/...) pick up
 # the already-resolved cookie from the running node's 'ps' output, so they must
 # NOT re-read the file (a FIFO would block forever waiting for a writer).
 if [ "$IS_BOOT_COMMAND" = 'yes' ]; then
-    case "$COOKIE" in "file://"*) COOKIE_FROM_FILE='yes' ;; esac
+    case "$COOKIE" in "file://"*) COOKIE_FROM_FILE='yes'; COOKIE_FILE_URL="$COOKIE" ;; esac
     COOKIE="$(resolve_cookie_source "$COOKIE")"
     if [ -z "$COOKIE" ]; then
         ## Resolve the configured cookie only when there is no env override, so a
         ## 'file://' source is read at most once per boot.
-        case "$COOKIE_IN_USE" in "file://"*) COOKIE_FROM_FILE='yes' ;; esac
+        case "$COOKIE_IN_USE" in "file://"*) COOKIE_FROM_FILE='yes'; COOKIE_FILE_URL="$COOKIE_IN_USE" ;; esac
         COOKIE_IN_USE="$(resolve_cookie_source "$COOKIE_IN_USE")"
     fi
 fi
@@ -1112,8 +1114,17 @@ fi
 # 'start' command re-execs 'bin/emqx console' via run_erl; the child inherits
 # this and skips file resolution, so a write-once FIFO is read exactly once per
 # boot instead of blocking the child forever.
+# Also export the path of the cookie file. The node never reads this file, and it
+# uses the path to refuse to load the file as a 'file://' secret. The path is made
+# absolute here, because the node runs in another working directory.
 if [ "$COOKIE_FROM_FILE" = 'yes' ]; then
     export EMQX_NODE__COOKIE="$COOKIE"
+    COOKIE_FILE="${COOKIE_FILE_URL#file://}"
+    case "$COOKIE_FILE" in
+        /*) true ;;
+        *) COOKIE_FILE="$(pwd)/$COOKIE_FILE" ;;
+    esac
+    export EMQX_NODE_COOKIE_FILE="$COOKIE_FILE"
 fi
 [[ "$DEBUG" -gt 0 ]] && set -x
 
