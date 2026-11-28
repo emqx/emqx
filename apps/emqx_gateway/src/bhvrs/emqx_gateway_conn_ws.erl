@@ -402,7 +402,7 @@ websocket_handle({Frame, _}, State) when Frame =:= ping; Frame =:= pong ->
     return(State);
 websocket_handle({Frame, _}, State) ->
     %% TODO: should not close the ws connection
-    ?SLOG(error, #{tag => ?TAG, msg => "unexpected_frame", frame => Frame}),
+    ?SLOG(debug, #{tag => ?TAG, msg => "unexpected_frame", frame => Frame}),
     shutdown(unexpected_ws_frame, State).
 
 websocket_info({call, From, Req}, State) ->
