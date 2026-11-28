@@ -27,6 +27,8 @@ on:
         required: true
         type: string
     secrets:
+      AUTH_APP_PRIVATE_KEY:
+        required: false
       AWS_ACCESS_KEY_ID:
         required: true
       AWS_SECRET_ACCESS_KEY:
@@ -100,6 +102,7 @@ jobs:
       linux_arch: ${{ steps.matrix.outputs.linux_arch }}
       linux_exclude: ${{ steps.matrix.outputs.linux_exclude }}
       mac_os: ${{ steps.matrix.outputs.mac_os }}
+      source_sha: ${{ steps.matrix.outputs.source_sha }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -107,7 +110,9 @@ jobs:
         fetch-depth: 0
     - name: compute package matrix
       id: matrix
-      run: ./scripts/rel/build_matrix.py --github >> "$GITHUB_OUTPUT"
+      run: |
+        ./scripts/rel/build_matrix.py --github >> "$GITHUB_OUTPUT"
+        echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   plugins-linux-debian13-amd64:
     needs: verify-release-tag
@@ -328,3 +333,39 @@ jobs:
         aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
         aws s3 cp --recursive packages/plugins s3://$AWS_S3_BUCKET/emqx-plugins/$REF_NAME/
         aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*" "/emqx-plugins/$REF_NAME/*"
+
+  update-plugin-catalog:
+    needs:
+      - prepare-matrix
+      - publish_artifacts
+    if: inputs.publish && inputs.profile == 'emqx-enterprise'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Select GA release
+      id: release
+      env:
+        TAG: ${{ github.event.inputs.ref || github.ref_name }}
+      run: |
+        set -euo pipefail
+        tag="${TAG#refs/tags/}"
+        if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ || "$tag" =~ ^e5\.10\.[0-9]+$ ]]; then
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Generate GitHub App token
+      if: steps.release.outputs.tag != ''
+      id: app-token
+      uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+      with:
+        client-id: ${{ vars.AUTH_APP_CLIENT_ID }}
+        private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+        owner: ${{ github.repository_owner }}
+        repositories: emqx-docs
+    - name: Trigger plugin catalog PR
+      if: steps.release.outputs.tag != ''
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        TAG: ${{ steps.release.outputs.tag }}
+        SOURCE_SHA: ${{ needs.prepare-matrix.outputs.source_sha }}
+      run: |
+        gh workflow run update-plugin-catalog.yaml --repo emqx/emqx-docs \
+          -f tag="$TAG" -f source_sha="$SOURCE_SHA"
