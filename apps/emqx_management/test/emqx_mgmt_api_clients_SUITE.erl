@@ -1619,14 +1619,12 @@ t_mqueue_messages(Config) ->
         request(get, Path, [], "limit=-5&position=not-valid", Config)
     ).
 
--doc "Message cursor transport preserves structured values and safely rejects invalid terms.".
+-doc "The inflight message cursor round-trips through JSON and rejects other formats.".
 t_message_cursor_codec(_) ->
     Values = [
         42,
-        <<255, 255, 255, 251>>,
         {1700000000000000, 65535},
-        {42, infinity},
-        #{<<"generation">> => 3, <<"offset">> => [1, {2, <<"opaque">>}]}
+        {0, 0}
     ],
     lists:foreach(
         fun(Value) ->
@@ -1643,13 +1641,19 @@ t_message_cursor_codec(_) ->
     ?assertError(
         badarg, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"1700000000000000_42">>)
     ),
-    AtomName = <<"message_cursor_atom_must_not_be_created_1642">>,
-    Unsafe = cow_base64url:encode(
-        <<131, 119, (byte_size(AtomName)), AtomName/binary>>,
-        #{padding => false}
+    %% A JSON cursor with other fields or value types:
+    lists:foreach(
+        fun(Json) ->
+            ?assertError(
+                badarg,
+                emqx_mgmt_api_clients:decode_pos(inflight_msgs, emqx_utils_cursor:encode_json(Json))
+            )
+        end,
+        [#{<<"t">> => 1}, #{<<"t">> => <<"1">>, <<"p">> => 1}, #{<<"unknown">> => 1}]
     ),
-    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, Unsafe)),
-    ?assertError(badarg, binary_to_existing_atom(AtomName)),
+    %% A cursor in the Erlang term format:
+    TermCursor = cow_base64url:encode(term_to_binary({1700000000000000, 1}), #{padding => false}),
+    ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, TermCursor)),
     ?assertError(_, emqx_mgmt_api_clients:decode_pos(inflight_msgs, <<"!">>)).
 
 t_inflight_messages(Config) ->
@@ -1672,7 +1676,8 @@ t_inflight_messages(Config) ->
         {error, {?HTTP400, _, #{<<"code">> := <<"BAD_REQUEST">>}}},
         request(get, Path, [], "limit=-5&position=invalid-int", Config)
     ),
-    InvalidCursor = emqx_mgmt_api_clients:encode_pos(#{<<"unknown">> => 1}),
+    %% Packet identifier out of range:
+    InvalidCursor = emqx_mgmt_api_clients:encode_pos({1, 70000}),
     ?assertMatch(
         {ok, {?HTTP200, _, #{<<"data">> := []}}},
         request(get, Path, [], "limit=10&position=" ++ binary_to_list(InvalidCursor), Config)
