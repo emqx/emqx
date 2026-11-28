@@ -1590,6 +1590,36 @@ For a detailed description of the PROXY protocol, please refer to: https://www.h
 mqtt_listener_proxy_protocol_timeout.label:
 """Proxy protocol timeout"""
 
+listener_tarpit.desc:
+"""Holds connections refused by the connection rate limit (<code>max_conn_rate</code>) open for a delay, then closes them with a TCP reset. EMQX does not read from a held connection and sends nothing to it.
+
+Without the tarpit, a refused connection is closed at once, and a client that reconnects in a loop comes back at once. A held client waits for the delay before it can reconnect.
+
+Each held connection uses one file descriptor. When the tarpit is full, a refused connection is closed at once."""
+
+listener_tarpit.label:
+"""Tarpit"""
+
+listener_tarpit_delay.desc:
+"""How long a connection refused by the connection rate limit is held before it is closed. <code>0s</code> turns the tarpit off.
+
+Keep the delay below the connect timeout of the clients, which is often about 30 seconds. A client that gives up first reconnects at its own pace, and its slot stays taken for the rest of the delay."""
+
+listener_tarpit_delay.label:
+"""Tarpit Delay"""
+
+listener_tarpit_size.desc:
+"""The maximum number of connections held at a time by this listener, on each node.
+
+<code>auto</code> derives the size from the connection rate: rate (connections per second) multiplied by the delay (seconds). The rate is the lower of the listener's and the zone's <code>max_conn_rate</code>. The held clients then come back at about the rate the listener accepts. The size is at most 10% of the maximum number of file descriptors of the node. With no connection rate limit, nothing is held.
+
+The size is computed when the listener starts or its configuration changes. A change of the zone's rate takes effect at the next change of the listener.
+
+<code>0</code> turns the tarpit off."""
+
+listener_tarpit_size.label:
+"""Tarpit Size"""
+
 fields_mqtt_quic_listener_idle_timeout.desc:
 """How long a connection can go idle before it is gracefully shut down. 0 to disable"""
 

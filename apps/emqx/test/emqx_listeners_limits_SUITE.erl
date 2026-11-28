@@ -17,12 +17,19 @@ all() ->
     [{group, Group} || {Group, _} <- groups()].
 
 groups() ->
-    TCs = emqx_common_test_helpers:all(?MODULE) -- tls_only_cases(),
+    TCs = emqx_common_test_helpers:all(?MODULE) -- (tls_only_cases() ++ esockd_only_cases()),
     [
-        {tcp, TCs},
+        {tcp, TCs ++ esockd_only_cases()},
         {ws, TCs},
         {wss, TCs ++ tls_only_cases()},
-        {ssl, tls_only_cases()}
+        {ssl, tls_only_cases() ++ esockd_only_cases()}
+    ].
+
+%% The tarpit is an option of esockd listeners only.
+esockd_only_cases() ->
+    [
+        t_tarpit_held_then_reset,
+        t_tarpit_size
     ].
 
 tls_only_cases() ->
@@ -180,6 +187,103 @@ t_max_conn_rate_update(Config) ->
         %% Cleanup:
         lists:foreach(fun emqtt:disconnect/1, Clients1 ++ [Client2] ++ Clients3)
     end).
+
+%% A connection refused by the rate limit is held for the tarpit delay, then
+%% reset. When the tarpit is full, the next one is closed at once.
+t_tarpit_held_then_reset(Config) ->
+    Type = ?config(proto, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ListenerRef = {emqx_listeners:listener_id(Type, Name), {{127, 0, 0, 1}, Port}},
+    Delay = 2000,
+    LConf = listener_config(
+        Type,
+        #{
+            <<"bind">> => format_bind({"127.0.0.1", Port}),
+            <<"max_conn_rate">> => <<"1/1m">>,
+            %% size: auto gives 1 for 1 connection per minute and a 2s delay.
+            <<"tarpit">> => #{<<"delay">> => <<"2s">>}
+        },
+        Config
+    ),
+    with_listener(Type, Name, LConf, fun() ->
+        ?assertMatch(#{size := 1, delay := Delay}, esockd_tarpit_opts(ListenerRef)),
+        %% Takes the only token.
+        Client = emqtt_connect("127.0.0.1", Port, Config),
+        %% A refused socket is held before any TLS handshake, so use plain TCP.
+        T0 = erlang:monotonic_time(millisecond),
+        {ok, Held} = gen_tcp:connect("127.0.0.1", Port, [binary, {active, false}]),
+        ?assertEqual({error, timeout}, gen_tcp:recv(Held, 0, 500)),
+        ?assertEqual(1, esockd:get_tarpit_count(ListenerRef)),
+        %% The tarpit is full: closed at once.
+        {ok, Closed} = gen_tcp:connect("127.0.0.1", Port, [binary, {active, false}]),
+        ?assertMatch({error, _}, gen_tcp:recv(Closed, 0, 1000)),
+        %% The held socket is reset after the delay.
+        ?assertMatch({error, R} when R =:= closed; R =:= econnreset, gen_tcp:recv(Held, 0, 5000)),
+        ?assert(erlang:monotonic_time(millisecond) - T0 >= Delay - 100),
+        ?retry(100, 10, ?assertEqual(0, esockd:get_tarpit_count(ListenerRef))),
+        ok = emqtt:disconnect(Client)
+    end).
+
+%% The tarpit size and delay passed to esockd, at start and after updates.
+t_tarpit_size(Config) ->
+    Type = ?config(proto, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    ListenerRef = {emqx_listeners:listener_id(Type, Name), {{127, 0, 0, 1}, Port}},
+    LConf = listener_config(
+        Type,
+        #{<<"bind">> => format_bind({"127.0.0.1", Port})},
+        Config
+    ),
+    Update = fun(Conf) ->
+        {ok, _} = emqx:update_config([listeners, Type, Name], {update, Conf}),
+        esockd_tarpit_opts(ListenerRef)
+    end,
+    with_listener(Type, Name, LConf, fun() ->
+        %% Off by default.
+        ?assertMatch(#{size := 0}, esockd_tarpit_opts(ListenerRef)),
+        %% No rate limit: nothing is refused, so nothing is held.
+        ?assertMatch(#{size := 0}, Update(#{<<"tarpit">> => #{<<"delay">> => <<"5s">>}})),
+        %% 100 connections/s for 5 s.
+        ?assertEqual(
+            #{size => 500, delay => 5000},
+            Update(#{<<"max_conn_rate">> => <<"100/s">>})
+        ),
+        ?assertEqual(
+            #{size => 7, delay => 5000},
+            Update(#{<<"tarpit">> => #{<<"delay">> => <<"5s">>, <<"size">> => 7}})
+        ),
+        ?assertMatch(#{size := 0}, Update(#{<<"tarpit">> => #{<<"delay">> => <<"0s">>}})),
+        %% Capped at 10% of the max fds.
+        MaxFds = esockd:ulimit(),
+        ?assertEqual(
+            #{size => MaxFds div 10, delay => 10000},
+            Update(#{
+                <<"max_conn_rate">> => <<(integer_to_binary(MaxFds))/binary, "/s">>,
+                <<"tarpit">> => #{<<"delay">> => <<"10s">>, <<"size">> => <<"auto">>}
+            })
+        ),
+        %% A lower zone rate applies at the next listener change.
+        ZoneLimiter = emqx_config:get_zone_conf(default, [mqtt, limiter], #{}),
+        try
+            ok = emqx_config:put_zone_conf(
+                default, [mqtt, limiter], ZoneLimiter#{max_conn_rate => {10, 1000}}
+            ),
+            ?assertEqual(
+                #{size => 50, delay => 5000},
+                Update(#{
+                    <<"max_conn_rate">> => <<"100/s">>,
+                    <<"tarpit">> => #{<<"delay">> => <<"5s">>}
+                })
+            )
+        after
+            ok = emqx_config:put_zone_conf(default, [mqtt, limiter], ZoneLimiter)
+        end
+    end).
+
+esockd_tarpit_opts(ListenerRef) ->
+    proplists:get_value(tarpit, esockd:get_options(ListenerRef)).
 
 %% Verify message rate limit is respected per listener connection.
 t_message_rate(Config) ->

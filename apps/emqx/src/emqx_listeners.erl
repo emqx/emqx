@@ -816,6 +816,7 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
         limiter => Limiter,
         access_rules => esockd_access_rules(maps:get(access_rules, Opts0, [])),
         tune_fun => {emqx_olp, backoff_new_conn, [Zone]},
+        tarpit => tarpit_opts(Zone, Opts0),
         connection_mfargs =>
             {ConnMod, start_link, [
                 #{
@@ -846,6 +847,30 @@ esockd_opts(ListenerId, Type, Name, ConnMod, Opts0) ->
                 }
         end
     ).
+
+%% Size 0 turns the tarpit off.
+tarpit_opts(Zone, #{tarpit := #{delay := Delay, size := Size}} = Opts) when Delay > 0 ->
+    #{size => tarpit_size(Size, Zone, Opts, Delay), delay => Delay};
+tarpit_opts(_Zone, _Opts) ->
+    #{size => 0, delay => 1}.
+
+tarpit_size(Size, _Zone, _Opts, _Delay) when is_integer(Size) ->
+    Size;
+tarpit_size(auto, Zone, Opts, Delay) ->
+    ZoneRate = emqx_config:get_zone_conf(Zone, [mqtt, limiter, max_conn_rate], infinity),
+    ListenerRate = maps:get(max_conn_rate, Opts, infinity),
+    case [R || R = {_, _} <- [ZoneRate, ListenerRate]] of
+        [] ->
+            0;
+        Rates ->
+            %% The number of connections accepted during the delay, so that the
+            %% held clients come back at about the rate the listener accepts.
+            Size = lists:min([
+                ceil(Capacity * Delay / IntervalMs)
+             || {Capacity, IntervalMs} <- Rates
+            ]),
+            min(Size, max(1, esockd:ulimit() div 10))
+    end.
 
 socket_tcp_opts(#{tcp_options := #{buffer_retention_strategy := packet}} = Opts) ->
     TcpOpts = tcp_opts(Opts),

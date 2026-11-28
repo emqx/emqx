@@ -722,7 +722,8 @@ fields("mqtt_tcp_listener") ->
                 sc(
                     ref("tcp_opts"),
                     #{}
-                )}
+                )},
+            listener_tarpit_field()
         ];
 fields("mqtt_ssl_listener") ->
     mqtt_listener(8883) ++
@@ -737,7 +738,8 @@ fields("mqtt_ssl_listener") ->
                 sc(
                     ref("listener_ssl_opts"),
                     #{validator => fun mqtt_ssl_listener_ssl_options_validator/1}
-                )}
+                )},
+            listener_tarpit_field()
         ];
 fields("mqtt_ws_listener") ->
     mqtt_listener(8083) ++
@@ -1126,6 +1128,25 @@ fields("ws_opts") ->
                 #{
                     default => true,
                     desc => ?DESC(fields_ws_opts_validate_utf8)
+                }
+            )}
+    ];
+fields("listener_tarpit") ->
+    [
+        {"delay",
+            sc(
+                duration(),
+                #{
+                    default => <<"0s">>,
+                    desc => ?DESC(listener_tarpit_delay)
+                }
+            )},
+        {"size",
+            sc(
+                hoconsc:union([auto, non_neg_integer()]),
+                #{
+                    default => auto,
+                    desc => ?DESC(listener_tarpit_size)
                 }
             )}
     ];
@@ -2229,6 +2250,16 @@ mqtt_listener(Bind) ->
                 )}
         ] ++ emqx_schema_hooks:list_injection_point('mqtt.listener').
 
+listener_tarpit_field() ->
+    {"tarpit",
+        sc(
+            ref("listener_tarpit"),
+            #{
+                desc => ?DESC(listener_tarpit),
+                importance => ?IMPORTANCE_LOW
+            }
+        )}.
+
 mqtt_parse_options() ->
     [
         {"parse_unit",
@@ -2489,6 +2520,8 @@ desc("ws_opts") ->
     "WebSocket listener options.";
 desc("tcp_opts") ->
     "TCP listener options.";
+desc("listener_tarpit") ->
+    ?DESC(listener_tarpit);
 desc("client_tcp_opts") ->
     ?DESC("client_tcp_opts");
 desc("listener_ssl_opts") ->
