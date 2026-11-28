@@ -66,6 +66,7 @@
     publish/3,
     puback/3,
     pubrec/2,
+    pubrec_error/3,
     pubrel/2,
     pubcomp/3
 ]).
@@ -165,6 +166,13 @@
 }.
 
 -type shared_sub_state() :: term().
+
+-define(EPOCH_BITS, 15).
+-define(PACKET_ID_MASK, 2#111_1111_1111_1111).
+
+%% Epoch size = `16#10000 div 2' since we generate different sets of
+%% packet IDs for QoS1 and QoS2:
+-define(EPOCH_SIZE, 16#8000).
 
 -define(TIMER_DRAIN_INFLIGHT, timer_drain_inflight).
 -define(TIMER_COMMIT, timer_commit).
@@ -685,6 +693,30 @@ pubrel(PacketId, Session = #{s := S0}) ->
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
 
+%% The channel has just accepted this PUBREC through pubrec/2. Its sequence
+%% number is therefore the current receive position, even across packet-ID wrap.
+-spec pubrec_error(clientinfo(), emqx_types:packet_id(), session()) ->
+    {ok, emqx_types:message(), replies(), session()}.
+pubrec_error(ClientInfo, PacketId, Session0 = #{id := SessionId, s := S0, inflight := Inflight0}) ->
+    SeqNo = emqx_persistent_session_ds_state:get_seqno(?rec, S0),
+    PacketId = seqno_to_packet_id(?QOS_2, SeqNo),
+    Session =
+        case emqx_persistent_session_ds_inflight:pubcomp(SeqNo, Inflight0) of
+            {ok, Inflight} ->
+                %% This is the oldest remaining exchange. Replay may have
+                %% omitted earlier transient messages, leaving sequence gaps.
+                complete_seqno(?QOS_2, SeqNo, Session0#{inflight := Inflight}, ClientInfo);
+            {error, _Earlier} ->
+                Rejected = emqx_persistent_session_ds_state:get_qos2_rejected(S0),
+                S = emqx_persistent_session_ds_state:set_qos2_rejected(
+                    Rejected#{SeqNo => true}, S0
+                ),
+                Inflight = emqx_persistent_session_ds_inflight:reject(SeqNo, Inflight0),
+                reconcile_qos2_rejections(Session0#{s := S, inflight := Inflight}, ClientInfo)
+        end,
+    Msg = emqx_message:make(SessionId, <<>>, <<>>),
+    {ok, Msg, [], schedule_delivery(ensure_state_commit_timer(Session))}.
+
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
     | {error, emqx_types:reason_code()}.
@@ -1045,8 +1077,9 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqNoQos1, LastSeqNo
             )
     end.
 
-on_replay_complete(Session, ClientInfo) ->
-    schedule_delivery(drain_buffer(Session, ClientInfo)).
+on_replay_complete(Session0, ClientInfo) ->
+    Session = reconcile_qos2_rejections(Session0, ClientInfo),
+    schedule_delivery(ensure_state_commit_timer(drain_buffer(Session, ClientInfo))).
 
 on_enqueue(
     IsReplay,
@@ -1329,7 +1362,8 @@ clear_buffer(SubId, Session = #{buffer := Buf}) ->
     comm2 :: emqx_persistent_session_ds:seqno(),
     dup1 :: emqx_persistent_session_ds:seqno(),
     dup2 :: emqx_persistent_session_ds:seqno(),
-    rec :: emqx_persistent_session_ds:seqno()
+    rec :: emqx_persistent_session_ds:seqno(),
+    rejected :: #{emqx_persistent_session_ds:seqno() => true}
 }).
 
 %% Enrich messages according to the subscription options and assign
@@ -1344,7 +1378,8 @@ process_batch(IsReplay, S, SubState, ClientInfo, FirstSeqNoQos1, FirstSeqNoQos2,
         comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
         dup1 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_1), S),
         dup2 = emqx_persistent_session_ds_state:get_seqno(?dup(?QOS_2), S),
-        rec = emqx_persistent_session_ds_state:get_seqno(?rec, S)
+        rec = emqx_persistent_session_ds_state:get_seqno(?rec, S),
+        rejected = emqx_persistent_session_ds_state:get_qos2_rejected(S)
     },
     do_process_batch(Ctx, FirstSeqNoQos1, FirstSeqNoQos2, Batch, Inflight).
 
@@ -1385,6 +1420,10 @@ do_process_batch(Ctx, FirstSeqNoQos1, FirstSeqNoQos2, [Msg0 | Batch], Inflight0)
                         emqx_persistent_session_ds_inflight:push({SeqNoQos1, Msg}, Inflight0);
                     ?QOS_2 when SeqNoQos2 =< Ctx#ctx.comm2 ->
                         %% QoS2 message has been PUBCOMP'ed by the client, ignore:
+                        Inflight0;
+                    ?QOS_2 when is_map_key(SeqNoQos2, Ctx#ctx.rejected) ->
+                        %% Rejected messages beyond the completion position must
+                        %% not be replayed while earlier exchanges remain open.
                         Inflight0;
                     ?QOS_2 when SeqNoQos2 =< Ctx#ctx.rec ->
                         %% QoS2 message has been PUBREC'ed by the client, resend PUBREL:
@@ -1465,6 +1504,7 @@ drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s :
     {Publishes, Session}.
 
 do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
+    CommittedQoS2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, DSSubacks0, S0};
@@ -1475,6 +1515,13 @@ do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
             do_drain_inflight(Inflight, S0, [Publish | Acc], DSSubacks0);
+        {{SeqNo, #message{qos = ?QOS_2}}, _Inflight} when
+            SeqNo - CommittedQoS2 >= ?EPOCH_SIZE
+        ->
+            %% Rejections can release quota while an old exchange stays open.
+            %% Stop before packet IDs wrap onto that exchange. This also bounds
+            %% the number of persisted rejection records behind the gap.
+            {lists:reverse(Acc), Inflight0, DSSubacks0, S0};
         {{SeqNo, Msg}, Inflight} ->
             case Msg#message.qos of
                 ?QOS_0 ->
@@ -1711,9 +1758,7 @@ update_seqno(
     Session0 = #{
         id := SessionId,
         s := S0,
-        inflight := Inflight0,
-        shared_sub_s := SharedSubS0,
-        stream_scheduler_s := SchedS0
+        inflight := Inflight0
     },
     ClientInfo
 ) ->
@@ -1744,31 +1789,9 @@ update_seqno(
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
-            {UnblockedStreams, S1, SchedS} =
-                emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                    QoS, PacketSeqNo, S0, SchedS0
-                ),
-            S2 = put_seqno(SeqNoKey, PacketSeqNo, S1),
-            {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S2, SharedSubS0, UnblockedStreams
+            Session = complete_seqno(
+                QoS, PacketSeqNo, Session0#{inflight := Inflight1}, ClientInfo
             ),
-            Session1 = Session0#{
-                inflight := Inflight1,
-                s := S,
-                stream_scheduler_s := SchedS,
-                shared_sub_s := SharedSubS
-            },
-            %% Dump stream messages that have been stored in the
-            %% buffer while the stream was blocked into the inflight:
-            Session =
-                lists:foldl(
-                    fun(StreamKey, SessionAcc) ->
-                        ?tp(?sessds_unblock_stream, #{key => StreamKey}),
-                        drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
-                    end,
-                    Session1,
-                    UnblockedStreams
-                ),
             {ok, Msg, schedule_delivery(Session)};
         {error, undefined = _Expected} ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -1787,17 +1810,98 @@ update_seqno(
             {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND}
     end.
 
+%% Advance only the contiguous completion position. A negative PUBREC can
+%% leave a hole behind an earlier PUBCOMP; close those holes as that exchange
+%% completes, notifying the stream scheduler for every released sequence number.
+complete_seqno(?QOS_2, SeqNo, Session = #{s := S0}, ClientInfo) ->
+    Rejected0 = emqx_persistent_session_ds_state:get_qos2_rejected(S0),
+    {SeqNos, Rejected} = completed_qos2(SeqNo, Rejected0),
+    S =
+        case Rejected =:= Rejected0 of
+            true -> S0;
+            false -> emqx_persistent_session_ds_state:set_qos2_rejected(Rejected, S0)
+        end,
+    Session1 = lists:foldl(
+        fun(SN, Acc) -> release_seqno(?QOS_2, SN, Acc, ClientInfo) end,
+        Session#{s := S},
+        SeqNos
+    ),
+    reconcile_qos2_rejections(Session1, ClientInfo);
+complete_seqno(?QOS_1, SeqNo, Session, ClientInfo) ->
+    release_seqno(?QOS_1, SeqNo, Session, ClientInfo).
+
+%% Replay must reconstruct all pending exchanges before absent sequence numbers
+%% can be treated as complete. Reconciliation leaves send quota unchanged.
+reconcile_qos2_rejections(Session = #{replay := Replay}, _ClientInfo) when
+    ?IS_REPLAY_ONGOING(Replay)
+->
+    Session;
+reconcile_qos2_rejections(Session = #{s := S, inflight := Inflight}, ClientInfo) ->
+    Rejected = emqx_persistent_session_ds_state:get_qos2_rejected(S),
+    case map_size(Rejected) of
+        0 ->
+            Session;
+        _ ->
+            Oldest = emqx_persistent_session_ds_inflight:oldest_qos2(Inflight),
+            Committed = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+            Completed = lists:sort([
+                SN
+             || SN <- maps:keys(Rejected),
+                SN =< Committed orelse Oldest =:= undefined orelse SN < Oldest
+            ]),
+            release_qos2_rejections(Completed, Committed, Rejected, Session, ClientInfo)
+    end.
+
+release_qos2_rejections([], _Committed, _Rejected, Session, _ClientInfo) ->
+    Session;
+release_qos2_rejections(Completed, Committed, Rejected, Session = #{s := S0}, ClientInfo) ->
+    S = emqx_persistent_session_ds_state:set_qos2_rejected(maps:without(Completed, Rejected), S0),
+    lists:foldl(
+        fun(SN, Acc) -> release_seqno(?QOS_2, SN, Acc, ClientInfo) end,
+        Session#{s := S},
+        [SN || SN <- Completed, SN > Committed]
+    ).
+
+completed_qos2(SeqNo, Rejected0) ->
+    %% Replay can omit transient or expired messages, so completion can jump.
+    %% Release rejected stream boundaries below that position as well.
+    Earlier = lists:sort([N || N <- maps:keys(Rejected0), N < SeqNo]),
+    {Rest, Rejected} = completed_qos2_contiguous(SeqNo, maps:without(Earlier, Rejected0)),
+    {Earlier ++ Rest, Rejected}.
+
+completed_qos2_contiguous(SeqNo, Rejected0) ->
+    Rejected1 = maps:remove(SeqNo, Rejected0),
+    case is_map_key(SeqNo + 1, Rejected1) of
+        true ->
+            {Rest, Rejected} = completed_qos2_contiguous(SeqNo + 1, Rejected1),
+            {[SeqNo | Rest], Rejected};
+        false ->
+            {[SeqNo], Rejected1}
+    end.
+
+release_seqno(QoS, SeqNo, Session0, ClientInfo) ->
+    #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0} = Session0,
+    {UnblockedStreams, S1, SchedS} =
+        emqx_persistent_session_ds_stream_scheduler:on_seqno_release(QoS, SeqNo, S0, SchedS0),
+    S2 = put_seqno(?committed(QoS), SeqNo, S1),
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+        S2, SharedSubS0, UnblockedStreams
+    ),
+    Session = Session0#{s := S, stream_scheduler_s := SchedS, shared_sub_s := SharedSubS},
+    %% Drain batches received while these streams were blocked.
+    lists:foldl(
+        fun(StreamKey, Acc) ->
+            ?tp(?sessds_unblock_stream, #{key => StreamKey}),
+            drain_buffer_of_stream(StreamKey, Acc, ClientInfo)
+        end,
+        Session,
+        UnblockedStreams
+    ).
+
 %%--------------------------------------------------------------------
 %% Functions for dealing with the sequence number and packet ID
 %% generation
 %% --------------------------------------------------------------------
-
--define(EPOCH_BITS, 15).
--define(PACKET_ID_MASK, 2#111_1111_1111_1111).
-
-%% Epoch size = `16#10000 div 2' since we generate different sets of
-%% packet IDs for QoS1 and QoS2:
--define(EPOCH_SIZE, 16#8000).
 
 %% Reconstruct session counter by adding most significant bits from
 %% the current counter to the packet id:
@@ -2065,6 +2169,195 @@ seqno_gen() ->
         {Epoch, Offset},
         {non_neg_integer(), range(0, ?EPOCH_SIZE)},
         (Epoch bsl ?EPOCH_BITS) + Offset
+    ).
+
+completed_qos2_gap_test() ->
+    %% Sequence 1 may have been a transient message lost on reconnect. An ACK
+    %% for 3 must release the rejected stream at 2 and the following rejections,
+    %% while preserving the later gap at 6.
+    ?assertEqual(
+        {[2, 3, 4, 5], #{7 => true}},
+        completed_qos2(3, #{2 => true, 4 => true, 5 => true, 7 => true})
+    ).
+
+rejected_replay_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_config, [passthrough, no_link]),
+            meck:expect(emqx_config, get, [[durable_sessions, checkpoint_interval]], 60_000),
+            meck:new(emqx_persistent_session_ds_shared_subs, [passthrough, no_link]),
+            meck:expect(
+                emqx_persistent_session_ds_shared_subs,
+                on_streams_replay,
+                fun(S, Shared, Keys) ->
+                    self() ! {replayed_streams, Keys},
+                    {S, Shared}
+                end
+            )
+        end,
+        fun(_) ->
+            meck:unload([emqx_config, emqx_persistent_session_ds_shared_subs])
+        end,
+        [
+            fun rejected_replay_without_predecessor/0,
+            fun rejected_replay_with_qos1/0,
+            fun rejected_replay_incomplete/0
+            | [
+                {atom_to_list(Kind), fun() -> rejected_replay_with_predecessor(Kind) end}
+             || Kind <- [publish, queued_pubrel, sent_pubrel]
+            ]
+        ]}.
+
+rejected_replay_without_predecessor() ->
+    Session0 = rejected_replay_session([2, 4], false),
+    Session = on_replay_complete(Session0, #{}),
+    assert_rejected_completion(4, #{}, Session),
+    ?assert(is_reference(maps:get(?TIMER_COMMIT, Session))),
+    ?assertEqual([{1, 2}, {1, 4}], released_test_streams()),
+    ?assertEqual(maps:get(inflight, Session0), maps:get(inflight, Session)),
+    ?assertEqual(Session, on_replay_complete(Session, #{})),
+    ?assertEqual([], released_test_streams()),
+    cancel_state_commit_timer(Session).
+
+rejected_replay_with_predecessor(Kind) ->
+    Session0 = #{inflight := Q0} = rejected_replay_session([3], false),
+    Msg = emqx_message:make(<<"publisher">>, ?QOS_2, <<"t">>, <<>>),
+    Payload =
+        case Kind of
+            publish -> {1, Msg};
+            _ -> {pubrel, 1}
+        end,
+    Q1 = emqx_persistent_session_ds_inflight:push(Payload, Q0),
+    Q2 =
+        case Kind of
+            sent_pubrel ->
+                {Payload, Sent} = emqx_persistent_session_ds_inflight:pop(Q1),
+                Sent;
+            _ ->
+                Q1
+        end,
+    Session1 = on_replay_complete(Session0#{inflight := Q2}, #{}),
+    assert_rejected_completion(0, #{3 => true}, Session1),
+    ?assertEqual([], released_test_streams()),
+    Q3 =
+        case Kind of
+            sent_pubrel ->
+                Q2;
+            _ ->
+                {Payload, Popped} = emqx_persistent_session_ds_inflight:pop(Q2),
+                Popped
+        end,
+    Session2 = Session1#{inflight := Q3},
+    Session3 =
+        case Kind of
+            publish ->
+                {ok, _, Received} = pubrec(seqno_to_packet_id(?QOS_2, 1), Session2),
+                Received;
+            _ ->
+                Session2
+        end,
+    {ok, _, [], Session} = pubcomp(#{}, seqno_to_packet_id(?QOS_2, 1), Session3),
+    assert_rejected_completion(3, #{}, Session),
+    ?assertEqual([{1, 3}], released_test_streams()),
+    cancel_state_commit_timer(Session).
+
+rejected_replay_incomplete() ->
+    Session0 = #{inflight := Q0} = rejected_replay_session([3], false),
+    {{pubrel, 1}, Q} = emqx_persistent_session_ds_inflight:pop(
+        emqx_persistent_session_ds_inflight:push({pubrel, 1}, Q0)
+    ),
+    {ok, _, [], Session1} = pubcomp(
+        #{}, seqno_to_packet_id(?QOS_2, 1), Session0#{inflight := Q, replay := [pending]}
+    ),
+    assert_rejected_completion(1, #{3 => true}, Session1),
+    ?assertEqual([], released_test_streams()),
+    Session = on_replay_complete(Session1#{replay := undefined}, #{}),
+    assert_rejected_completion(3, #{}, Session),
+    ?assertEqual([{1, 3}], released_test_streams()),
+    cancel_state_commit_timer(Session).
+
+rejected_replay_with_qos1() ->
+    Session0 = #{inflight := Q0} = rejected_replay_session([3], true),
+    Msg = emqx_message:make(<<"publisher">>, ?QOS_1, <<"t">>, <<>>),
+    {{1, Msg}, Q} = emqx_persistent_session_ds_inflight:pop(
+        emqx_persistent_session_ds_inflight:push({1, Msg}, Q0)
+    ),
+    Session1 = on_replay_complete(Session0#{inflight := Q}, #{}),
+    assert_rejected_completion(3, #{}, Session1),
+    ?assertEqual(Q, maps:get(inflight, Session1)),
+    ?assertEqual([], released_test_streams()),
+    {ok, _, [], Session} = puback(#{}, seqno_to_packet_id(?QOS_1, 1), Session1),
+    ?assertEqual([{1, 3}], released_test_streams()),
+    cancel_state_commit_timer(Session).
+
+rejected_replay_session(Rejected, HasQoS1) ->
+    S0 = lists:foldl(
+        fun(Key, Acc) -> emqx_persistent_session_ds_state:put_seqno(Key, 0, Acc) end,
+        emqx_persistent_session_ds_state:create_new(<<"rejected-replay">>),
+        [?committed(?QOS_1), ?committed(?QOS_2), ?rec]
+    ),
+    S1 = emqx_persistent_session_ds_state:set_qos2_rejected(
+        maps:from_keys(Rejected, true), S0
+    ),
+    {S, SchedS} = lists:foldl(
+        fun(SeqNo, {State0, Sched0}) ->
+            Key = {1, SeqNo},
+            SRS = #srs{
+                first_seqno_qos2 = SeqNo - 1,
+                last_seqno_qos2 = SeqNo,
+                last_seqno_qos1 =
+                    case HasQoS1 of
+                        true -> 1;
+                        false -> 0
+                    end,
+                unsubscribed = true
+            },
+            State = emqx_persistent_session_ds_state:put_stream(Key, SRS, State0),
+            {[], NextState, Sched} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
+                false, Key, SRS, State, Sched0
+            ),
+            {NextState, Sched}
+        end,
+        {S1, emqx_persistent_session_ds_stream_scheduler:new()},
+        Rejected
+    ),
+    #{
+        id => <<"rejected-replay">>,
+        s => S,
+        inflight => emqx_persistent_session_ds_inflight:new(1),
+        stream_scheduler_s => SchedS,
+        shared_sub_s => #{},
+        buffer => emqx_persistent_session_ds_buffer:new(),
+        replay => undefined,
+        ?TIMER_DRAIN_INFLIGHT => false,
+        ?TIMER_COMMIT => undefined
+    }.
+
+assert_rejected_completion(Committed, Rejected, #{s := S}) ->
+    ?assertEqual(Committed, emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S)),
+    ?assertEqual(Rejected, emqx_persistent_session_ds_state:get_qos2_rejected(S)).
+
+released_test_streams() ->
+    receive
+        {replayed_streams, Keys} -> Keys ++ released_test_streams()
+    after 0 ->
+        []
+    end.
+
+qos2_packet_id_window_test() ->
+    S0 = emqx_persistent_session_ds_state:create_new(<<"packet-id-window">>),
+    S1 = emqx_persistent_session_ds_state:put_seqno(?committed(?QOS_2), ?EPOCH_SIZE, S0),
+    S2 = emqx_persistent_session_ds_state:put_seqno(?dup(?QOS_2), 2 * ?EPOCH_SIZE - 1, S1),
+    Msg = emqx_message:make(<<"publisher">>, ?QOS_2, <<"t">>, <<"queued">>),
+    Inflight = emqx_persistent_session_ds_inflight:push(
+        {2 * ?EPOCH_SIZE, Msg}, emqx_persistent_session_ds_inflight:new(1)
+    ),
+    %% Even with free quota, an unresolved exchange must retain its packet ID.
+    ?assertEqual({[], Inflight, #{}, S2}, do_drain_inflight(Inflight, S2, [], #{})),
+    %% Once completion advances, delivery resumes without losing the queued message.
+    S3 = emqx_persistent_session_ds_state:put_seqno(?committed(?QOS_2), ?EPOCH_SIZE + 1, S2),
+    ?assertMatch(
+        {[{?EPOCH_SIZE, Msg}], _, #{}, _}, do_drain_inflight(Inflight, S3, [], #{})
     ).
 
 %%%% Property-based tests:

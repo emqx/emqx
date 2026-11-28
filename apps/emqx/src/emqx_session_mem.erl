@@ -67,6 +67,7 @@
     publish/3,
     puback/3,
     pubrec/2,
+    pubrec_error/3,
     pubrel/2,
     pubcomp/3
 ]).
@@ -460,6 +461,11 @@ pubrel(PacketId, Session = #session{awaiting_rel = AwaitingRel}) ->
 %%--------------------------------------------------------------------
 %% Client -> Broker: PUBCOMP
 %%--------------------------------------------------------------------
+
+-spec pubrec_error(clientinfo(), emqx_types:packet_id(), session()) ->
+    {ok, emqx_types:message(), replies(), session()} | {error, emqx_types:reason_code()}.
+pubrec_error(ClientInfo, PacketId, Session) ->
+    pubcomp(ClientInfo, PacketId, Session).
 
 -spec pubcomp(clientinfo(), emqx_types:packet_id(), session()) ->
     {ok, emqx_types:message(), replies(), session()}
